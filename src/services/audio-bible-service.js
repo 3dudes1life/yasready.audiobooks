@@ -246,7 +246,7 @@ export class AudioBibleService {
     });
   }
 
-  bindSegmentSpeaker(bibleId, segmentId, { characterId = null, candidate = null, source = 'audio-bible', minConfidence = 0.75 } = {}) {
+  bindSegmentSpeaker(bibleId, segmentId, { characterId = null, candidate = null, source = 'audio-bible', minConfidence = 0.75, confidence = null, evidence = null } = {}) {
     const bible = this.#requireBible(bibleId);
     const segment = this.store.get('segment', segmentId);
     if (!segment) throw new Error(`segment ${segmentId} not found`);
@@ -260,7 +260,9 @@ export class AudioBibleService {
       if (!new Set(this.listCharacters(bibleId).map((row) => row.id)).has(characterId)) {
         throw new Error('character is not visible to this bible');
       }
-      resolution = { status: 'resolved', matchType: 'manual', confidence: 1, evidence: source };
+      const explicitConfidence = confidence == null ? 1 : Number(confidence);
+      if (!Number.isFinite(explicitConfidence) || explicitConfidence < 0 || explicitConfidence > 1) throw new Error('speaker binding confidence must be between 0 and 1');
+      resolution = { status: 'resolved', matchType: 'manual', confidence: explicitConfidence, evidence: evidence ?? source };
     } else {
       resolution = this.resolveSpeaker(bibleId, candidate ?? segment.speakerCandidate);
       if (resolution.status !== 'resolved') return resolution;

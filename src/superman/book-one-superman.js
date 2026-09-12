@@ -327,7 +327,7 @@ export function buildBookOneSupermanReport(ingestResult, {
 
   return freeze({
     schemaVersion: 2,
-    release: '0.11.1',
+    release: '0.11.2',
     label,
     status,
     score,

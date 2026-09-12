@@ -1,18 +1,19 @@
 {
   "name": "@yasready/audiobooks",
-  "version": "0.11.1",
+  "version": "0.11.2",
   "private": true,
   "type": "module",
-  "description": "YasReady Audiobooks Book One Superman Cleanup, Distribution Brain, Mastering Lab, Continuity + QA Brain, Review Studio, Production Engine, Director, Casting Room, Audio Bible and manuscript intelligence",
+  "description": "YasReady Audiobooks Book One Audio Bible Prep, Superman, Distribution Brain, Mastering Lab, Continuity + QA Brain, Review Studio, Production Engine, Director, Casting Room, Audio Bible and manuscript intelligence",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
     "test": "node --test",
-    "check": "node --check src/index.js && node --check src/cli.js && node --check src/manuscript/analyzer.js && node --check src/manuscript/extractors.js && node --check src/manuscript/zip-reader.js && node --check src/services/manuscript-service.js && node --check src/bible/normalization.js && node --check src/services/audio-bible-service.js && node --check src/casting/voice-profile.js && node --check src/providers/elevenlabs-provider.js && node --check src/services/casting-room-service.js && node --check src/director/performance-profile.js && node --check src/services/audiobook-director-service.js && node --check src/production/model-limits.js && node --check src/services/production-engine-service.js && node --check src/review/review-model.js && node --check src/services/review-studio-service.js && node --check src/qa/text-diff.js && node --check src/services/continuity-qa-service.js && node --check src/mastering/profiles.js && node --check src/mastering/ffmpeg-adapter.js && node --check src/services/mastering-lab-service.js && node --check src/distribution/profiles.js && node --check src/distribution/w3c-manifest.js && node --check src/services/distribution-brain-service.js && node --check src/ux/operator-flow.js && node --check src/superman/book-one-superman.js && node --check src/services/book-one-superman-service.js",
+    "check": "node --check src/index.js && node --check src/cli.js && node --check src/manuscript/analyzer.js && node --check src/manuscript/extractors.js && node --check src/manuscript/zip-reader.js && node --check src/services/manuscript-service.js && node --check src/bible/normalization.js && node --check src/services/audio-bible-service.js && node --check src/casting/voice-profile.js && node --check src/providers/elevenlabs-provider.js && node --check src/services/casting-room-service.js && node --check src/director/performance-profile.js && node --check src/services/audiobook-director-service.js && node --check src/production/model-limits.js && node --check src/services/production-engine-service.js && node --check src/review/review-model.js && node --check src/services/review-studio-service.js && node --check src/qa/text-diff.js && node --check src/services/continuity-qa-service.js && node --check src/mastering/profiles.js && node --check src/mastering/ffmpeg-adapter.js && node --check src/services/mastering-lab-service.js && node --check src/distribution/profiles.js && node --check src/distribution/w3c-manifest.js && node --check src/services/distribution-brain-service.js && node --check src/ux/operator-flow.js && node --check src/superman/book-one-superman.js && node --check src/services/book-one-superman-service.js && node --check src/audio-bible/book-one-prep.js && node --check src/services/book-one-audio-bible-prep-service.js",
     "demo": "node src/cli.js",
     "analyze": "node src/cli.js analyze",
     "superman": "node src/cli.js superman",
-    "superman:fixture": "node src/cli.js superman-fixture"
+    "superman:fixture": "node src/cli.js superman-fixture",
+    "audio-bible:prep": "node src/cli.js audio-bible-prep"
   }
 }

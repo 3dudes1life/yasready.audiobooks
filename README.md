@@ -2,7 +2,7 @@
 
 Professional audiobook production infrastructure for YasReady Publishing.
 
-**Current build: 0.11.1 — Book One Superman Cleanup**
+**Current build: 0.11.2 — Book One Audio Bible Prep**
 
 YasReady Audiobooks is being developed as a standalone service first so audiobook experimentation cannot destabilize YasReady Publishing. The product goal is professional long-form audiobook production with strong continuity, human approval gates, cost protection, quality control, mastering and retailer-ready packaging.
 
@@ -20,6 +20,7 @@ YasReady Audiobooks is being developed as a standalone service first so audioboo
 - 0.10 Distribution Brain — platform preflight, metadata/cover validation, W3C manifests, package export and operator UX flow
 - 0.11 Book One Superman — full-novel zero-spend stress test, whole-book render rehearsal, character discovery and production/cost readiness report
 - 0.11.1 Book One Superman Cleanup — contextual dialogue attribution, canonical alias grouping, front-matter separation and metadata/path UX fixes
+- 0.11.2 Book One Audio Bible Prep — canonical roster tiers, safe high-confidence bindings, targeted dialogue review and pronunciation-review pack
 
 ## Book One Superman
 
@@ -36,6 +37,16 @@ npm run superman:fixture
 ```
 
 Superman reports hashes, metrics, findings and estimates only; it never exports manuscript text into the report and never arms paid production.
+
+## Book One Audio Bible Prep
+
+After Superman passes, build the local operator pack:
+
+```bash
+node src/cli.js audio-bible-prep "/path/to/book_1.docx" --out "$HOME/Desktop/Book-One-Audio-Bible-Prep"
+```
+
+The prep pack creates canonical character tiers, safely auto-binds high-confidence dialogue, and writes targeted dialogue/pronunciation CSVs. Those local review files contain manuscript excerpts and must not be committed. The prep run performs zero provider calls.
 
 ## Current distribution targets
 
@@ -54,7 +65,7 @@ Superman reports hashes, metrics, findings and estimates only; it never exports 
 - Raw audio/cover/package bytes never live in the production domain store.
 - Distribution distinguishes technical readiness from platform-policy eligibility.
 - Platform requirement profiles are revision-dated and warn when stale.
-- Book One Superman always performs zero paid provider calls.
+- Book One Superman and Audio Bible Prep always perform zero paid provider calls.
 
 ## Tests
 
@@ -63,8 +74,9 @@ npm test
 npm run check
 node src/cli.js
 npm run superman:fixture
+node src/cli.js audio-bible-prep <file> --out <directory>
 ```
 
 ## Roadmap
 
-Next: **0.12.0 — Series Continuity**. Prove that Book Two can inherit Book One's canonical cast, pronunciations and performance identity without accidental recasting or continuity drift.
+Next: **0.12.0 — Series Continuity**. Promote approved Book One Audio Bible decisions into series-level continuity so Book Two can inherit cast, pronunciations and performance identity without accidental recasting or drift.

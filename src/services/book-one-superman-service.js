@@ -35,6 +35,11 @@ export class BookOneSupermanService {
     return this.#report(project, ingestResult, options);
   }
 
+  async reportExisting(project, ingestResult, options = {}) {
+    if (!project?.id || !ingestResult?.analysis) throw new Error('reportExisting requires project and ingestResult');
+    return this.#report(project, ingestResult, options);
+  }
+
   async runFixture(options = {}) {
     const project = this.projects.create({ name: options.projectName ?? 'Book One Superman Synthetic Rehearsal' });
     const text = buildSyntheticBookOneFixture(options.fixture ?? {});
