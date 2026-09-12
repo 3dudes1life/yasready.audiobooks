@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 const CHAPTER_HEADING = /^(?:(?:chapter|chap(?:ter)?\.?|ch\.)\s+(?:\d+[a-z]?|[ivxlcdm]+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty)(?:\s*[:.\-–—]\s*.*)?|prologue|epilogue|introduction|preface|afterword|acknowledg(?:e)?ments|author(?:'s)?\s+note|part\s+(?:\d+|[ivxlcdm]+|one|two|three|four|five)(?:\s*[:.\-–—]\s*.*)?)$/i;
 const SCENE_BREAK = /^(?:\*\s*\*\s*\*|#|#{3,}|[-–—]\s*[-–—]\s*[-–—]|•\s*•\s*•)$/;
 const SPEECH_VERBS = 'said|asked|replied|answered|whispered|murmured|shouted|yelled|called|added|continued|laughed|snapped|sighed|offered|admitted|insisted|promised|teased|joked|warned|cried';
+const NON_CHARACTER_SPEAKERS = new Set(['he', 'she', 'they', 'we', 'i', 'you', 'it', 'someone', 'somebody', 'everyone', 'everybody', 'nobody', 'who']);
 
 function cleanText(text = '') {
   return String(text)
@@ -68,14 +69,26 @@ export function splitScenes(chapterText) {
   return scenes.length ? scenes : [''];
 }
 
+function validSpeakerName(name) {
+  const clean = String(name ?? '').trim();
+  if (!clean || NON_CHARACTER_SPEAKERS.has(clean.toLowerCase())) return null;
+  // Keep the original capitalization rule meaningful even though the verb regexes are case-insensitive.
+  const parts = clean.split(/\s+/);
+  if (parts.some((part) => !/^\p{Lu}[\p{L}’'-]*$/u.test(part))) return null;
+  return clean;
+}
+
 function speakerCandidate(paragraph) {
-  const name = '([A-Z][A-Za-z’\'-]+(?:\\s+[A-Z][A-Za-z’\'-]+)?)';
-  const before = new RegExp(`^\\s*${name}\\s+(?:${SPEECH_VERBS})\\b`, 'i').exec(paragraph);
-  if (before) return { name: before[1], confidence: 0.82, evidence: 'speaker-before-dialogue' };
-  const after = new RegExp(`[”"]\\s*,?\\s*${name}\\s+(?:${SPEECH_VERBS})\\b`, 'i').exec(paragraph);
-  if (after) return { name: after[1], confidence: 0.88, evidence: 'dialogue-tag' };
-  const verbFirst = new RegExp(`[”"]\\s*,?\\s*(?:${SPEECH_VERBS})\\s+${name}\\b`, 'i').exec(paragraph);
-  if (verbFirst) return { name: verbFirst[1], confidence: 0.86, evidence: 'inverted-dialogue-tag' };
+  const name = '([A-Z][A-Za-z’\\\'-]+(?:\\s+[A-Z][A-Za-z’\\\'-]+)?)';
+  const checks = [
+    { match: new RegExp(`^\\s*${name}\\s+(?:${SPEECH_VERBS})\\b`, 'i').exec(paragraph), confidence: 0.82, evidence: 'speaker-before-dialogue' },
+    { match: new RegExp(`[”"]\\s*,?\\s*${name}\\s+(?:${SPEECH_VERBS})\\b`, 'i').exec(paragraph), confidence: 0.88, evidence: 'dialogue-tag' },
+    { match: new RegExp(`[”"]\\s*,?\\s*(?:${SPEECH_VERBS})\\s+${name}\\b`, 'i').exec(paragraph), confidence: 0.86, evidence: 'inverted-dialogue-tag' }
+  ];
+  for (const check of checks) {
+    const resolved = validSpeakerName(check.match?.[1]);
+    if (resolved) return { name: resolved, confidence: check.confidence, evidence: check.evidence };
+  }
   return null;
 }
 

@@ -2,7 +2,7 @@
 
 Professional audiobook production infrastructure for YasReady Publishing.
 
-**Current build: 0.10.0 — Distribution Brain**
+**Current build: 0.11.0 — Book One Superman**
 
 YasReady Audiobooks is being developed as a standalone service first so audiobook experimentation cannot destabilize YasReady Publishing. The product goal is professional long-form audiobook production with strong continuity, human approval gates, cost protection, quality control, mastering and retailer-ready packaging.
 
@@ -18,6 +18,23 @@ YasReady Audiobooks is being developed as a standalone service first so audioboo
 - 0.8 Continuity + QA Brain — forced alignment, independent transcription, manuscript comparison and findings
 - 0.9 Mastering Lab — FFmpeg assembly, loudness/RMS/peak/noise/silence validation and distribution masters
 - 0.10 Distribution Brain — platform preflight, metadata/cover validation, W3C manifests, package export and operator UX flow
+- 0.11 Book One Superman — full-novel zero-spend stress test, whole-book render rehearsal, character discovery and production/cost readiness report
+
+## Book One Superman
+
+Run a real manuscript without spending on voice generation:
+
+```bash
+node src/cli.js superman "/path/to/book.epub" --out "$HOME/Desktop/Book-One-Superman"
+```
+
+Or run the synthetic whole-book rehearsal:
+
+```bash
+npm run superman:fixture
+```
+
+Superman reports hashes, metrics, findings and estimates only; it never exports manuscript text into the report and never arms paid production.
 
 ## Current distribution targets
 
@@ -36,6 +53,7 @@ YasReady Audiobooks is being developed as a standalone service first so audioboo
 - Raw audio/cover/package bytes never live in the production domain store.
 - Distribution distinguishes technical readiness from platform-policy eligibility.
 - Platform requirement profiles are revision-dated and warn when stale.
+- Book One Superman always performs zero paid provider calls.
 
 ## Tests
 
@@ -43,8 +61,9 @@ YasReady Audiobooks is being developed as a standalone service first so audioboo
 npm test
 npm run check
 node src/cli.js
+npm run superman:fixture
 ```
 
 ## Roadmap
 
-Next: **0.11.0 — Book One Superman**. Run the complete *Tres Amigos, Una Vida* production path end-to-end and fix every issue revealed by a real novel before moving to series continuity and SaaS pricing.
+Next: **0.12.0 — Series Continuity**. Prove that Book Two can inherit Book One's canonical cast, pronunciations and performance identity without accidental recasting or continuity drift.

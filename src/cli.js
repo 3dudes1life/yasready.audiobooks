@@ -1,4 +1,7 @@
+import { mkdir, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import {
+  BookOneSupermanService,
   CostLedger,
   GenerationRegistry,
   InMemoryStore,
@@ -6,8 +9,73 @@ import {
   ProjectService
 } from './index.js';
 
-const VERSION = '0.10.0';
+const VERSION = '0.11.0';
 const args = process.argv.slice(2);
+
+function flagValue(name, fallback = null) {
+  const index = args.indexOf(name);
+  if (index < 0 || index + 1 >= args.length) return fallback;
+  return args[index + 1];
+}
+
+function reportSummary(report, files = null) {
+  return {
+    version: VERSION,
+    superman: 'book-one',
+    status: report.status,
+    score: report.score,
+    title: report.manuscript.title,
+    author: report.manuscript.author,
+    words: report.manuscript.metrics.words,
+    chapters: report.manuscript.metrics.chapters,
+    scenes: report.manuscript.metrics.scenes,
+    segments: report.manuscript.metrics.segments,
+    possibleCharacters: report.characterDiscovery.candidateCount,
+    estimatedFinishedHours: report.manuscript.estimatedFinishedHours,
+    estimatedInitialTtsUsd: report.production.initialTtsUsd,
+    recommendedProductionBudgetUsd: report.production.recommendedProductionBudgetUsd,
+    findingCounts: report.findingCounts,
+    nextAction: report.nextAction,
+    providerCallsPerformed: report.providerCallsPerformed,
+    files
+  };
+}
+
+async function writeSupermanReports(result, outDir) {
+  const resolved = path.resolve(outDir);
+  await mkdir(resolved, { recursive: true });
+  const jsonPath = path.join(resolved, 'book-one-superman-report.json');
+  const markdownPath = path.join(resolved, 'book-one-superman-report.md');
+  await writeFile(jsonPath, JSON.stringify(result.report, null, 2));
+  await writeFile(markdownPath, result.markdown);
+  return { json: jsonPath, markdown: markdownPath };
+}
+
+async function runSuperman({ fixture = false } = {}) {
+  const store = new InMemoryStore();
+  const superman = new BookOneSupermanService(store);
+  const model = flagValue('--model', 'eleven_multilingual_v2');
+  const out = flagValue('--out');
+  let result;
+  if (fixture) {
+    result = await superman.runFixture({ model });
+  } else {
+    const filePath = args[1];
+    if (!filePath) {
+      console.error('Usage: node src/cli.js superman <manuscript.epub|docx|txt> [--out DIR] [--model MODEL] [--title TITLE] [--author AUTHOR]');
+      process.exitCode = 2;
+      return;
+    }
+    result = await superman.runFile(filePath, {
+      model,
+      title: flagValue('--title'),
+      author: flagValue('--author')
+    });
+  }
+  const files = out ? await writeSupermanReports(result, out) : null;
+  console.log(JSON.stringify(reportSummary(result.report, files), null, 2));
+  if (result.report.status === 'BLOCKED') process.exitCode = 3;
+}
 
 if (args[0] === 'analyze') {
   const filePath = args[1];
@@ -29,6 +97,10 @@ if (args[0] === 'analyze') {
       detectedChapters: result.chapters.map((chapter) => chapter.title)
     }, null, 2));
   }
+} else if (args[0] === 'superman') {
+  await runSuperman();
+} else if (args[0] === 'superman-fixture') {
+  await runSuperman({ fixture: true });
 } else {
   const store = new InMemoryStore();
   const projects = new ProjectService(store);
@@ -44,10 +116,11 @@ if (args[0] === 'analyze') {
   console.log(JSON.stringify({
     version: VERSION, project,
     manuscriptCommand: 'node src/cli.js analyze <file>',
+    bookOneSupermanCommand: 'node src/cli.js superman <file> --out <directory>',
     workflow: {
       manuscriptBrain: 'ready', audioBible: 'ready', castingRoom: 'ready', audiobookDirector: 'ready',
       productionEngine: 'ready', reviewStudio: 'ready', continuityQa: 'ready', masteringLab: 'ready',
-      distributionBrain: 'ready', operatorFlowAudit: 'ready'
+      distributionBrain: 'ready', operatorFlowAudit: 'ready', bookOneSuperman: 'ready'
     },
     distributionProfiles: ['acx-2026', 'spotify-direct-2026', 'apple-partner-2026', 'w3c-audiobook-2020'],
     duplicateProtection: generation.request.fingerprint,

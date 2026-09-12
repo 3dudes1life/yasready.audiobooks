@@ -32,3 +32,5 @@ export * from './distribution/profiles.js';
 export * from './distribution/w3c-manifest.js';
 export * from './services/distribution-brain-service.js';
 export * from './ux/operator-flow.js';
+export * from './superman/book-one-superman.js';
+export * from './services/book-one-superman-service.js';
