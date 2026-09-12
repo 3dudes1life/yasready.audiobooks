@@ -4,7 +4,7 @@ export const EntityTypes = Object.freeze([
   'project', 'book', 'chapter', 'scene', 'segment', 'series', 'audio_bible',
   'character', 'relationship', 'speaker_binding', 'voice_assignment', 'pronunciation',
   'provider', 'generation_request', 'cost_event', 'approval', 'audio_asset',
-  'alignment_record', 'master'
+  'alignment_record', 'master', 'director_plan', 'director_scene', 'director_cue'
 ]);
 
 export function nowIso(clock = () => new Date()) {
@@ -28,89 +28,69 @@ export function requireFields(record, fields) {
 
 export function createProject({ name, source = 'standalone' }, options) {
   return requireFields(entity('project', {
-    name,
-    source,
-    status: 'draft',
-    schemaVersion: 3,
-    locked: false
+    name, source, status: 'draft', schemaVersion: 4, locked: false
   }, options), ['name']);
 }
 
-export function createBook({
-  projectId, title, author = null, language = 'en', sourceFormat = null,
-  sourceHash = null, manuscriptMetrics = null
-}, options) {
-  return requireFields(entity('book', {
-    projectId, title, author, language, sourceFormat, sourceHash, manuscriptMetrics
-  }, options), ['projectId', 'title']);
+export function createBook({ projectId, title, author = null, language = 'en', sourceFormat = null, sourceHash = null, manuscriptMetrics = null }, options) {
+  return requireFields(entity('book', { projectId, title, author, language, sourceFormat, sourceHash, manuscriptMetrics }, options), ['projectId', 'title']);
 }
 
 export function createChapter({ projectId, bookId, order, title, textHash = null }, options) {
-  return requireFields(entity('chapter', {
-    projectId, bookId, order, title, textHash, status: 'draft', locked: false
-  }, options), ['projectId', 'bookId', 'order', 'title']);
+  return requireFields(entity('chapter', { projectId, bookId, order, title, textHash, status: 'draft', locked: false }, options), ['projectId', 'bookId', 'order', 'title']);
 }
 
 export function createScene({ projectId, bookId, chapterId, order, textHash = null }, options) {
-  return requireFields(entity('scene', {
-    projectId, bookId, chapterId, order, textHash, status: 'draft', locked: false
-  }, options), ['projectId', 'bookId', 'chapterId', 'order']);
+  return requireFields(entity('scene', { projectId, bookId, chapterId, order, textHash, status: 'draft', locked: false }, options), ['projectId', 'bookId', 'chapterId', 'order']);
 }
 
-export function createSegment({
-  projectId, bookId, chapterId, sceneId, order, text, kind = 'narration',
-  characterId = null, speakerCandidate = null
-}, options) {
-  return requireFields(entity('segment', {
-    projectId, bookId, chapterId, sceneId, order, text, kind, characterId,
-    speakerCandidate, status: 'draft', approvedTakeId: null, locked: false
-  }, options), ['projectId', 'bookId', 'chapterId', 'sceneId', 'order', 'text']);
+export function createSegment({ projectId, bookId, chapterId, sceneId, order, text, kind = 'narration', characterId = null, speakerCandidate = null }, options) {
+  return requireFields(entity('segment', { projectId, bookId, chapterId, sceneId, order, text, kind, characterId, speakerCandidate, status: 'draft', approvedTakeId: null, locked: false }, options), ['projectId', 'bookId', 'chapterId', 'sceneId', 'order', 'text']);
 }
-
 
 export function createSeries({ projectId, title, author = null, description = null }, options) {
   return requireFields(entity('series', { projectId, title, author, description }, options), ['projectId', 'title']);
 }
 
-export function createAudioBible({
-  projectId, name, scope, bookId = null, seriesId = null, parentBibleId = null
-}, options) {
-  return requireFields(entity('audio_bible', {
-    projectId, name, scope, bookId, seriesId, parentBibleId, revision: 1, schemaVersion: 3, locked: false
-  }, options), ['projectId', 'name', 'scope']);
+export function createAudioBible({ projectId, name, scope, bookId = null, seriesId = null, parentBibleId = null }, options) {
+  return requireFields(entity('audio_bible', { projectId, name, scope, bookId, seriesId, parentBibleId, revision: 1, schemaVersion: 3, locked: false }, options), ['projectId', 'name', 'scope']);
 }
 
-export function createCharacter({
-  projectId, bibleId, canonicalName, aliases = [], role = 'supporting', pronouns = null,
-  description = null, performanceProfile = {}, seriesCharacterKey = null
-}, options) {
-  return requireFields(entity('character', {
-    projectId, bibleId, canonicalName, aliases: Object.freeze([...aliases]), role, pronouns, description,
-    performanceProfile: Object.freeze({ ...performanceProfile }), seriesCharacterKey
-  }, options), ['projectId', 'bibleId', 'canonicalName']);
+export function createCharacter({ projectId, bibleId, canonicalName, aliases = [], role = 'supporting', pronouns = null, description = null, performanceProfile = {}, seriesCharacterKey = null }, options) {
+  return requireFields(entity('character', { projectId, bibleId, canonicalName, aliases: Object.freeze([...aliases]), role, pronouns, description, performanceProfile: Object.freeze({ ...performanceProfile }), seriesCharacterKey }, options), ['projectId', 'bibleId', 'canonicalName']);
 }
 
-export function createRelationship({
-  projectId, bibleId, fromCharacterId, toCharacterId, kind, label = null, notes = null
-}, options) {
-  return requireFields(entity('relationship', {
-    projectId, bibleId, fromCharacterId, toCharacterId, kind, label, notes
-  }, options), ['projectId', 'bibleId', 'fromCharacterId', 'toCharacterId', 'kind']);
+export function createRelationship({ projectId, bibleId, fromCharacterId, toCharacterId, kind, label = null, notes = null }, options) {
+  return requireFields(entity('relationship', { projectId, bibleId, fromCharacterId, toCharacterId, kind, label, notes }, options), ['projectId', 'bibleId', 'fromCharacterId', 'toCharacterId', 'kind']);
 }
 
-export function createPronunciation({
-  projectId, bibleId, term, normalizedTerm, spokenAs, notation = 'plain', language = 'en',
-  caseSensitive = false, source = 'author', notes = null
-}, options) {
-  return requireFields(entity('pronunciation', {
-    projectId, bibleId, term, normalizedTerm, spokenAs, notation, language, caseSensitive, source, notes
-  }, options), ['projectId', 'bibleId', 'term', 'normalizedTerm', 'spokenAs']);
+export function createPronunciation({ projectId, bibleId, term, normalizedTerm, spokenAs, notation = 'plain', language = 'en', caseSensitive = false, source = 'author', notes = null }, options) {
+  return requireFields(entity('pronunciation', { projectId, bibleId, term, normalizedTerm, spokenAs, notation, language, caseSensitive, source, notes }, options), ['projectId', 'bibleId', 'term', 'normalizedTerm', 'spokenAs']);
 }
 
-export function createSpeakerBinding({
-  projectId, bibleId, segmentId, characterId, source = 'audio-bible', confidence = 1, evidence = null
-}, options) {
-  return requireFields(entity('speaker_binding', {
-    projectId, bibleId, segmentId, characterId, source, confidence, evidence
-  }, options), ['projectId', 'bibleId', 'segmentId', 'characterId']);
+export function createSpeakerBinding({ projectId, bibleId, segmentId, characterId, source = 'audio-bible', confidence = 1, evidence = null }, options) {
+  return requireFields(entity('speaker_binding', { projectId, bibleId, segmentId, characterId, source, confidence, evidence }, options), ['projectId', 'bibleId', 'segmentId', 'characterId']);
+}
+
+export function createDirectorPlan({ projectId, bookId, bibleId = null, stylePreset = 'premium-natural', defaultRestraint = 0.72, notes = null }, options) {
+  return requireFields(entity('director_plan', {
+    projectId, bookId, bibleId, stylePreset, defaultRestraint, notes,
+    schemaVersion: 1, revision: 1, locked: false
+  }, options), ['projectId', 'bookId']);
+}
+
+export function createDirectorScene({ projectId, planId, bookId, chapterId, sceneId, order = 0, emotionalArc = null }, options) {
+  return requireFields(entity('director_scene', {
+    projectId, planId, bookId, chapterId, sceneId, order, emotionalArc,
+    cueCount: 0, status: 'directed', locked: false
+  }, options), ['projectId', 'planId', 'bookId', 'chapterId', 'sceneId']);
+}
+
+export function createDirectorCue({ projectId, planId, directorSceneId, sceneId, segmentId, characterId = null, order, canonicalText, direction, performanceBrief }, options) {
+  return requireFields(entity('director_cue', {
+    projectId, planId, directorSceneId, sceneId, segmentId, characterId, order,
+    canonicalText, direction: Object.freeze({ ...direction }),
+    performanceBrief: Object.freeze({ ...performanceBrief }),
+    revision: 1, locked: false
+  }, options), ['projectId', 'planId', 'directorSceneId', 'sceneId', 'segmentId', 'order', 'canonicalText']);
 }
