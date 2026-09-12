@@ -2,7 +2,7 @@
 
 Professional audiobook production infrastructure for YasReady Publishing.
 
-**Current build: 0.12.1 — Relationship Continuity & Series Lock Hardening**
+**Current build: 0.13.0 — SaaS Money Guard**
 
 YasReady Audiobooks is being developed as a standalone service first so audiobook experimentation cannot destabilize YasReady Publishing. The product goal is professional long-form audiobook production with strong continuity, human approval gates, cost protection, quality control, mastering and retailer-ready packaging.
 
@@ -29,6 +29,7 @@ YasReady Audiobooks is being developed as a standalone service first so audioboo
 - 0.11.8 Audio Bible Lock & Pronunciation Closure — reconciles scene-local/collective dialogue out of false unresolved continuity counts, applies bounded production pronunciation defaults, fixes `DJing` classification, persists explicit pronunciation rules, and emits a locked production-ready Audio Bible when all gates are closed
 - 0.12.0 Series Continuity — promotes locked book-level Audio Bible truth into stable series identities, excludes scene-only extras, preserves pronunciation decisions, blocks silent voice recasting, and provides next-book continuity comparison
 - 0.12.1 Relationship Continuity & Series Lock Hardening — adds locked relationship truth, explicit relationship-change protection, relationship drift comparison, voice-lock audit history and a required-core-voice lock state
+- 0.13.0 SaaS Money Guard — adds project/provider/operation spend ceilings, approval thresholds, reservation accounting, projected-vs-actual tracking, emergency lockdown, provider-overrun protection, and Casting/Production fail-closed spend authorization
 
 ## Book One Superman
 
@@ -66,6 +67,16 @@ node src/cli.js series-continuity-seed "/path/to/book-one-audio-bible-prep.json"
 
 0.12.1 keeps Narrator and primary identities required, carries recurring supporting/named minor roles forward, keeps generic provisional roles reference-only, and excludes scene-local extras entirely. Relationship truth can now be promoted or explicitly operator-locked, future books can be compared for direct relationship drift, and missing relationship mentions are not misclassified as contradictions. Identity, pronunciation and explicit relationship conflicts fail closed; voice and relationship replacements require explicit overrides with reasons and audit history. The Series Continuity workflow performs zero provider calls.
 
+## SaaS Money Guard
+
+0.13.0 adds a project-level safety envelope around paid provider actions. Money Guard reserves estimated spend before a provider call, counts open reservations against the hard cap, requires explicit approval for configured high-cost/warning-threshold actions, captures actual billable spend, and releases only unused reservation. Provider and operation ceilings can be lower than the project cap. If a provider overrun occurs, the charge remains visible and future spend locks down instead of hiding the variance. Money Guard never arms generation by itself; Casting Room and Production Engine still require their own workflow approvals.
+
+Zero-spend validation:
+
+```bash
+npm run money-guard:fixture
+```
+
 ## Current distribution targets
 
 - ACX / Audible technical package
@@ -77,6 +88,8 @@ node src/cli.js series-continuity-seed "/path/to/book-one-audio-bible-prep.json"
 
 - Never commit manuscripts, generated masters, provider keys or customer audio.
 - Paid generation is explicitly budgeted and armed before provider calls.
+- Money Guard reserves spend before paid calls and enforces project/provider/operation ceilings independently of workflow-local budgets.
+- Billable provider responses are recorded before downstream asset storage so real charges cannot disappear from cost truth.
 - The canonical manuscript is never rewritten by performance direction.
 - Series voice assignments cannot be silently recast.
 - Review, QA and mastering decisions are auditable and fail closed.
@@ -97,4 +110,4 @@ node src/cli.js audio-bible-prep <file> --out <directory>
 
 ## Roadmap
 
-Next: **0.13.0 — SaaS Money Guard**. Harden spend authorization, projected-vs-actual cost visibility, provider-budget ceilings and fail-closed paid-generation controls before broader external-book testing.
+Next: **0.14.0 — External Book Superman**. Run an unrelated manuscript through the full intelligence, continuity, money-safety, QA and distribution-readiness stack before the 1.0 production boundary.

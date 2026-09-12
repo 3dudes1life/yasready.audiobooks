@@ -8,10 +8,11 @@ import {
   InMemoryStore,
   ManuscriptService,
   ProjectService,
-  SeriesContinuityService
+  SeriesContinuityService,
+  MoneyGuardService
 } from './index.js';
 
-const VERSION = '0.12.1';
+const VERSION = '0.13.0';
 const args = process.argv.slice(2);
 
 function flagValue(name, fallback = null) {
@@ -331,6 +332,46 @@ async function runAudioBiblePrep() {
   }, null, 2));
 }
 
+async function runMoneyGuardFixture() {
+  const store = new InMemoryStore();
+  const ledger = new CostLedger();
+  const project = new ProjectService(store).create({ name: 'Money Guard Fixture' });
+  const money = new MoneyGuardService(store, { ledger });
+  const guard = money.createGuard({
+    projectId: project.id,
+    hardCapUsd: 50,
+    warningThresholdRatio: 0.8,
+    singleActionApprovalUsd: 5,
+    estimateVarianceRatio: 0.1,
+    providerCapsUsd: { elevenlabs: 45 },
+    operationCapsUsd: { audition: 5, production: 44 }
+  });
+  const small = money.preview(guard.id, { provider: 'elevenlabs', operation: 'audition_render', estimatedCostUsd: 1 });
+  const needsApproval = money.preview(guard.id, { provider: 'elevenlabs', operation: 'production_render', estimatedCostUsd: 10 });
+  const auth = money.authorize(guard.id, { provider: 'elevenlabs', operation: 'production_render', estimatedCostUsd: 10, approvedBy: 'fixture-operator', reason: 'fixture' });
+  money.capture(auth.id, { amountUsd: 9.5, units: 95000, unitType: 'characters', metadata: { fixture: true } });
+  money.release(auth.id, { reason: 'fixture complete' });
+  const capCheck = money.preview(guard.id, { provider: 'elevenlabs', operation: 'production_render', estimatedCostUsd: 40, approvedBy: 'fixture-operator' });
+  const report = money.report(guard.id);
+  console.log(JSON.stringify({
+    version: VERSION,
+    moneyGuard: 'fixture',
+    status: report.status,
+    hardCapUsd: report.hardCapUsd,
+    capturedUsd: report.capturedUsd,
+    reservedUsd: report.reservedUsd,
+    availableUsd: report.availableUsd,
+    smallDecision: small.status,
+    approvalDecision: needsApproval.status,
+    approvalReasons: needsApproval.reasons,
+    capDecision: capCheck.status,
+    capReasons: capCheck.reasons,
+    ledgerUsd: ledger.total(project.id),
+    paidGenerationArmed: report.paidGenerationArmed,
+    providerCallsPerformed: 0
+  }, null, 2));
+}
+
 if (args[0] === 'analyze') {
   const filePath = args[1];
   if (!filePath) {
@@ -367,6 +408,8 @@ if (args[0] === 'analyze') {
   await runSeriesRelationshipLock({ group: true });
 } else if (args[0] === 'series-continuity-lock-voice') {
   await runSeriesVoiceLock();
+} else if (args[0] === 'money-guard-fixture') {
+  await runMoneyGuardFixture();
 } else {
   const store = new InMemoryStore();
   const projects = new ProjectService(store);
@@ -388,11 +431,12 @@ if (args[0] === 'analyze') {
     seriesContinuityCompareCommand: 'node src/cli.js series-continuity-compare <series-continuity.json> <next-book-audio-bible-prep.json>',
     seriesRelationshipLockCommand: 'node src/cli.js series-continuity-lock-group <series-continuity.json> --members key1,key2,key3 --kind partner --out <file>',
     seriesVoiceLockCommand: 'node src/cli.js series-continuity-lock-voice <series-continuity.json> --character <key> --provider <provider> --voice-id <id> --out <file>',
+    moneyGuardFixtureCommand: 'node src/cli.js money-guard-fixture',
     workflow: {
       manuscriptBrain: 'ready', audioBible: 'ready', castingRoom: 'ready', audiobookDirector: 'ready',
       productionEngine: 'ready', reviewStudio: 'ready', continuityQa: 'ready', masteringLab: 'ready',
       distributionBrain: 'ready', operatorFlowAudit: 'ready', bookOneSuperman: 'ready',
-      bookOneAudioBiblePrep: 'ready', seriesContinuity: 'ready'
+      bookOneAudioBiblePrep: 'ready', seriesContinuity: 'ready', moneyGuard: 'ready'
     },
     distributionProfiles: ['acx-2026', 'spotify-direct-2026', 'apple-partner-2026', 'w3c-audiobook-2020'],
     duplicateProtection: generation.request.fingerprint,

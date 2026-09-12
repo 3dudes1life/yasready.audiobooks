@@ -39,3 +39,6 @@ export * from './audio-bible/book-one-intelligence.js';
 export * from './services/book-one-audio-bible-prep-service.js';
 export * from './continuity/series-continuity.js';
 export * from './services/series-continuity-service.js';
+
+export * from './money/money-guard.js';
+export * from './services/money-guard-service.js';

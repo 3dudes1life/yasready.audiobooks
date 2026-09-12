@@ -21,6 +21,6 @@
 - ✅ 0.11.8 Audio Bible Lock & Pronunciation Closure
 - ✅ 0.12.0 Series Continuity
 - ✅ 0.12.1 Relationship Continuity & Series Lock Hardening
-- ⏭️ 0.13.0 SaaS Money Guard
-- 0.14.0 External Book Superman
+- ✅ 0.13.0 SaaS Money Guard
+- ⏭️ 0.14.0 External Book Superman
 - 1.0.0 YasReady Audiobooks

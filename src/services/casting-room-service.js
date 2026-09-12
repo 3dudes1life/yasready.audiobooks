@@ -82,13 +82,30 @@ export class CastingRoomService {
     return freeze({ planId, amountUsd: Number(total.toFixed(6)), withinBudget: total <= plan.maxSpendUsd, lines: freeze(lines.map(freeze)) });
   }
 
-  async renderAudition(planId, { providers, assetSink, ledger = null, allowOverBudget = false } = {}) {
+  async renderAudition(planId, { providers, assetSink, ledger = null, moneyGuard = null, moneyGuardId = null, approvedBy = null, allowOverBudget = false } = {}) {
     const plan = this.store.get('audition_plan', planId);
     if (!plan) throw new Error(`audition plan ${planId} not found`);
     if (typeof assetSink !== 'function') throw new Error('renderAudition requires assetSink');
     const estimate = await this.estimateAudition(planId, providers);
     if (!estimate.withinBudget && !allowOverBudget) {
       throw new Error(`audition estimate $${estimate.amountUsd.toFixed(2)} exceeds $${plan.maxSpendUsd.toFixed(2)} budget`);
+    }
+    const moneyAuthorizations = new Map();
+    if (moneyGuard) {
+      const guard = moneyGuardId ? moneyGuard.getGuard(moneyGuardId) : moneyGuard.activeGuardForProject(plan.projectId);
+      if (!guard) throw new Error('Money Guard required for paid audition but no active project guard exists');
+      const byProvider = new Map();
+      for (const line of estimate.lines) {
+        const candidate = this.store.get('voice_candidate', line.candidateId);
+        byProvider.set(candidate.provider, Number(((byProvider.get(candidate.provider) ?? 0) + line.amountUsd).toFixed(6)));
+      }
+      for (const [providerName, amountUsd] of byProvider.entries()) {
+        const authorization = moneyGuard.authorize(guard.id, {
+          provider: providerName, operation: 'audition_render', estimatedCostUsd: amountUsd,
+          approvedBy, reason: 'Casting Room audition plan', metadata: { planId: plan.id, characterId: plan.characterId }
+        });
+        moneyAuthorizations.set(providerName, authorization);
+      }
     }
     const takes = [];
     for (const candidateId of plan.candidateIds) {
@@ -98,21 +115,32 @@ export class CastingRoomService {
         const fingerprint = renderFingerprint({ text: script.text, provider: candidate.provider, model: plan.model, voiceId: candidate.providerVoiceId, settings: { audition: true, purpose: script.purpose } });
         const existing = this.store.list('audition_take', (take) => take.fingerprint === fingerprint)[0];
         if (existing) { takes.push(existing); continue; }
-        const result = await provider.render({ voiceId: candidate.providerVoiceId, text: script.text, model: plan.model });
-        const asset = await assetSink(result, { plan, candidate, script, fingerprint });
-        const lineEstimate = await provider.estimateCost({ text: script.text, model: plan.model });
-        if (ledger && lineEstimate.amountUsd !== null) {
-          ledger.record({ projectId: plan.projectId, provider: candidate.provider, operation: 'audition_render', amountUsd: lineEstimate.amountUsd, metadata: { planId, candidateId, scriptId: script.id, fingerprint } });
+        const moneyAuthorization = moneyAuthorizations.get(candidate.provider) ?? null;
+        if (moneyAuthorization) {
+          const guard = moneyGuard.getGuard(moneyAuthorization.guardId);
+          if (guard.status !== 'active') throw new Error(`Money Guard is ${guard.status}; audition provider call blocked`);
         }
+        const result = await provider.render({ voiceId: candidate.providerVoiceId, text: script.text, model: plan.model });
+        const lineEstimate = estimate.lines.find((line) => line.candidateId === candidateId && line.scriptId === script.id);
+        const estimatedLineCost = lineEstimate?.amountUsd ?? null;
+        const actualCostUsd = Number.isFinite(Number(result.estimatedCostUsd)) ? Number(result.estimatedCostUsd) : estimatedLineCost;
+        // Capture billable spend before writing the asset; a storage failure does not make a provider call free.
+        if (moneyAuthorization && actualCostUsd !== null) {
+          moneyGuard.capture(moneyAuthorization.id, { amountUsd: actualCostUsd, units: result.billedCharacters ?? script.text.length, unitType: 'characters', metadata: { planId, candidateId, scriptId: script.id, fingerprint } });
+        } else if (ledger && actualCostUsd !== null) {
+          ledger.record({ projectId: plan.projectId, provider: candidate.provider, operation: 'audition_render', amountUsd: actualCostUsd, metadata: { planId, candidateId, scriptId: script.id, fingerprint } });
+        }
+        const asset = await assetSink(result, { plan, candidate, script, fingerprint });
         const take = this.store.put(freeze({
           id: randomUUID(), type: 'audition_take', projectId: plan.projectId, planId,
           characterId: plan.characterId, candidateId, scriptId: script.id, fingerprint,
-          asset, estimatedCostUsd: lineEstimate.amountUsd, status: 'ready', createdAt: nowIso(this.clock)
+          asset, estimatedCostUsd: actualCostUsd, status: 'ready', createdAt: nowIso(this.clock)
         }));
         takes.push(take);
       }
     }
-    this.store.update('audition_plan', plan.id, (current) => freeze({ ...current, status: 'rendered', updatedAt: nowIso(this.clock) }));
+    for (const authorization of moneyAuthorizations.values()) moneyGuard.release(authorization.id, { reason: 'audition plan completed; unused estimate buffer released' });
+    this.store.update('audition_plan', plan.id, (current) => freeze({ ...current, status: 'rendered', moneyAuthorizationIds: freeze([...moneyAuthorizations.values()].map((row) => row.id)), updatedAt: nowIso(this.clock) }));
     return freeze(takes);
   }
 
