@@ -43,6 +43,16 @@ function ingestShape(text) {
   return { analysis, segments: records };
 }
 
+function segmentIdFor(ingest, dialogue) {
+  let flat = 0;
+  for (const chapter of ingest.analysis.chapters) for (const scene of chapter.scenes) for (const segment of scene.segments) {
+    const record = ingest.segments?.[flat] ?? null;
+    flat += 1;
+    if (segment.kind === 'dialogue' && segment.text === dialogue) return record?.id ?? null;
+  }
+  return null;
+}
+
 test('Book One character tiers keep the core three primary and supporting/minor tiers conservative', () => {
   assert.equal(classifyBookOneCharacter({ name: 'Michael Rawlins', mentions: 1 }), 'primary');
   assert.equal(classifyBookOneCharacter({ name: 'Dani', mentions: 39 }), 'supporting');
@@ -283,8 +293,102 @@ test('0.11.4 prep accounting uses applied narrator routing as the single quoted-
     const store = new InMemoryStore();
     const service = new BookOneAudioBiblePrepService(store);
     const result = await service.runFile(file);
-    assert.equal(result.prep.release, '0.11.4');
+    assert.equal(result.prep.release, '0.11.5');
     assert.equal(result.prep.intelligence.resolutionCounts.narratorRouted, result.prep.dialogueReview.quotedNarrationSegments);
+    assert.equal(result.prep.providerCallsPerformed, 0);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('0.11.5 reaction verbs do not steal an ambiguous quote from a prior known speaker', () => {
+  const ingest = ingestShape([
+    'Chapter 1', '',
+    'Juan said, “Absolutely not.”', '',
+    '“Oh heck no.”', '',
+    'She gasped.'
+  ].join('\n'));
+  const intelligence = buildDialogueIntelligence(ingest);
+  const review = buildDialogueReviewQueue(ingest, { intelligence });
+  const row = review.queue.find((x) => x.dialogue === 'Oh heck no.');
+  assert.ok(row, 'reaction-only evidence must remain reviewable');
+  assert.equal(review.autoBindings.some((x) => x.segmentId === segmentIdFor(ingest, 'Oh heck no.')), false);
+});
+
+test('0.11.5 an explicit anonymous actor blocks pronoun fallback to the core cast', () => {
+  const ingest = ingestShape([
+    'Chapter 1', '',
+    'Juan leaned against the bar.', '',
+    'The guy smiled at him.', '',
+    '“Hell of a set,”', '',
+    'he said.'
+  ].join('\n'));
+  const intelligence = buildDialogueIntelligence(ingest);
+  const review = buildDialogueReviewQueue(ingest, { intelligence });
+  assert.ok(review.queue.some((x) => x.dialogue === 'Hell of a set,'));
+  assert.equal(review.autoBindings.some((x) => x.segmentId === segmentIdFor(ingest, 'Hell of a set,') && ['Juan Delgado', 'Michael Rawlins', 'Christopher Lancaster'].includes(x.speaker)), false);
+});
+
+test('0.11.5 split pronoun tags inherit a nearby explicitly named actor conservatively', () => {
+  const ingest = ingestShape([
+    'Chapter 1', '',
+    'Michael stepped onto the porch and rubbed the back of his neck.', '',
+    '“Hey,”', '',
+    'he said.'
+  ].join('\n'));
+  const intelligence = buildDialogueIntelligence(ingest);
+  const review = buildDialogueReviewQueue(ingest, { intelligence });
+  assert.equal(review.queue.some((x) => x.dialogue === 'Hey,'), false);
+  assert.ok(review.autoBindings.some((x) => x.segmentId === segmentIdFor(ingest, 'Hey,') && x.speaker === 'Michael Rawlins' && /pronoun-after-tag/.test(x.evidence)));
+});
+
+test('0.11.5 carries a resolved pronoun speaker across split dialogue-tag-dialogue fragments', () => {
+  const ingest = ingestShape([
+    'Chapter 1', '',
+    'Juan yanked open the envelope and stared at the page.', '',
+    '“Fuck me,”', '',
+    'he whispered.', '',
+    '“The bill.”'
+  ].join('\n'));
+  const intelligence = buildDialogueIntelligence(ingest);
+  const review = buildDialogueReviewQueue(ingest, { intelligence });
+  assert.equal(review.queue.some((x) => ['Fuck me,', 'The bill.'].includes(x.dialogue)), false);
+  assert.ok(review.autoBindings.some((x) => x.segmentId === segmentIdFor(ingest, 'Fuck me,') && x.speaker === 'Juan Delgado'));
+  assert.ok(review.autoBindings.some((x) => x.segmentId === segmentIdFor(ingest, 'The bill.') && x.speaker === 'Juan Delgado'));
+});
+
+test('0.11.5 creates a contextual anonymous role instead of forcing a core-cast speaker', () => {
+  const ingest = JSON.parse(JSON.stringify(ingestShape([
+    'Chapter 20 – Housewarming', '',
+    'One of Juan’s friends leaned closer with a grin.', '',
+    '“Are you guys a throuple?”'
+  ].join('\n'))));
+  ingest.analysis.chapters[0].order = 20;
+  const intelligence = buildDialogueIntelligence(ingest);
+  const review = buildDialogueReviewQueue(ingest, { intelligence });
+  assert.ok(intelligence.provisionalRoles.some((x) => x.canonicalName === "Juan's Friend"));
+  assert.ok(review.autoBindings.some((x) => x.segmentId === segmentIdFor(ingest, 'Are you guys a throuple?') && x.speaker === "Juan's Friend"));
+});
+
+test('0.11.5 closes safe embedded, label, playlist and collective-reveal quote patterns', () => {
+  assert.equal(classifyQuotedNarration('g’day.', 'The first time he said', 'It became an inside joke.')?.evidence, 'embedded-example-quote');
+  assert.equal(classifyQuotedNarration('emotional support boyfriend.', 'He was the self-declared', 'The room laughed.')?.evidence, 'self-declared-label');
+  assert.equal(classifyQuotedNarration('S’mores & Gay Screams.', 'He queued the playlist titled', 'They kept dancing.')?.evidence, 'playlist-title');
+  assert.equal(classifyQuotedNarration('Surprise!', 'The doors opened.', 'The patio crowd erupted into cheers.')?.classification, 'collective-speech-narrated');
+});
+
+test('0.11.5 prep exports explicit Superman engine provenance instead of a stale-looking nested release', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'yasready-prep-0115-provenance-'));
+  const file = path.join(dir, 'book.txt');
+  try {
+    await writeFile(file, 'Chapter 1\n\nMichael said, “Hello.”\n\nJuan replied, “Hi.”');
+    const store = new InMemoryStore();
+    const service = new BookOneAudioBiblePrepService(store);
+    const result = await service.runFile(file);
+    assert.equal(result.prep.release, '0.11.5');
+    assert.equal(result.prep.schemaVersion, 4);
+    assert.equal(typeof result.prep.superman.engineRelease, 'string');
+    assert.equal(Object.hasOwn(result.prep.superman, 'release'), false);
     assert.equal(result.prep.providerCallsPerformed, 0);
   } finally {
     await rm(dir, { recursive: true, force: true });

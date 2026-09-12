@@ -182,7 +182,9 @@ function incrementAppliedIntelligence(counts, resolution) {
   if (resolution.speaker === 'Narrator') counts.narratorRouted += 1;
   if (/self-identification/.test(evidence)) counts.selfIdentified += 1;
   else if (/direct-address|vocative-exclusion/.test(evidence)) counts.directAddress += 1;
+  else if (/contextual-anonymous-role/.test(evidence)) counts.contextualRole += 1;
   else if (/relational-role/.test(evidence)) counts.relationalRole += 1;
+  else if (/pronoun-after-tag/.test(evidence)) counts.pronounAfterTag += 1;
   else if (/pronoun-/.test(evidence)) counts.pronounContext += 1;
   else if (/two-speaker-reaction/.test(evidence)) counts.reactionExclusion += 1;
   else if (/two-speaker-/.test(evidence)) counts.twoSpeakerTurn += 1;
@@ -207,8 +209,8 @@ export function buildDialogueReviewQueue(ingestResult, {
   let quotedNarration = 0;
   let correctedSafeBindings = 0;
   const appliedIntelligence = {
-    narratorRouted: 0, selfIdentified: 0, explicitContext: 0, pronounContext: 0,
-    directAddress: 0, relationalRole: 0, twoSpeakerTurn: 0, reactionExclusion: 0
+    narratorRouted: 0, selfIdentified: 0, explicitContext: 0, pronounContext: 0, pronounAfterTag: 0,
+    directAddress: 0, relationalRole: 0, contextualRole: 0, twoSpeakerTurn: 0, reactionExclusion: 0
   };
 
   for (let i = 0; i < rows.length; i += 1) {
@@ -497,7 +499,7 @@ export function renderAudioBiblePrepMarkdown(prep) {
     '## What YasReady prepared', '',
     `- ${prep.characterPlan.length} Audio Bible roles including Narrator`,
     `- ${prep.dialogueReview.autoBound.toLocaleString()} dialogue/displayed-text segment(s) safely resolved and bound`,
-    `- ${prep.intelligence?.reviewReduction?.toLocaleString?.() ?? 0} avoidable review chore(s) removed by 0.11.4 review-closure intelligence`,
+    `- ${prep.intelligence?.reviewReduction?.toLocaleString?.() ?? 0} avoidable review chore(s) removed by ${prep.release} context-resolver intelligence`,
     `- ${prep.intelligence?.quotedNarrationSegments?.toLocaleString?.() ?? 0} quoted/displayed-text segment(s) routed to Narrator instead of fake speakers`,
     `- ${(prep.intelligence?.provisionalRoles ?? []).length} provisional unnamed/relational speaking role(s) created from explicit context`,
     `- ${prep.dialogueReview.needsReview.toLocaleString()} genuinely ambiguous dialogue line(s) placed in the review CSV`,
@@ -513,7 +515,7 @@ export function renderAudioBiblePrepMarkdown(prep) {
     lines.push(`| ${row.canonicalName.replace(/\|/g, '\\|')} | ${row.role} | ${row.mentions} | ${(row.aliases ?? []).join(', ').replace(/\|/g, '\\|')} |`);
   }
   lines.push('', '## Review workflow', '',
-    '1. Open `dialogue-review.csv`. Work top-to-bottom: quick confirmations are first, then context reviews, then manual identification.',
+    '1. Open `dialogue-review.csv`. Work top-to-bottom: one-suggestion rows first, then multi-speaker context review, then manual identification if any remain.',
     '2. Fill `selected_speaker`, set `decision` to `approved` or `corrected`, and add notes only when useful.',
     '3. Open `pronunciation-review.csv`. Fill `spoken_as` only for terms whose pronunciation should be explicitly controlled.',
     '4. Keep these files outside GitHub. They contain manuscript excerpts and author production decisions.', '',

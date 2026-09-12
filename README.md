@@ -2,7 +2,7 @@
 
 Professional audiobook production infrastructure for YasReady Publishing.
 
-**Current build: 0.11.4 — Review Queue Closure**
+**Current build: 0.11.5 — Context Resolver Closure**
 
 YasReady Audiobooks is being developed as a standalone service first so audiobook experimentation cannot destabilize YasReady Publishing. The product goal is professional long-form audiobook production with strong continuity, human approval gates, cost protection, quality control, mastering and retailer-ready packaging.
 
@@ -23,6 +23,7 @@ YasReady Audiobooks is being developed as a standalone service first so audioboo
 - 0.11.2 Book One Audio Bible Prep — canonical roster tiers, safe high-confidence bindings, targeted dialogue review and pronunciation-review pack
 - 0.11.3 Audio Bible Intelligence Cleanup — quoted-text classification, provisional relational speakers, self-identification/direct-address inference, smaller review queue and focused pronunciation review
 - 0.11.4 Review Queue Closure — remaining displayed-text closure, safer addressee/pronoun/two-speaker reasoning, zero unsafe quick-confirms and applied-intelligence accounting
+- 0.11.5 Context Resolver Closure — split pronoun/tag chains, local actor resolution, reaction-verb safety, contextual anonymous roles, quote-pattern closure and explicit Superman engine provenance
 
 ## Book One Superman
 
@@ -48,7 +49,7 @@ After Superman passes, build the local operator pack:
 node src/cli.js audio-bible-prep "/path/to/book_1.docx" --out "$HOME/Desktop/Book-One-Audio-Bible-Prep"
 ```
 
-The prep pack creates canonical character tiers, safely auto-binds high-confidence dialogue, applies fail-safe Book One intelligence for quoted/non-spoken text and context-supported speakers, and writes targeted dialogue/pronunciation CSVs. 0.11.4 also closes remaining sign/news/message/performance-title false dialogue, strengthens addressee and local-turn reasoning, and refuses to label alternating-pair guesses as quick-confirm. Provisional unnamed roles remain explicitly marked. Those local review files contain manuscript excerpts and must not be committed. The prep run performs zero provider calls.
+The prep pack creates canonical character tiers, safely auto-binds high-confidence dialogue, applies fail-safe Book One intelligence for quoted/non-spoken text and context-supported speakers, and writes targeted dialogue/pronunciation CSVs. 0.11.5 closes additional context that should never become operator work: split pronoun/tag chains, nearby named actors, tightly scoped anonymous one-scene roles, embedded labels/examples/playlists and collective reveals. Reaction-only verbs and generic anonymous actors are explicit safety blockers so the resolver prefers review over a confident wrong speaker. Provisional unnamed roles remain explicitly marked. Those local review files contain manuscript excerpts and must not be committed. The prep run performs zero provider calls.
 
 ## Current distribution targets
 

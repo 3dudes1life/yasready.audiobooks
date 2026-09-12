@@ -81,7 +81,7 @@ export class BookOneAudioBiblePrepService {
         role: planned.role,
         seriesCharacterKey: planned.seriesCharacterKey,
         performanceProfile: {
-          prepRelease: '0.11.4',
+          prepRelease: '0.11.5',
           castingStatus: planned.castingStatus,
           sourceMentions: planned.mentions,
           sourceConfidence: planned.averageConfidence,
@@ -111,8 +111,8 @@ export class BookOneAudioBiblePrepService {
     const snapshot = this.audioBible.snapshot(bible.id);
     const productionReady = review.needsReview === 0 && pronunciationReview.needsConfirmation === 0;
     const prep = freeze({
-      schemaVersion: 3,
-      release: '0.11.4',
+      schemaVersion: 4,
+      release: '0.11.5',
       status: 'READY_FOR_AUDIO_BIBLE_REVIEW',
       providerCallsPerformed: 0,
       book: freeze({
@@ -124,7 +124,7 @@ export class BookOneAudioBiblePrepService {
         words: ingestResult.analysis.metrics.words,
         narrativeChapters: supermanResult.report.manuscript.narrativeChapterCount
       }),
-      superman: freeze({ status: supermanResult.report.status, score: supermanResult.report.score, release: supermanResult.report.release }),
+      superman: freeze({ status: supermanResult.report.status, score: supermanResult.report.score, engineRelease: supermanResult.report.release }),
       audioBible: freeze({ id: bible.id, name: bible.name, revision: this.store.get('audio_bible', bible.id).revision, digest: snapshot.digest }),
       characterPlan,
       intelligence: freeze({

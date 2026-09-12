@@ -1,8 +1,9 @@
 import { BOOK_ONE_PROFILE, canonicalizeSpeakerCandidate } from '../superman/book-one-superman.js';
 
 const freeze = (value) => Object.freeze(value);
-const SPEECH_VERBS = 'said|asked|replied|answered|whispered|murmured|shouted|yelled|called|added|continued|laughed|snapped|sighed|offered|admitted|insisted|promised|teased|joked|warned|cried|blurted|exclaimed|breathed|mumbled|muttered|shot back';
-const LEAD_ACTIONS = `${SPEECH_VERBS}|leaned|turned|paused|nodded|smirked|grinned|exhaled|tossed|looked|glanced|sat|stood|pushed|nudged|elbowed|flopped|checked|stretched|reached|picked|held|gestured|winked|froze|blinked|sighed|tapped|rested|collapsed|perked|pointed|raised|gave|crossed|dropped|opened|stared|walked|stepped|grabbed|pulled|rubbed|smiled|laughed|cheered|shrugged|feigned|studied|listened|reacted`;
+const SPEECH_VERBS = 'said|asked|replied|answered|whispered|murmured|shouted|yelled|called|called out|added|continued|laughed|snapped|sighed|offered|admitted|insisted|promised|teased|joked|warned|cried|blurted|exclaimed|breathed|mumbled|muttered|shot back|fired back|shrieked|croaked|gasped|groaned|stated|explained|demanded|announced|chimed in|read aloud|disclaimed|barked|urged|echoed|declared';
+const TAG_VERBS = 'said|asked|replied|answered|whispered|murmured|shouted|yelled|called|called out|added|continued|snapped|offered|admitted|insisted|promised|teased|joked|warned|cried|blurted|exclaimed|breathed|mumbled|muttered|shot back|fired back|shrieked|croaked|stated|explained|demanded|announced|chimed in|read aloud|disclaimed|barked|urged|echoed|declared';
+const LEAD_ACTIONS = `${SPEECH_VERBS}|leaned|turned|paused|nodded|smirked|grinned|exhaled|tossed|looked|glanced|sat|stood|pushed|nudged|elbowed|flopped|checked|stretched|reached|picked|held|gestured|winked|froze|blinked|sighed|tapped|rested|collapsed|perked|pointed|raised|gave|crossed|dropped|opened|stared|walked|stepped|grabbed|pulled|rubbed|smiled|laughed|cheered|shrugged|feigned|studied|listened|reacted|hesitated|jumped|slowed|reappeared|brought|squinted|widened|strutted|yanked|sniffed|slumped|stopped|gripped|watched|wiped|entered|appeared|returned|moved|shook|broke the silence|let out|came back|came out|wedged|found`;
 const PRIMARY = ['Michael Rawlins', 'Juan Delgado', 'Christopher Lancaster'];
 const CANONICAL_ALIASES = Object.freeze({
   'Michael Rawlins': ['Michael', 'Rawlins', 'Micheal'],
@@ -14,7 +15,7 @@ const CANONICAL_ALIASES = Object.freeze({
 const MALE_SPEAKERS = new Set([
   'Michael Rawlins', 'Juan Delgado', 'Christopher Lancaster', 'Evan', 'Drew', 'Alex', 'Nick', 'Derek', 'Noah', "Michael's Brother"
 ]);
-const FEMALE_SPEAKERS = new Set(['Dani', 'Kayla', "Michael's Mother", 'Realtor', 'Landlord']);
+const FEMALE_SPEAKERS = new Set(['Dani', 'Kayla', "Michael's Mother", 'Realtor', 'Landlord', "Derek's Girlfriend", 'Pop Star']);
 
 const RELATIONAL_ROLES = Object.freeze([
   Object.freeze({
@@ -40,6 +41,45 @@ const RELATIONAL_ROLES = Object.freeze([
     seriesCharacterKey: 'landlord', chapterMin: 33, chapterMax: 33,
     pattern: /\b(?:the|their)\s+landlord\b/i,
     pronoun: 'she'
+  })
+]);
+
+const CONTEXTUAL_ROLES = Object.freeze([
+  Object.freeze({
+    canonicalName: "Juan's Friend", aliases: ["one of Juan's friends", 'the friend'], role: 'minor',
+    seriesCharacterKey: 'housewarming-juan-friend', chapterMin: 20, chapterMax: 20,
+    test: ({ before }) => /\b(?:one of Juan[’']s friends|the friend)\b/i.test(before)
+  }),
+  Object.freeze({
+    canonicalName: 'Housewarming Guest', aliases: ['someone else', 'someone'], role: 'minor',
+    seriesCharacterKey: 'housewarming-guest', chapterMin: 20, chapterMax: 20,
+    test: ({ before }) => /\b(?:someone else chimed in|someone shouted)\b/i.test(before)
+  }),
+  Object.freeze({
+    canonicalName: 'Drag Queen', aliases: ['a queen', 'the queen'], role: 'minor',
+    seriesCharacterKey: 'drag-queen', chapterMin: 27, chapterMax: 27,
+    test: ({ before }) => /\bqueen\b/i.test(before) && /\b(?:strutted|blowing a kiss|drag show)\b/i.test(before)
+  }),
+  Object.freeze({
+    canonicalName: 'Pop Star', aliases: ['the pop star'], role: 'minor',
+    seriesCharacterKey: 'pop-star', chapterMin: 31, chapterMax: 31,
+    test: ({ before, trail, after }) => (/\bthe pop star\b/i.test(before) || (/^Her voice\b/i.test(after) && /\bthe pop star\b/i.test(trail))) && /\b(?:her voice|yelling into her phone|wig sideways)\b/i.test(`${before} ${after} ${trail}`)
+  }),
+  Object.freeze({
+    canonicalName: "Derek's Girlfriend", aliases: ['the girlfriend', 'his girlfriend'], role: 'minor',
+    seriesCharacterKey: 'derek-girlfriend', chapterMin: 34, chapterMax: 34,
+    test: ({ before, trail, after, dialogue }) => /\bstraight couple\b|\bher boyfriend\b/i.test(`${trail} ${before}`)
+      && (/\bDerek\b/i.test(dialogue) || new RegExp(`^she\\s+(?:${TAG_VERBS})\\b`, 'i').test(after))
+  }),
+  Object.freeze({
+    canonicalName: "New Year's Guest – Younger", aliases: ['the younger one'], role: 'minor',
+    seriesCharacterKey: 'new-years-guest-younger', chapterMin: 34, chapterMax: 34,
+    test: ({ after, trail }) => /\bthe younger one asked\b/i.test(after) && /\bsparkly couple\b/i.test(trail)
+  }),
+  Object.freeze({
+    canonicalName: "New Year's Guest – Older", aliases: ['the older one'], role: 'minor',
+    seriesCharacterKey: 'new-years-guest-older', chapterMin: 34, chapterMax: 34,
+    test: ({ before, trail }) => /\bthe older one\s+(?:grinned|said|cheered)\b/i.test(before) && /\bsparkly couple\b/i.test(trail)
   })
 ]);
 
@@ -103,6 +143,101 @@ function canonicalLeadSpeaker(before) {
   return null;
 }
 
+function canonicalSubjectLike(text) {
+  const clause = lastClause(text);
+  if (!clause || /^\[[^\]]+\]:/.test(clause)) return null;
+  const hits = [];
+  for (const [canonical, aliases] of Object.entries(CANONICAL_ALIASES)) {
+    for (const alias of aliases) {
+      const token = escaped(alias);
+      // Conservative subject-like mention: the name begins the last sentence/clause, optionally after a short transition.
+      const rx = new RegExp(`^(?:(?:then|finally|eventually|nearby|outside|inside|later|afterward|afterwards|suddenly|just then|sure enough|meanwhile|as they|when they)\\s+)?${token}\\b(?:[’']s)?`, 'i');
+      if (rx.test(clause)) { hits.push(canonical); break; }
+    }
+  }
+  const unique = [...new Set(hits)];
+  return unique.length === 1 ? unique[0] : null;
+}
+
+function relationalMention(text, chapterNumber) {
+  const source = clean(text);
+  if (!source || /^\[[^\]]+\]:/.test(source)) return null;
+  for (const role of RELATIONAL_ROLES) {
+    if (chapterNumber < role.chapterMin || chapterNumber > role.chapterMax) continue;
+    if (role.pattern.test(source)) return role.canonicalName;
+  }
+  return null;
+}
+
+function explicitAnonymousActor(text) {
+  const source = clean(text);
+  if (!source) return null;
+  const patterns = [
+    /\b(?:the|a|that)\s+(?:guy|man|woman|girl|boy|stranger|queen|guest|friend|neighbor|bartender|server|hostess|handler)\b/i,
+    /\b(?:someone|somebody|one of\s+[^,.;!?]+|the younger one|the older one|the pop star|the girlfriend|her boyfriend)\b/i,
+    /\b(?:straight|sparkly)\s+couple\b/i
+  ];
+  for (const rx of patterns) {
+    const match = rx.exec(source);
+    if (match) return { index: match.index ?? 0, text: match[0] };
+  }
+  return null;
+}
+
+function canonicalLeadSpeakerAcrossText(text) {
+  const source = clean(text);
+  if (!source || /^\[[^\]]+\]:/.test(source)) return null;
+  const matches = [];
+  for (const [canonical, aliases] of Object.entries(CANONICAL_ALIASES)) {
+    for (const alias of aliases) {
+      const rx = new RegExp(`\\b${escaped(alias)}\\b(?:[’']s)?(?:\\s+[A-Za-z’'\\-]+){0,4}\\s+(?:${LEAD_ACTIONS})\\b`, 'ig');
+      for (const match of source.matchAll(rx)) matches.push({ canonical, index: match.index ?? 0 });
+    }
+  }
+  if (!matches.length) return null;
+  matches.sort((a, b) => b.index - a.index);
+  const top = matches[0];
+  const anon = explicitAnonymousActor(source);
+  if (anon && anon.index > top.index) return null;
+  return top.canonical;
+}
+
+function lastCanonicalMentionMatchingPronoun(text, pronoun) {
+  const source = clean(text);
+  if (!source || /^\[[^\]]+\]:/.test(source)) return null;
+  const matches = [];
+  for (const [canonical, aliases] of Object.entries(CANONICAL_ALIASES)) {
+    if (!speakerMatchesPronoun(canonical, pronoun)) continue;
+    for (const alias of aliases) {
+      const rx = new RegExp(`\\b${escaped(alias)}\\b`, 'ig');
+      for (const match of source.matchAll(rx)) matches.push({ canonical, index: match.index ?? 0 });
+    }
+  }
+  if (!matches.length) return null;
+  matches.sort((a, b) => b.index - a.index);
+  const top = matches[0];
+  const anon = explicitAnonymousActor(source);
+  if (anon && anon.index > top.index) return null;
+  return top.canonical;
+}
+
+function recentNamedAntecedent(rows, index, pronoun, maxLookback = 8) {
+  const current = rows[index];
+  for (let offset = 1; offset <= maxLookback; offset += 1) {
+    const row = rows[index - offset];
+    if (!sameScene(current, row)) break;
+    if (row.segment.kind !== 'narration') continue;
+    const text = clean(row.segment.text);
+    if (!text || /^\[[^\]]+\]:/.test(text)) continue;
+    if (explicitAnonymousActor(text)) return null;
+    const named = canonicalLeadSpeakerAcrossText(text)
+      ?? relationalMention(text, Number(row.chapter.order))
+      ?? lastCanonicalMentionMatchingPronoun(text, pronoun);
+    if (named && speakerMatchesPronoun(named, pronoun)) return named;
+  }
+  return null;
+}
+
 function relationalSubject(text, chapterNumber) {
   const source = clean(text);
   if (!source || /^\[[^\]]+\]:/.test(source)) return null;
@@ -160,6 +295,16 @@ export function addressedCanonicalName(dialogue, aliases = BOOK_ONE_PROFILE.alia
   return null;
 }
 
+function contextualRoleFromContext(row, before, after, trail = '') {
+  const chapterNumber = Number(row.chapter.order);
+  const payload = { before: clean(before), after: clean(after), trail: clean(trail), dialogue: clean(row.segment.text) };
+  for (const role of CONTEXTUAL_ROLES) {
+    if (chapterNumber < role.chapterMin || chapterNumber > role.chapterMax) continue;
+    if (role.test(payload)) return role;
+  }
+  return null;
+}
+
 function relationalRoleFromContext(row, before, after) {
   const chapterNumber = Number(row.chapter.order);
   const combined = `${before} ${after}`;
@@ -208,6 +353,16 @@ export function classifyQuotedNarration(dialogue, before, after, { extendedBefor
     && /\b(?:how|being|called|felt|seemed|looked|was|were)\s*$/i.test(prev)
     && (/^[A-Z][A-Za-z’'\-]+\s+(?:was|were|is|are)\b/.test(next) || grammaticalContinuation);
 
+  const embeddedIllustration = wc <= 5
+    && /\b(?:first time|last time|every time|when)\s+(?:he|she|they|[A-Z][A-Za-z’'\-]+)\s+(?:said|called it|used the word)\s*$/i.test(prev);
+  const selfDeclaredLabel = wc <= 6 && /\bself-declared\s*$/i.test(prev);
+  const playlistTitle = wc <= 9 && /\b(?:playlist|mix|set)\s+(?:titled|called|named)\s*$/i.test(prev);
+  const crowdReveal = wc <= 4 && /^Surprise[!.]*$/i.test(text) && /\b(?:patio|room|crowd|group)\b[^.!?]{0,60}\b(?:erupted|cheered|shouted)\b/i.test(next);
+
+  if (embeddedIllustration) return freeze({ classification: 'quoted-narration', confidence: 0.99, evidence: 'embedded-example-quote' });
+  if (selfDeclaredLabel) return freeze({ classification: 'quoted-narration', confidence: 0.99, evidence: 'self-declared-label' });
+  if (playlistTitle) return freeze({ classification: 'displayed-text', confidence: 0.99, evidence: 'playlist-title' });
+  if (crowdReveal) return freeze({ classification: 'collective-speech-narrated', confidence: 0.99, evidence: 'collective-reveal' });
   if (emailLike) return freeze({ classification: 'displayed-text', confidence: 0.99, evidence: 'quoted-display-label' });
   if (bracketMessageFragment) return freeze({ classification: 'displayed-text', confidence: 0.99, evidence: 'message-quoted-fragment' });
   if (hypotheticalInline) return freeze({ classification: 'quoted-narration', confidence: 0.99, evidence: 'hypothetical-quote-not-spoken' });
@@ -227,37 +382,78 @@ function speakerMatchesPronoun(speaker, pronoun) {
 }
 
 function recentActorBefore(rows, index, pronoun, aliases, maxLookback = 12) {
-  const current = rows[index];
-  for (let offset = 1; offset <= maxLookback; offset += 1) {
-    const row = rows[index - offset];
-    if (!sameScene(current, row)) break;
-    if (row.segment.kind !== 'narration') continue;
-    const text = clean(row.segment.text);
-    if (!text || /^\[[^\]]+\]:/.test(text)) continue;
-    const named = canonicalLeadSpeaker(text) ?? relationalSubject(text, Number(row.chapter.order));
-    if (named && speakerMatchesPronoun(named, pronoun)) return named;
-  }
-  return null;
+  return recentNamedAntecedent(rows, index, pronoun, maxLookback);
 }
-
 function pronounContextResolution(rows, index, aliases, resolutions) {
   const row = rows[index];
   const before = sameScene(row, rows[index - 1]) ? clean(rows[index - 1].segment.text) : '';
-  const beforeTag = new RegExp(`^(he|she)\\s+(?:${SPEECH_VERBS})\\b`, 'i').exec(before);
+  const beforeTag = new RegExp(`^(he|she)\\s+(?:${TAG_VERBS})\\b`, 'i').exec(before);
   const beforeAction = new RegExp(`^(he|she)\\s+(?:${LEAD_ACTIONS})\\b`, 'i').exec(before);
   const pronoun = (beforeTag ?? beforeAction)?.[1]?.toLowerCase() ?? null;
   if (!pronoun) return null;
-  // A pronoun lead is only auto-closed when it cleanly continues the immediately preceding known dialogue turn.
-  // This avoids guessing antecedents across narration, text messages or multi-person blocking.
-  const previousSpeaker = immediatePriorDialogueSpeaker(rows, index - 1, aliases, resolutions, 5);
-  if (!previousSpeaker || !speakerMatchesPronoun(previousSpeaker, pronoun)) return null;
-  return freeze({
-    speaker: previousSpeaker,
-    confidence: beforeTag ? 0.93 : 0.9,
-    evidence: beforeTag ? `pronoun-speech-continuation:${pronoun}` : `pronoun-action-continuation:${pronoun}`
-  });
-}
 
+  const previousSpeaker = immediatePriorDialogueSpeaker(rows, index - 1, aliases, resolutions, 5);
+  if (previousSpeaker && speakerMatchesPronoun(previousSpeaker, pronoun)) {
+    return freeze({
+      speaker: previousSpeaker,
+      confidence: beforeTag ? 0.93 : 0.9,
+      evidence: beforeTag ? `pronoun-speech-continuation:${pronoun}` : `pronoun-action-continuation:${pronoun}`
+    });
+  }
+
+  // 0.11.5: a pronoun action can inherit the nearest explicitly named same-gender actor,
+  // but only when no anonymous actor has intervened.
+  const antecedent = recentNamedAntecedent(rows, index - 1, pronoun, 6);
+  if (antecedent) {
+    return freeze({
+      speaker: antecedent,
+      confidence: beforeTag ? 0.91 : 0.88,
+      evidence: beforeTag ? `pronoun-speech-antecedent:${pronoun}` : `pronoun-action-antecedent:${pronoun}`
+    });
+  }
+  return null;
+}
+function pronounAfterTagResolution(rows, index, aliases, resolutions) {
+  const row = rows[index];
+  const after = sameScene(row, rows[index + 1]) ? clean(rows[index + 1].segment.text) : '';
+  const match = new RegExp(`^(he|she)\\s+(?:${TAG_VERBS})\\b`, 'i').exec(after);
+  if (!match) return null;
+  const pronoun = match[1].toLowerCase();
+  const before = sameScene(row, rows[index - 1]) ? clean(rows[index - 1].segment.text) : '';
+
+  // Do not jump past an explicitly anonymous actor ("the guy", "a queen", "someone", etc.).
+  // Those are handled by contextual-role logic or left for review.
+  if (explicitAnonymousActor(before)) return null;
+
+  const local = canonicalLeadSpeakerAcrossText(before)
+    ?? relationalSubject(before, Number(row.chapter.order))
+    ?? relationalMention(before, Number(row.chapter.order))
+    ?? lastCanonicalMentionMatchingPronoun(before, pronoun);
+  if (local && speakerMatchesPronoun(local, pronoun)) {
+    return freeze({ speaker: local, confidence: 0.97, evidence: `pronoun-after-tag+local-antecedent:${pronoun}` });
+  }
+
+  const recent = recentNamedAntecedent(rows, index, pronoun, 7);
+  if (recent) return freeze({ speaker: recent, confidence: 0.92, evidence: `pronoun-after-tag+recent-antecedent:${pronoun}` });
+
+  // Last resort for split quote/tag/quote runs: keep the prior spoken speaker only if no
+  // explicit named/anonymous actor appears in intervening narration.
+  const prior = immediatePriorDialogueSpeaker(rows, index, aliases, resolutions, 8);
+  if (prior && speakerMatchesPronoun(prior, pronoun)) {
+    let safe = true;
+    for (let j = index - 1; j >= 0 && j >= index - 8; j -= 1) {
+      const probe = rows[j];
+      if (!sameScene(row, probe)) break;
+      if (probe.segment.kind === 'dialogue') break;
+      const text = clean(probe.segment.text);
+      if (explicitAnonymousActor(text)) { safe = false; break; }
+      const named = canonicalLeadSpeakerAcrossText(text) ?? canonicalSubjectLike(text);
+      if (named && named !== prior) { safe = false; break; }
+    }
+    if (safe) return freeze({ speaker: prior, confidence: 0.89, evidence: `pronoun-after-tag+prior-dialogue:${pronoun}` });
+  }
+  return null;
+}
 function nearbyCanonicalSpeakers(rows, index, aliases, radius = 5, resolutions = null) {
   const current = rows[index];
   const weighted = new Map();
@@ -428,8 +624,10 @@ export function buildDialogueIntelligence(ingestResult, { aliases = BOOK_ONE_PRO
     selfIdentified: 0,
     explicitContext: 0,
     pronounContext: 0,
+    pronounAfterTag: 0,
     directAddress: 0,
     relationalRole: 0,
+    contextualRole: 0,
     twoSpeakerTurn: 0,
     reactionExclusion: 0
   };
@@ -461,6 +659,21 @@ export function buildDialogueIntelligence(ingestResult, { aliases = BOOK_ONE_PRO
       resolutions.set(segmentId, freeze({ speaker: relational.canonicalName, confidence: 0.92, evidence: 'relational-role-context', classification: 'spoken-dialogue', provisional: true, authority: 'review-only' }));
       provisionalMentions.set(relational.canonicalName, (provisionalMentions.get(relational.canonicalName) ?? 0) + 1);
       counts.relationalRole += 1;
+      continue;
+    }
+
+    const contextual = contextualRoleFromContext(row, before, after, extendedBefore(rows, i, 6));
+    if (contextual) {
+      resolutions.set(segmentId, freeze({ speaker: contextual.canonicalName, confidence: 0.97, evidence: 'contextual-anonymous-role', classification: 'spoken-dialogue', provisional: true, authority: 'override' }));
+      provisionalMentions.set(contextual.canonicalName, (provisionalMentions.get(contextual.canonicalName) ?? 0) + 1);
+      counts.contextualRole += 1;
+      continue;
+    }
+
+    const afterPronoun = pronounAfterTagResolution(rows, i, aliases, resolutions);
+    if (afterPronoun) {
+      resolutions.set(segmentId, freeze({ ...afterPronoun, classification: 'spoken-dialogue', authority: 'review-only' }));
+      counts.pronounAfterTag += 1;
       continue;
     }
 
@@ -506,7 +719,7 @@ export function buildDialogueIntelligence(ingestResult, { aliases = BOOK_ONE_PRO
     }
   }
 
-  const provisionalRoles = RELATIONAL_ROLES
+  const provisionalRoles = [...RELATIONAL_ROLES, ...CONTEXTUAL_ROLES]
     .filter((role) => provisionalMentions.has(role.canonicalName))
     .map((role) => freeze({
       canonicalName: role.canonicalName,
@@ -519,7 +732,7 @@ export function buildDialogueIntelligence(ingestResult, { aliases = BOOK_ONE_PRO
       castingPriority: role.role === 'supporting' ? 2 : 3,
       seriesCharacterKey: role.seriesCharacterKey,
       castingStatus: 'provisional',
-      source: 'book-one-intelligence-relational-role',
+      source: CONTEXTUAL_ROLES.includes(role) ? 'book-one-intelligence-contextual-role' : 'book-one-intelligence-relational-role',
       provisional: true
     }));
 
