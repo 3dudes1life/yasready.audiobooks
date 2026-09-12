@@ -65,8 +65,15 @@ export class BookOneAudioBiblePrepService {
     }
 
     const intelligence = buildDialogueIntelligence(ingestResult);
-    const characterPlan = buildBookOneCharacterPlan(supermanResult.report, { provisionalRoles: intelligence.provisionalRoles });
     const review = buildDialogueReviewQueue(ingestResult, { intelligence });
+    const spokenCharacterNames = new Set([
+      ...(review.autoBindings ?? []).map((binding) => binding.speaker),
+      ...(review.collectiveBindings ?? []).flatMap((binding) => binding.speakers ?? [])
+    ].filter(Boolean));
+    const characterPlan = buildBookOneCharacterPlan(supermanResult.report, {
+      provisionalRoles: intelligence.provisionalRoles,
+      spokenCharacterNames
+    });
     const bible = this.audioBible.createBible({
       projectId: project.id,
       bookId: ingestResult.book.id,
@@ -81,7 +88,7 @@ export class BookOneAudioBiblePrepService {
         role: planned.role,
         seriesCharacterKey: planned.seriesCharacterKey,
         performanceProfile: {
-          prepRelease: '0.11.6',
+          prepRelease: '0.11.7',
           castingStatus: planned.castingStatus,
           sourceMentions: planned.mentions,
           sourceConfidence: planned.averageConfidence,
@@ -112,8 +119,8 @@ export class BookOneAudioBiblePrepService {
     const snapshot = this.audioBible.snapshot(bible.id);
     const productionReady = review.needsReview === 0 && pronunciationReview.needsConfirmation === 0;
     const prep = freeze({
-      schemaVersion: 5,
-      release: '0.11.6',
+      schemaVersion: 6,
+      release: '0.11.7',
       status: 'READY_FOR_AUDIO_BIBLE_REVIEW',
       providerCallsPerformed: 0,
       book: freeze({
@@ -128,6 +135,7 @@ export class BookOneAudioBiblePrepService {
       superman: freeze({ status: supermanResult.report.status, score: supermanResult.report.score, engineRelease: supermanResult.report.release }),
       audioBible: freeze({ id: bible.id, name: bible.name, revision: this.store.get('audio_bible', bible.id).revision, digest: snapshot.digest }),
       characterPlan,
+      sceneLocalRoles: intelligence.sceneLocalRoles ?? freeze([]),
       intelligence: freeze({
         autoResolved: review.intelligenceResolved,
         reviewCandidatesBeforeIntelligence: review.reviewCandidatesBeforeIntelligence,
@@ -135,12 +143,19 @@ export class BookOneAudioBiblePrepService {
         correctedSafeBindings: review.correctedSafeBindings,
         quotedNarrationSegments: review.quotedNarrationSegments,
         provisionalRoles: intelligence.provisionalRoles.map((x) => x.canonicalName),
-        permanentRoleCount: characterPlan.filter((x) => (x.continuityScope ?? 'book') !== 'scene').length,
-        sceneLocalRoleCount: characterPlan.filter((x) => x.continuityScope === 'scene').length,
+        sceneLocalRoles: (intelligence.sceneLocalRoles ?? []).map((x) => x.canonicalName),
+        permanentRoleCount: characterPlan.length,
+        sceneLocalRoleCount: (intelligence.sceneLocalRoles ?? []).length,
         resolutionCounts: review.intelligenceApplied,
         detectionCounts: review.intelligenceDetected
       }),
-      dialogueReview: freeze({ ...review, autoBound }),
+      dialogueReview: freeze({
+        ...review,
+        autoBound,
+        sceneLocalResolved: review.sceneLocalBindings?.length ?? 0,
+        collectiveResolved: review.collectiveBindings?.length ?? 0,
+        safelyResolved: autoBound + (review.sceneLocalBindings?.length ?? 0) + (review.collectiveBindings?.length ?? 0)
+      }),
       pronunciationReview,
       continuity,
       snapshot,
@@ -153,7 +168,7 @@ export class BookOneAudioBiblePrepService {
         paidGenerationArmed: false
       }),
       nextAction: review.needsReview
-        ? `Review the remaining ${review.needsReview} genuinely ambiguous dialogue line(s); YasReady already removed ${review.reviewReduction} review chores through Audio Bible intelligence.`
+        ? `Review the remaining ${review.needsReview} genuinely ambiguous dialogue line(s); YasReady already removed ${review.reviewReduction} review chores while keeping scene extras out of the permanent Audio Bible.`
         : 'Confirm the focused pronunciation candidates, then lock the Audio Bible for production.'
     });
 

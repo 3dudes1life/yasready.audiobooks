@@ -1,6 +1,6 @@
 # Book One Audio Bible Prep
 
-0.11.6 is the Residual Review Finalizer. It keeps conservative speaker resolution while separating permanent continuity roles from one-scene extras. The goal remains conservative automation: reduce work only when the manuscript supplies enough evidence, and fail closed when it does not.
+0.11.7 is the Speaker Truth Closure release. It keeps conservative speaker resolution while separating permanent continuity roles from one-scene extras. The goal remains conservative automation: reduce work only when the manuscript supplies enough evidence, and fail closed when it does not.
 
 ## Command
 
@@ -23,56 +23,61 @@ bash scripts/RUN_BOOK_ONE_AUDIO_BIBLE_PREP.command "/path/to/book_1.docx"
 - `pronunciation-review.csv` — focused candidate terms with blank `spoken_as`; YasReady never invents a pronunciation
 - `audio-bible-snapshot.json` — canonical Audio Bible snapshot/digest for continuity work
 
-## Context Resolver Closure
+## Residual Review Finalizer
 
-Existing canonical dialogue at confidence >= 0.75 remains eligible for safe binding. 0.11.6 adds evidence-supported resolution for split dialogue/tag/dialogue chains, nearby named antecedents, local pronoun continuity, direct-address exclusion, and a deliberately small set of contextual unnamed roles that are explicit in the manuscript.
+0.11.6 closes the residual speaker-attribution cases left after 0.11.5 while introducing a hard boundary between reusable Audio Bible identities and one-scene production extras. Existing canonical dialogue at confidence >= 0.75 remains eligible for safe binding; the new finalizer adds evidence-supported post-dialogue attribution, local pronoun/voice antecedents, strict reaction exclusion, and explicit collective dialogue.
 
 Important fail-closed rules:
 
 - reaction-only verbs such as laughing or gasping do not become automatic attribution tags
-- an explicit anonymous actor such as `the guy`, `a woman`, `someone`, or `a queen` blocks fallback to the core cast
+- an explicit anonymous actor blocks fallback to the core cast unless the manuscript itself supplies enough scene-local identity evidence
 - the person being addressed cannot become the speaker merely because their name appears in the quote
 - pronoun inference does not jump across an anonymous actor or unresolved context shift
-- contextual unnamed roles are chapter-scoped and pattern-scoped; they do not become global identities
+- `they said together` creates a multi-speaker collective binding instead of a fake single-speaker assignment
+- scene extras never receive reusable series character keys or enter the permanent Audio Bible snapshot
 - alternating-pair guesses are never presented as `quick-confirm`
-- ambiguous rows keep `selected_speaker` and `decision` blank
+- any unsupported ambiguity still fails closed to review
 
-The real Book One queue now has no `quick-confirm` or `manual-identify` rows. The remaining work is either one nearby-speaker suggestion or a multi-speaker context decision.
+## Permanent vs scene-local roles
 
-## Contextual provisional roles
+The permanent Book One Audio Bible contains reusable book-scoped roles; series inheritance remains a 0.12 concern. Scene-local extras are exported separately for production and are excluded from continuity inheritance. In particular, the New Year's Eve background man called Derek is **not** a permanent character. He is represented only as `New Year's Couple – Man (Derek)` inside that scene, while the unnamed woman is `New Year's Couple – Woman`; YasReady no longer invents `Derek's Girlfriend` as a durable identity.
 
-0.11.6 gives every role an explicit continuity scope. Book-level roles may participate in later series continuity; scene-local roles are production-only extras and have no reusable series character key. The New Year’s Eve background couple is therefore represented as `New Year's Couple – Man (Derek)` and `New Year's Couple – Woman`, both scene-local. Derek is no longer a permanent canonical Book One cast member, and the unnamed woman is no longer mislabeled as `Derek's Girlfriend`.
+Book One currently has **15 permanent roles** and **8 scene-local extras**. The permanent snapshot contains no Derek or other scene-local background identities.
+
+## Collective dialogue
+
+Collective delivery is modeled explicitly. A line followed by an unambiguous tag such as `they said together` may carry multiple speaker identities. Book One's shared `Te amo` line is therefore represented as a collective binding for Michael Rawlins and Juan Delgado rather than being forced onto one character.
 
 ## Displayed text and narration
 
-The quote classifier now also closes safe embedded examples, self-declared labels, playlist titles and collective reveals in addition to the sign/news/message/performance-title patterns from 0.11.4. Those segments are routed to Narrator/displayed-text handling rather than fake speakers.
+Quoted labels, signs, news phrases, message fragments, performance titles, embedded examples, playlist titles and similar non-spoken material remain routed to Narrator/displayed-text handling rather than fake dialogue speakers.
 
 ## Provenance
 
-The prep release and the nested Superman engine are now explicit separate fields. The prep exports `release: 0.11.6`, while `superman.engineRelease` records the underlying Superman engine release. This avoids a stale-looking nested release value without hiding the real engine provenance.
+The prep exports `release: 0.11.7`, while `superman.engineRelease` separately records the underlying Superman engine release.
 
 ## Pronunciation safety
 
-Pronunciation detection remains conservative and focused on terms that may genuinely need author control. Candidate terms are surfaced for review, but `spoken_as` is always blank. A pronunciation becomes authoritative only after explicit operator approval.
+Pronunciation detection remains conservative and focused on terms that may genuinely need author control. `spoken_as` remains blank until the operator explicitly confirms it.
 
 ## Real Book One result
 
 On the 56,852-word Book One DOCX:
 
 - Superman: **98/100 PASS**
-- review queue: **57** lines, down from 138 in 0.11.4, 176 in 0.11.3 and 281 in 0.11.2
-- avoidable review chores removed versus the original prep: **224** (~79.7%)
-- safe bindings/resolutions: **1,679**
-- narrator-routed quoted/displayed/collective segments: **25**
-- provisional roles: **11** total — 4 relational + 7 contextual
-- quick-confirm: **0**
-- single-nearby-speaker: **5**
-- context-review: **52**
-- manual-identify: **0**
-- pronunciation candidates: **34**
+- speaker-review queue: **0**, after speaker-truth verification of the prior 48 residual 0.11.6 rows; down from 281 in 0.11.2
+- review chores safely closed: **281 / 281**
+- permanent Audio Bible roles: **15**
+- scene-local production roles: **8**
+- permanent-role/Narrator bindings: **1,719**
+- scene-local resolved segments: **16**
+- collective resolved segments: **1**
+- total dialogue/displayed-text segments safely resolved: **1,736**
+- quoted/displayed-text segments routed to Narrator: **25**
+- pronunciation candidates: **32**
 - provider calls: **0**
 
-Known-danger regression cases were audited before release. Reaction tags and generic anonymous actors do not silently steal dialogue from Juan, Michael or Christopher; when the context is not strong enough, the line remains in review.
+Speaker review is now closed for this manuscript. The remaining human Audio Bible work is pronunciation confirmation and casting/performance decisions, not manually assigning dialogue lines.
 
 ## Privacy
 

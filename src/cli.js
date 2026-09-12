@@ -10,7 +10,7 @@ import {
   ProjectService
 } from './index.js';
 
-const VERSION = '0.11.6';
+const VERSION = '0.11.7';
 const args = process.argv.slice(2);
 
 function flagValue(name, fallback = null) {
@@ -125,7 +125,7 @@ async function runAudioBiblePrep() {
     supermanScore: result.prep.superman.score,
     characters: result.prep.characterPlan.length,
     permanentCharacters: result.prep.intelligence?.permanentRoleCount ?? result.prep.characterPlan.filter((x) => (x.continuityScope ?? 'book') !== 'scene').length,
-    sceneLocalRoles: result.prep.intelligence?.sceneLocalRoleCount ?? result.prep.characterPlan.filter((x) => x.continuityScope === 'scene').length,
+    sceneLocalRoleCount: result.prep.intelligence?.sceneLocalRoleCount ?? (result.prep.sceneLocalRoles ?? []).length,
     primaryCharacters: result.prep.characterPlan.filter((x) => x.role === 'primary').length,
     supportingCharacters: result.prep.characterPlan.filter((x) => x.role === 'supporting').length,
     minorCharacters: result.prep.characterPlan.filter((x) => x.role === 'minor').length,
@@ -134,6 +134,9 @@ async function runAudioBiblePrep() {
     quotedNarrationSegments: result.prep.intelligence?.quotedNarrationSegments ?? 0,
     reviewReduction: result.prep.intelligence?.reviewReduction ?? 0,
     provisionalRoles: result.prep.intelligence?.provisionalRoles ?? [],
+    sceneLocalRoles: result.prep.intelligence?.sceneLocalRoles ?? [],
+    sceneLocalResolved: result.prep.dialogueReview.sceneLocalResolved ?? 0,
+    collectiveResolved: result.prep.dialogueReview.collectiveResolved ?? 0,
     dialogueNeedsReview: result.prep.dialogueReview.needsReview,
     inferredNeedsReview: result.prep.dialogueReview.inferredReview,
     unresolvedDialogue: result.prep.dialogueReview.unresolved,

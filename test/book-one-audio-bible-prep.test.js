@@ -293,7 +293,7 @@ test('0.11.4 prep accounting uses applied narrator routing as the single quoted-
     const store = new InMemoryStore();
     const service = new BookOneAudioBiblePrepService(store);
     const result = await service.runFile(file);
-    assert.equal(result.prep.release, '0.11.6');
+    assert.equal(result.prep.release, '0.11.7');
     assert.equal(result.prep.intelligence.resolutionCounts.narratorRouted, result.prep.dialogueReview.quotedNarrationSegments);
     assert.equal(result.prep.providerCallsPerformed, 0);
   } finally {
@@ -366,8 +366,10 @@ test('0.11.5 creates a contextual anonymous role instead of forcing a core-cast 
   ingest.analysis.chapters[0].order = 20;
   const intelligence = buildDialogueIntelligence(ingest);
   const review = buildDialogueReviewQueue(ingest, { intelligence });
-  assert.ok(intelligence.provisionalRoles.some((x) => x.canonicalName === "Juan's Friend"));
-  assert.ok(review.autoBindings.some((x) => x.segmentId === segmentIdFor(ingest, 'Are you guys a throuple?') && x.speaker === "Juan's Friend"));
+  assert.equal(intelligence.provisionalRoles.some((x) => /Juan's Friend/.test(x.canonicalName)), false);
+  assert.ok(intelligence.sceneLocalRoles.some((x) => x.canonicalName === "Juan's Friend"));
+  assert.ok(review.sceneLocalBindings.some((x) => x.segmentId === segmentIdFor(ingest, 'Are you guys a throuple?') && x.speaker === "Juan's Friend"));
+  assert.equal(review.autoBindings.some((x) => /Juan's Friend/.test(x.speaker)), false);
 });
 
 test('0.11.5 closes safe embedded, label, playlist and collective-reveal quote patterns', () => {
@@ -385,8 +387,8 @@ test('0.11.5 prep exports explicit Superman engine provenance instead of a stale
     const store = new InMemoryStore();
     const service = new BookOneAudioBiblePrepService(store);
     const result = await service.runFile(file);
-    assert.equal(result.prep.release, '0.11.6');
-    assert.equal(result.prep.schemaVersion, 5);
+    assert.equal(result.prep.release, '0.11.7');
+    assert.equal(result.prep.schemaVersion, 6);
     assert.equal(typeof result.prep.superman.engineRelease, 'string');
     assert.equal(Object.hasOwn(result.prep.superman, 'release'), false);
     assert.equal(result.prep.providerCallsPerformed, 0);
@@ -396,19 +398,12 @@ test('0.11.5 prep exports explicit Superman engine provenance instead of a stale
 });
 
 
-test('0.11.6 does not promote Derek into the permanent Book One continuity roster', () => {
+test('0.11.6 does not promote Derek or scene-local extras into the permanent Book One continuity roster', () => {
   const report = fakeSupermanReport();
   report.characterDiscovery.candidates.push({ name: 'Derek', observedAs: ['Derek'], mentions: 2, averageConfidence: 0.88, highConfidenceMentions: 2, inferredReviewMentions: 0 });
-  const plan = buildBookOneCharacterPlan(report, { provisionalRoles: [{
-    canonicalName: "New Year's Couple – Man (Derek)", aliases: ['Derek'], role: 'minor', mentions: 1,
-    averageConfidence: 0.92, seriesCharacterKey: null, castingStatus: 'scene-local',
-    source: 'book-one-intelligence-contextual-role', continuityScope: 'scene'
-  }] });
+  const plan = buildBookOneCharacterPlan(report, { provisionalRoles: [] });
   assert.equal(plan.some((x) => x.canonicalName === 'Derek'), false);
-  const sceneRole = plan.find((x) => x.canonicalName === "New Year's Couple – Man (Derek)");
-  assert.ok(sceneRole);
-  assert.equal(sceneRole.continuityScope, 'scene');
-  assert.equal(sceneRole.seriesCharacterKey, null);
+  assert.equal(plan.some((x) => /New Year's Couple|Girlfriend/.test(x.canonicalName)), false);
 });
 
 test('0.11.6 names the anonymous New Years woman as a scene-local role, not Dereks Girlfriend', () => {
@@ -420,8 +415,8 @@ test('0.11.6 names the anonymous New Years woman as a scene-local role, not Dere
   ].join('\n'))));
   ingest.analysis.chapters[0].order = 34;
   const intelligence = buildDialogueIntelligence(ingest);
-  assert.equal(intelligence.provisionalRoles.some((x) => x.canonicalName === "Derek's Girlfriend"), false);
-  const woman = intelligence.provisionalRoles.find((x) => x.canonicalName === "New Year's Couple – Woman");
+  assert.equal(intelligence.provisionalRoles.some((x) => /Derek|Girlfriend|New Year's Eve/.test(x.canonicalName)), false);
+  const woman = intelligence.sceneLocalRoles.find((x) => x.canonicalName === "New Year's Couple – Woman");
   assert.ok(woman);
   assert.equal(woman.continuityScope, 'scene');
   assert.equal(woman.seriesCharacterKey, null);
@@ -442,4 +437,92 @@ test('0.11.6 resolves realtor action lead without promoting the realtor to serie
   const review = buildDialogueReviewQueue(ingest, { intelligence });
   assert.equal(review.queue.some((x) => x.dialogue.startsWith('Let me message the seller')), false);
   assert.ok(review.autoBindings.some((x) => x.speaker === 'Realtor'));
+});
+
+
+test('0.11.6 stores explicit together dialogue as a collective binding instead of inventing one speaker', () => {
+  const ingest = ingestShape([
+    'Chapter 1', '',
+    'Juan and Michael turned to each other, exchanging a look before pivoting in sync.', '',
+    '“Te amo,” they said together.'
+  ].join('\n'));
+  const intelligence = buildDialogueIntelligence(ingest);
+  const review = buildDialogueReviewQueue(ingest, { intelligence });
+  assert.equal(review.needsReview, 0);
+  assert.equal(review.collectiveBindings.length, 1);
+  assert.deepEqual(new Set(review.collectiveBindings[0].speakers), new Set(['Juan Delgado', 'Michael Rawlins']));
+  assert.equal(review.autoBindings.some((x) => x.segmentId === segmentIdFor(ingest, 'Te amo,')), false);
+});
+
+test('0.11.6 closes a turn-to/reactor line without assigning the reacting addressee', () => {
+  const ingest = ingestShape([
+    'Chapter 1', '',
+    'Michael read it once. Then again. Then turned to Juan, who was lounging on the couch.', '',
+    '“He’s really thinking about moving closer?”', '',
+    'Juan looked up, intrigued.'
+  ].join('\n'));
+  const intelligence = buildDialogueIntelligence(ingest);
+  const review = buildDialogueReviewQueue(ingest, { intelligence });
+  assert.equal(review.needsReview, 0);
+  assert.ok(review.autoBindings.some((x) => x.segmentId === segmentIdFor(ingest, 'He’s really thinking about moving closer?') && x.speaker === 'Michael Rawlins'));
+});
+
+
+test('0.11.7 speaker truth overrides a confident wrong candidate when same-paragraph attribution is explicit', () => {
+  const ingest = JSON.parse(JSON.stringify(ingestShape([
+    'Chapter 1', '',
+    'They unpacked the groceries.', '',
+    '“We got the ham and potatoes,” Michael announced.'
+  ].join('\n'))));
+  let target = null;
+  for (const chapter of ingest.analysis.chapters) for (const scene of chapter.scenes) for (const segment of scene.segments) {
+    if (segment.text === 'We got the ham and potatoes,') target = segment;
+  }
+  assert.ok(target);
+  target.speakerCandidate = { name: 'Juan', confidence: 0.77, evidence: 'context-before-action' };
+  const intelligence = buildDialogueIntelligence(ingest);
+  const review = buildDialogueReviewQueue(ingest, { intelligence });
+  const binding = review.autoBindings.find((x) => x.segmentId === segmentIdFor(ingest, 'We got the ham and potatoes,'));
+  assert.ok(binding);
+  assert.equal(binding.speaker, 'Michael Rawlins');
+  assert.ok(review.correctedSafeBindings >= 1);
+});
+
+test('0.11.7 future self-identification outranks generic pronoun proximity for an anonymous speaker', () => {
+  const ingest = ingestShape([
+    'Chapter 1', '',
+    'Juan grinned at the stranger.', '',
+    'The guy finally moved.', '',
+    '“Nice set,”', '',
+    'he said.', '',
+    '“You know how to work a crowd.”', '',
+    'Juan shrugged.', '',
+    '“I’m Christopher.”'
+  ].join('\n'));
+  const intelligence = buildDialogueIntelligence(ingest);
+  const review = buildDialogueReviewQueue(ingest, { intelligence });
+  for (const line of ['Nice set,', 'You know how to work a crowd.']) {
+    const binding = review.autoBindings.find((x) => x.segmentId === segmentIdFor(ingest, line));
+    assert.ok(binding);
+    assert.equal(binding.speaker, 'Christopher Lancaster');
+    assert.equal(binding.evidence, 'anonymous-speaker-backfilled-by-self-identification');
+  }
+});
+
+test('0.11.7 keeps split media titles as narrator text instead of inventing a one-mention character', () => {
+  const result = classifyQuotedNarration('Best Friend’s Ass', 'Famous Singer’s', 'dropped, the beat filling the room.');
+  assert.ok(result);
+  assert.equal(result.classification, 'quoted-narration');
+  assert.equal(result.evidence, 'split-song-title-not-dialogue');
+});
+
+test('0.11.7 one-mention names require spoken evidence before entering the permanent Audio Bible', () => {
+  const report = fakeSupermanReport();
+  report.characterDiscovery.candidates.push(
+    { name: 'Kayla', mentions: 1, averageConfidence: 0.77, highConfidenceMentions: 1, inferredReviewMentions: 0, observedAs: ['Kayla'] },
+    { name: 'Paris', mentions: 1, averageConfidence: 0.77, highConfidenceMentions: 1, inferredReviewMentions: 0, observedAs: ['Paris'] }
+  );
+  const plan = buildBookOneCharacterPlan(report, { spokenCharacterNames: new Set(['Kayla']) });
+  assert.ok(plan.some((x) => x.canonicalName === 'Kayla'));
+  assert.equal(plan.some((x) => x.canonicalName === 'Paris'), false);
 });

@@ -65,18 +65,23 @@ function bibleAliasesFor(candidate) {
   return freeze(out);
 }
 
-export function buildBookOneCharacterPlan(supermanReport, { includeNarrator = true, provisionalRoles = [] } = {}) {
+export function buildBookOneCharacterPlan(supermanReport, { includeNarrator = true, provisionalRoles = [], spokenCharacterNames = null } = {}) {
   const candidates = supermanReport?.characterDiscovery?.candidates ?? [];
   const rows = [];
   if (includeNarrator) {
     rows.push(freeze({
       canonicalName: 'Narrator', aliases: freeze([]), role: 'narrator', mentions: 0,
       averageConfidence: 1, castingPriority: 0, seriesCharacterKey: 'narrator',
-      castingStatus: 'unassigned', source: 'required-narration-role'
+      castingStatus: 'unassigned', source: 'required-narration-role', continuityScope: 'book'
     }));
   }
+  const spoken = spokenCharacterNames ? new Set([...spokenCharacterNames].map((name) => clean(name))) : null;
   for (const candidate of candidates) {
     if (SCENE_LOCAL_SOURCE_NAMES.has(candidate.name)) continue;
+    // One capitalized mention is not enough to become a permanent audiobook character.
+    // Keep it only when the dialogue resolver found real spoken evidence. This preserves true
+    // one-line roles (e.g. a named neighbor) while rejecting title/artist/name noise.
+    if (!PRIMARY.has(candidate.name) && Number(candidate.mentions) <= 1 && spoken && !spoken.has(candidate.name)) continue;
     const role = classifyBookOneCharacter(candidate);
     rows.push(freeze({
       canonicalName: candidate.name,
@@ -90,7 +95,8 @@ export function buildBookOneCharacterPlan(supermanReport, { includeNarrator = tr
       seriesCharacterKey: slug(candidate.name),
       castingStatus: 'unassigned',
       source: 'book-one-superman',
-      provisional: false
+      provisional: false,
+      continuityScope: 'book'
     }));
   }
   const existing = new Set(rows.map((row) => row.canonicalName.toLowerCase()));
@@ -191,6 +197,7 @@ function incrementAppliedIntelligence(counts, resolution) {
   else if (/pronoun-/.test(evidence)) counts.pronounContext += 1;
   else if (/two-speaker-reaction/.test(evidence)) counts.reactionExclusion += 1;
   else if (/two-speaker-/.test(evidence)) counts.twoSpeakerTurn += 1;
+  else if (/same-paragraph|residual-|anonymous-speaker-backfilled/.test(evidence)) counts.residualContext += 1;
   else if (/speaker-lead|speech-tag/.test(evidence)) counts.explicitContext += 1;
 }
 
@@ -204,6 +211,8 @@ export function buildDialogueReviewQueue(ingestResult, {
   const smart = intelligence ?? buildDialogueIntelligence(ingestResult, { aliases });
   const queue = [];
   const autoBindings = [];
+  const sceneLocalBindings = [];
+  const collectiveBindings = [];
   let autoBindable = 0;
   let unresolved = 0;
   let inferredReview = 0;
@@ -213,7 +222,35 @@ export function buildDialogueReviewQueue(ingestResult, {
   let correctedSafeBindings = 0;
   const appliedIntelligence = {
     narratorRouted: 0, selfIdentified: 0, explicitContext: 0, pronounContext: 0, pronounAfterTag: 0,
-    directAddress: 0, relationalRole: 0, contextualRole: 0, twoSpeakerTurn: 0, reactionExclusion: 0
+    directAddress: 0, relationalRole: 0, contextualRole: 0, twoSpeakerTurn: 0, reactionExclusion: 0,
+    residualContext: 0, collectiveDialogue: 0
+  };
+
+  const sceneLocalNames = new Set((smart.sceneLocalRoles ?? []).map((x) => x.canonicalName));
+  const recordResolution = (row, resolution, { originalSafe = false } = {}) => {
+    if (originalSafe) correctedSafeBindings += 1;
+    else {
+      reviewCandidatesBeforeIntelligence += 1;
+      intelligenceResolved += 1;
+    }
+    if (resolution.speaker === 'Narrator') quotedNarration += 1;
+    incrementAppliedIntelligence(appliedIntelligence, resolution);
+    if (resolution.speakers?.length) {
+      collectiveBindings.push(freeze({
+        segmentId: row.record?.id ?? null, speakers: freeze([...resolution.speakers]),
+        confidence: round(resolution.confidence, 3), evidence: resolution.evidence,
+        classification: resolution.classification ?? 'collective-dialogue', source: 'book-one-intelligence'
+      }));
+      appliedIntelligence.collectiveDialogue += 1;
+      return;
+    }
+    const binding = freeze({
+      segmentId: row.record?.id ?? null, speaker: resolution.speaker,
+      confidence: round(resolution.confidence, 3), evidence: resolution.evidence,
+      classification: resolution.classification ?? 'spoken-dialogue', source: 'book-one-intelligence'
+    });
+    if (resolution.continuityScope === 'scene' || sceneLocalNames.has(resolution.speaker)) sceneLocalBindings.push(binding);
+    else { autoBindable += 1; autoBindings.push(binding); }
   };
 
   for (let i = 0; i < rows.length; i += 1) {
@@ -228,25 +265,10 @@ export function buildDialogueReviewQueue(ingestResult, {
     const contradictionOverride = resolution?.authority === 'contradiction-override'
       && (!canonical || canonical === resolution.addressed || confidence < minAutoBindConfidence);
     const authoritative = Boolean(resolution && Number(resolution.confidence) >= 0.85
-      && (resolution.authority === 'override' || contradictionOverride));
+      && (resolution.authority === 'override' || resolution.authority === 'truth-override' || contradictionOverride));
 
     if (authoritative) {
-      autoBindable += 1;
-      if (originalSafe) correctedSafeBindings += 1;
-      else {
-        reviewCandidatesBeforeIntelligence += 1;
-        intelligenceResolved += 1;
-      }
-      if (resolution.speaker === 'Narrator') quotedNarration += 1;
-      incrementAppliedIntelligence(appliedIntelligence, resolution);
-      autoBindings.push(freeze({
-        segmentId: row.record?.id ?? null,
-        speaker: resolution.speaker,
-        confidence: round(resolution.confidence, 3),
-        evidence: resolution.evidence,
-        classification: resolution.classification ?? 'spoken-dialogue',
-        source: 'book-one-intelligence'
-      }));
+      recordResolution(row, resolution, { originalSafe });
       continue;
     }
 
@@ -265,18 +287,8 @@ export function buildDialogueReviewQueue(ingestResult, {
 
     reviewCandidatesBeforeIntelligence += 1;
     if (resolution && Number(resolution.confidence) >= 0.85) {
-      autoBindable += 1;
-      intelligenceResolved += 1;
-      if (resolution.speaker === 'Narrator') quotedNarration += 1;
-      incrementAppliedIntelligence(appliedIntelligence, resolution);
-      autoBindings.push(freeze({
-        segmentId: row.record?.id ?? null,
-        speaker: resolution.speaker,
-        confidence: round(resolution.confidence, 3),
-        evidence: resolution.evidence,
-        classification: resolution.classification ?? 'spoken-dialogue',
-        source: 'book-one-intelligence'
-      }));
+      reviewCandidatesBeforeIntelligence -= 1; // recordResolution owns this accounting
+      recordResolution(row, resolution);
       continue;
     }
 
@@ -325,8 +337,8 @@ export function buildDialogueReviewQueue(ingestResult, {
     else if (item.priority === 'manual-identify') priorityCounts.manualIdentify += 1;
   }
   return freeze({
-    totalDialogueSegments: autoBindable + queue.length,
-    spokenDialogueSegments: autoBindable + queue.length - quotedNarration,
+    totalDialogueSegments: autoBindable + sceneLocalBindings.length + collectiveBindings.length + queue.length,
+    spokenDialogueSegments: autoBindable + sceneLocalBindings.length + collectiveBindings.length + queue.length - quotedNarration,
     quotedNarrationSegments: quotedNarration,
     autoBindable,
     intelligenceResolved,
@@ -337,9 +349,11 @@ export function buildDialogueReviewQueue(ingestResult, {
     inferredReview,
     unresolved,
     priorityCounts: freeze(priorityCounts),
-    intelligenceDetected: freeze({ ...smart.counts, provisionalRoleCount: smart.provisionalRoles.length }),
-    intelligenceApplied: freeze({ ...appliedIntelligence, provisionalRoleCount: smart.provisionalRoles.length }),
+    intelligenceDetected: freeze({ ...smart.counts, provisionalRoleCount: smart.provisionalRoles.length, sceneLocalRoleCount: (smart.sceneLocalRoles ?? []).length }),
+    intelligenceApplied: freeze({ ...appliedIntelligence, provisionalRoleCount: smart.provisionalRoles.length, sceneLocalRoleCount: (smart.sceneLocalRoles ?? []).length }),
     autoBindings: freeze(autoBindings),
+    sceneLocalBindings: freeze(sceneLocalBindings),
+    collectiveBindings: freeze(collectiveBindings),
     queue: freeze(queue)
   });
 }
@@ -500,12 +514,15 @@ export function renderAudioBiblePrepMarkdown(prep) {
     `**Book:** ${prep.book.title}`,
     `**Author:** ${prep.book.author ?? 'Not supplied'}`, '',
     '## What YasReady prepared', '',
-    `- ${prep.characterPlan.filter((x) => (x.continuityScope ?? 'book') !== 'scene').length} permanent Audio Bible role(s) including Narrator`,
-    `- ${prep.characterPlan.filter((x) => x.continuityScope === 'scene').length} scene-local extra role(s) excluded from series continuity`,
-    `- ${prep.dialogueReview.autoBound.toLocaleString()} dialogue/displayed-text segment(s) safely resolved and bound`,
+    `- ${prep.characterPlan.length} permanent Audio Bible role(s) including Narrator`,
+    `- ${(prep.sceneLocalRoles ?? []).length} scene-local extra role(s) kept outside the permanent Audio Bible`,
+    `- ${prep.dialogueReview.safelyResolved.toLocaleString()} dialogue/displayed-text segment(s) safely resolved`,
+    `- ${prep.dialogueReview.autoBound.toLocaleString()} permanent-role/Narrator segment(s) bound into the Audio Bible`,
+    `- ${(prep.dialogueReview.sceneLocalResolved ?? 0).toLocaleString()} scene-local segment(s) resolved without creating permanent cast entries`,
+    `- ${(prep.dialogueReview.collectiveResolved ?? 0).toLocaleString()} collective dialogue segment(s) resolved without forcing a fake single speaker`,
     `- ${prep.intelligence?.reviewReduction?.toLocaleString?.() ?? 0} avoidable review chore(s) removed by ${prep.release} context-resolver intelligence`,
     `- ${prep.intelligence?.quotedNarrationSegments?.toLocaleString?.() ?? 0} quoted/displayed-text segment(s) routed to Narrator instead of fake speakers`,
-    `- ${(prep.intelligence?.provisionalRoles ?? []).length} provisional unnamed/relational speaking role(s) created from explicit context`,
+    `- ${(prep.intelligence?.provisionalRoles ?? []).length} durable book/series relational role(s) created from explicit context`,
     `- ${prep.dialogueReview.needsReview.toLocaleString()} genuinely ambiguous dialogue line(s) placed in the review CSV`,
     `- ${prep.dialogueReview.priorityCounts.quickConfirm.toLocaleString()} quick-confirm line(s)`,
     `- ${prep.dialogueReview.priorityCounts.singleNearbySpeaker.toLocaleString()} unresolved line(s) with one nearby speaker suggestion`,
@@ -518,6 +535,15 @@ export function renderAudioBiblePrepMarkdown(prep) {
   for (const row of prep.characterPlan) {
     lines.push(`| ${row.canonicalName.replace(/\|/g, '\\|')} | ${row.role} | ${row.continuityScope ?? 'book'} | ${row.mentions} | ${(row.aliases ?? []).join(', ').replace(/\|/g, '\\|')} |`);
   }
+  if ((prep.sceneLocalRoles ?? []).length) {
+    lines.push('', '## Scene-local extras', '',
+      'These roles are usable for the current scene but are deliberately excluded from permanent/series Audio Bible continuity.', '',
+      '| Scene role | Chapter | Mentions | Aliases |', '| --- | ---: | ---: | --- |');
+    for (const row of prep.sceneLocalRoles) {
+      lines.push(`| ${row.canonicalName.replace(/\|/g, '\\|')} | ${row.chapterOrder ?? ''} | ${row.mentions} | ${(row.aliases ?? []).join(', ').replace(/\|/g, '\\|')} |`);
+    }
+  }
+
   lines.push('', '## Review workflow', '',
     '1. Open `dialogue-review.csv`. Work top-to-bottom: one-suggestion rows first, then multi-speaker context review, then manual identification if any remain.',
     '2. Fill `selected_speaker`, set `decision` to `approved` or `corrected`, and add notes only when useful.',

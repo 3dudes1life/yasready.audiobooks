@@ -17,6 +17,7 @@
 - ✅ 0.11.4 Review Queue Closure
 - ✅ 0.11.5 Context Resolver Closure
 - ✅ 0.11.6 Residual Review Finalizer
+- ✅ 0.11.7 Speaker Truth Closure
 - ⏭️ 0.12.0 Series Continuity
 - 0.13.0 SaaS Money Guard
 - 0.14.0 External Book Superman
