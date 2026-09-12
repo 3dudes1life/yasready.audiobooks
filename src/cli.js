@@ -6,6 +6,7 @@ import {
   ProjectService
 } from './index.js';
 
+const VERSION = '0.9.0';
 const args = process.argv.slice(2);
 
 if (args[0] === 'analyze') {
@@ -20,7 +21,7 @@ if (args[0] === 'analyze') {
     const project = projects.create({ name: `Analysis — ${filePath}` });
     const result = manuscripts.ingestFile(project.id, filePath);
     console.log(JSON.stringify({
-      version: '0.8.0',
+      version: VERSION,
       format: result.analysis.source.format,
       metadata: result.analysis.metadata,
       metrics: result.analysis.metrics,
@@ -33,26 +34,17 @@ if (args[0] === 'analyze') {
   const projects = new ProjectService(store);
   const ledger = new CostLedger();
   const generations = new GenerationRegistry();
-
-  const project = projects.create({ name: 'YasReady Audiobooks — 0.8.0 Demo' });
+  const project = projects.create({ name: `YasReady Audiobooks — ${VERSION} Demo` });
   const generation = generations.register({
     text: 'Foundation test passage.', provider: 'demo-provider', model: 'demo-model',
     voiceId: 'demo-voice', settings: { stability: 'default' },
     pronunciationVersion: 'v1', directorInstructions: 'natural'
   });
-
-  ledger.record({
-    projectId: project.id, provider: 'demo-provider', operation: 'estimate', amountUsd: 0,
-    metadata: { fingerprint: generation.request.fingerprint }
-  });
-
+  ledger.record({ projectId: project.id, provider: 'demo-provider', operation: 'estimate', amountUsd: 0, metadata: { fingerprint: generation.request.fingerprint } });
   console.log(JSON.stringify({
-    version: '0.8.0', project,
+    version: VERSION, project,
     manuscriptCommand: 'node src/cli.js analyze <file>',
-    reviewStudio: 'ready',
-    continuityQa: 'ready',
-    forcedAlignment: 'provider-wired',
-    transcriptionQa: 'provider-wired-scribe-v2',
+    reviewStudio: 'ready', continuityQa: 'ready', masteringLab: 'ready',
     duplicateProtection: generation.request.fingerprint,
     recordedCostUsd: ledger.total(project.id), providerCallsPerformed: 0
   }, null, 2));

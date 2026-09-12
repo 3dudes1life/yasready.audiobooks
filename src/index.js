@@ -25,3 +25,6 @@ export * from './review/review-model.js';
 export * from './services/review-studio-service.js';
 export * from './qa/text-diff.js';
 export * from './services/continuity-qa-service.js';
+export * from './mastering/profiles.js';
+export * from './mastering/ffmpeg-adapter.js';
+export * from './services/mastering-lab-service.js';

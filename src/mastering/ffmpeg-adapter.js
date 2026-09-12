@@ -1,0 +1,201 @@
+import { execFile as execFileCb } from 'node:child_process';
+import { promisify } from 'node:util';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { getMasteringProfile } from './profiles.js';
+
+const defaultExec = promisify(execFileCb);
+const freeze = (value) => Object.freeze(value);
+
+function numberFrom(text, pattern) {
+  const matches = [...String(text ?? '').matchAll(pattern)];
+  if (!matches.length) return null;
+  const value = Number(matches.at(-1)[1]);
+  return Number.isFinite(value) ? value : null;
+}
+
+export function parseLoudnormJson(stderr) {
+  const text = String(stderr ?? '');
+  const blocks = [...text.matchAll(/\{[\s\S]*?"input_i"[\s\S]*?\}/g)];
+  if (!blocks.length) return null;
+  try { return JSON.parse(blocks.at(-1)[0]); } catch { return null; }
+}
+
+export function parseFfmpegAnalysis(stderr, probe = {}) {
+  const text = String(stderr ?? '');
+  const rmsDb = numberFrom(text, /RMS level dB:\s*(-?\d+(?:\.\d+)?)/g)
+    ?? numberFrom(text, /mean_volume:\s*(-?\d+(?:\.\d+)?)\s*dB/g);
+  const peakDb = numberFrom(text, /Peak level dB:\s*(-?\d+(?:\.\d+)?)/g)
+    ?? numberFrom(text, /max_volume:\s*(-?\d+(?:\.\d+)?)\s*dB/g);
+  const noiseFloorDb = /Noise floor dB:\s*-inf/i.test(text) ? -Infinity : numberFrom(text, /Noise floor dB:\s*(-?\d+(?:\.\d+)?)/g);
+  const silenceStarts = [...text.matchAll(/silence_start:\s*(\d+(?:\.\d+)?)/g)].map((m) => Number(m[1]) * 1000);
+  const silenceEnds = [...text.matchAll(/silence_end:\s*(\d+(?:\.\d+)?)/g)].map((m) => Number(m[1]) * 1000);
+  const durationMs = Number.isFinite(probe.durationSec) ? probe.durationSec * 1000 : null;
+  let leadingSilenceMs = 0;
+  let trailingSilenceMs = 0;
+  if (silenceStarts[0] === 0 && silenceEnds.length) leadingSilenceMs = silenceEnds[0];
+  if (durationMs != null && silenceStarts.length && (silenceEnds.length < silenceStarts.length || silenceEnds.at(-1) >= durationMs - 250)) {
+    trailingSilenceMs = Math.max(0, durationMs - silenceStarts.at(-1));
+  }
+  return freeze({ ...probe, rmsDb, peakDb, noiseFloorDb, leadingSilenceMs, trailingSilenceMs });
+}
+
+function concatEscape(file) {
+  return String(file).replace(/'/g, "'\\''");
+}
+
+function outputArgs(profile) {
+  const out = profile.output ?? {};
+  if (out.format === 'wav') return ['-c:a', out.codec ?? 'pcm_s24le', '-ar', String(out.sampleRateHz ?? 44100)];
+  if (out.format === 'flac') return ['-c:a', out.codec ?? 'flac', '-ar', String(out.sampleRateHz ?? 44100)];
+  return [
+    '-c:a', out.codec ?? 'libmp3lame', '-ar', String(out.sampleRateHz ?? 44100),
+    '-b:a', `${out.bitrateKbps ?? 192}k`,
+    ...(out.cbr ? ['-minrate', `${out.bitrateKbps ?? 192}k`, '-maxrate', `${out.bitrateKbps ?? 192}k`] : [])
+  ];
+}
+
+export class FfmpegAdapter {
+  constructor({ ffmpegPath = 'ffmpeg', ffprobePath = 'ffprobe', execFileImpl = defaultExec } = {}) {
+    this.ffmpegPath = ffmpegPath;
+    this.ffprobePath = ffprobePath;
+    this.execFile = execFileImpl;
+  }
+
+  async healthCheck() {
+    try {
+      const [{ stdout: ffmpeg }, { stdout: ffprobe }] = await Promise.all([
+        this.execFile(this.ffmpegPath, ['-version']),
+        this.execFile(this.ffprobePath, ['-version'])
+      ]);
+      return freeze({ ok: true, ffmpeg: String(ffmpeg).split('\n')[0], ffprobe: String(ffprobe).split('\n')[0] });
+    } catch (error) {
+      return freeze({ ok: false, reason: error?.message ?? String(error) });
+    }
+  }
+
+  async probe(inputPath) {
+    const { stdout } = await this.execFile(this.ffprobePath, [
+      '-v', 'error', '-select_streams', 'a:0',
+      '-show_entries', 'format=duration,bit_rate:stream=sample_rate,channels,channel_layout,codec_name,bit_rate',
+      '-of', 'json', inputPath
+    ]);
+    const parsed = JSON.parse(stdout);
+    const stream = parsed.streams?.[0] ?? {};
+    const bitrate = Number(stream.bit_rate ?? parsed.format?.bit_rate);
+    return freeze({
+      durationSec: Number(parsed.format?.duration) || null,
+      sampleRateHz: Number(stream.sample_rate) || null,
+      channels: Number(stream.channels) || null,
+      channelLayout: stream.channel_layout ?? null,
+      codec: stream.codec_name ?? null,
+      bitrateKbps: Number.isFinite(bitrate) ? Math.round(bitrate / 1000) : null
+    });
+  }
+
+  async analyze(inputPath) {
+    const probe = await this.probe(inputPath);
+    let stderr = '';
+    try {
+      const result = await this.execFile(this.ffmpegPath, [
+        '-hide_banner', '-nostats', '-i', inputPath,
+        '-af', 'astats=metadata=1:reset=0,volumedetect,silencedetect=noise=-60dB:d=0.1',
+        '-f', 'null', '-'
+      ], { maxBuffer: 8 * 1024 * 1024 });
+      stderr = result.stderr ?? '';
+    } catch (error) {
+      stderr = error?.stderr ?? '';
+      if (!stderr) throw error;
+    }
+    return parseFfmpegAnalysis(stderr, probe);
+  }
+
+  async extract(inputPath, { startMs = 0, endMs = null, outputPath }) {
+    if (!outputPath) throw new Error('extract requires outputPath');
+    const args = ['-y', '-hide_banner', '-loglevel', 'error', '-ss', (Math.max(0, startMs) / 1000).toFixed(3), '-i', inputPath];
+    if (endMs != null) args.push('-t', (Math.max(1, endMs - startMs) / 1000).toFixed(3));
+    args.push('-c:a', 'pcm_s24le', '-ar', '44100', outputPath);
+    await this.execFile(this.ffmpegPath, args, { maxBuffer: 8 * 1024 * 1024 });
+    return outputPath;
+  }
+
+  async concat(inputPaths, outputPath) {
+    if (!inputPaths?.length) throw new Error('concat requires inputs');
+    const dir = await mkdtemp(path.join(tmpdir(), 'yasready-concat-'));
+    const listPath = path.join(dir, 'files.txt');
+    try {
+      await writeFile(listPath, inputPaths.map((file) => `file '${concatEscape(file)}'`).join('\n'));
+      await this.execFile(this.ffmpegPath, [
+        '-y', '-hide_banner', '-loglevel', 'error', '-f', 'concat', '-safe', '0', '-i', listPath,
+        '-c:a', 'pcm_s24le', '-ar', '44100', outputPath
+      ], { maxBuffer: 8 * 1024 * 1024 });
+      return outputPath;
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+
+  async master(inputPath, outputPath, profileInput) {
+    const profile = getMasteringProfile(profileInput);
+    const loudness = profile.loudness ?? {};
+    const I = loudness.targetIntegratedLufs ?? -20.5;
+    const LRA = loudness.targetLraLu ?? 7;
+    const TP = loudness.targetTruePeakDbtp ?? -3.5;
+    const padMs = Math.max(0, Number(profile.edgeSilence?.minMs ?? 0));
+    const padSec = (padMs / 1000).toFixed(3);
+    const edgeFilter = padMs > 0 ? `adelay=${padMs}:all=1,apad=pad_dur=${padSec},` : '';
+    let firstPassStderr = '';
+    try {
+      const first = await this.execFile(this.ffmpegPath, [
+        '-hide_banner', '-nostats', '-i', inputPath,
+        '-af', `${edgeFilter}loudnorm=I=${I}:LRA=${LRA}:TP=${TP}:print_format=json`, '-f', 'null', '-'
+      ], { maxBuffer: 8 * 1024 * 1024 });
+      firstPassStderr = first.stderr ?? '';
+    } catch (error) {
+      firstPassStderr = error?.stderr ?? '';
+      if (!firstPassStderr) throw error;
+    }
+    const measured = parseLoudnormJson(firstPassStderr);
+    if (!measured) throw new Error('FFmpeg loudnorm did not return first-pass measurements');
+    const filter = edgeFilter + [
+      `loudnorm=I=${I}:LRA=${LRA}:TP=${TP}`,
+      `measured_I=${measured.input_i}`,
+      `measured_LRA=${measured.input_lra}`,
+      `measured_TP=${measured.input_tp}`,
+      `measured_thresh=${measured.input_thresh}`,
+      `offset=${measured.target_offset}`,
+      'linear=true:print_format=summary'
+    ].join(':');
+
+    const dir = await mkdtemp(path.join(tmpdir(), 'yasready-loudnorm-'));
+    const normalizedPath = path.join(dir, 'normalized.wav');
+    try {
+      await this.execFile(this.ffmpegPath, [
+        '-y', '-hide_banner', '-loglevel', 'error', '-i', inputPath,
+        '-af', filter, '-c:a', 'pcm_s24le', '-ar', String(profile.output?.sampleRateHz ?? 44100),
+        normalizedPath
+      ], { maxBuffer: 8 * 1024 * 1024 });
+
+      const normalizedAnalysis = await this.analyze(normalizedPath);
+      let correctiveGainDb = 0;
+      if (Number.isFinite(loudness.targetRmsDb) && Number.isFinite(normalizedAnalysis.rmsDb)) {
+        correctiveGainDb = loudness.targetRmsDb - normalizedAnalysis.rmsDb;
+        const peakLimit = Number.isFinite(loudness.targetTruePeakDbtp)
+          ? loudness.targetTruePeakDbtp
+          : (Number.isFinite(loudness.maxPeakDb) ? loudness.maxPeakDb - 0.25 : null);
+        if (Number.isFinite(peakLimit) && Number.isFinite(normalizedAnalysis.peakDb)) {
+          correctiveGainDb = Math.min(correctiveGainDb, peakLimit - normalizedAnalysis.peakDb);
+        }
+      }
+      const encodeArgs = ['-y', '-hide_banner', '-loglevel', 'error', '-i', normalizedPath];
+      if (Math.abs(correctiveGainDb) >= 0.01) encodeArgs.push('-af', `volume=${correctiveGainDb.toFixed(3)}dB`);
+      encodeArgs.push(...outputArgs(profile), outputPath);
+      await this.execFile(this.ffmpegPath, encodeArgs, { maxBuffer: 8 * 1024 * 1024 });
+      return freeze({ outputPath, measured, normalizedAnalysis, correctiveGainDb: Number(correctiveGainDb.toFixed(3)) });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+}
+
