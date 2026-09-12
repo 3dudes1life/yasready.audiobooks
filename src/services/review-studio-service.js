@@ -25,7 +25,15 @@ export class ReviewStudioService {
   }
 
   createSession(input) {
+    const production = this.store.get('production_plan', input.productionPlanId);
+    if (!production) throw new Error(`production_plan ${input.productionPlanId} not found`);
+    if (production.projectId !== input.projectId || production.bookId !== input.bookId) {
+      throw new Error('review session production plan must belong to the same project/book');
+    }
     const existing = this.store.list('review_session', (row) => row.productionPlanId === input.productionPlanId)[0];
+    if (existing && (existing.projectId !== input.projectId || existing.bookId !== input.bookId)) {
+      throw new Error('existing review session belongs to another project/book');
+    }
     return existing ?? this.store.put(createReviewSession(input, { clock: this.clock }));
   }
 
@@ -69,6 +77,10 @@ export class ReviewStudioService {
     const job = this.store.get('production_job', jobId);
     if (!job) throw new Error(`production_job ${jobId} not found`);
     if (job.status !== 'ready') throw new Error('only ready production jobs may enter Review Studio');
+    const session = this.getSession(chapter.sessionId);
+    if (job.projectId !== session.projectId || job.bookId !== session.bookId || job.planId !== session.productionPlanId) {
+      throw new Error('production job belongs to another project/book/production plan');
+    }
     if (!job.asset) throw new Error('ready production job has no asset reference');
     const takes = this.store.list('review_take', (row) => row.chapterReviewId === chapterReviewId);
     const resolvedLabel = label ?? nextTakeLabel(takes);

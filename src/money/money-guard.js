@@ -1,6 +1,6 @@
 import { sha256, stableJson } from '../core/hash.js';
 
-export const MONEY_GUARD_RELEASE = '0.13.0';
+export const MONEY_GUARD_RELEASE = '0.13.1';
 export const MONEY_GUARD_SCHEMA_VERSION = 1;
 
 const freeze = (value) => Object.freeze(value);

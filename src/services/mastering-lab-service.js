@@ -85,8 +85,12 @@ export class MasteringLabService {
   #assertUpstreamApproved(plan) {
     const session = this.store.get('review_session', plan.reviewSessionId);
     if (!session || session.status !== 'approved' || !session.locked) throw new Error('mastering requires an approved, locked Review Studio session');
+    if (session.projectId !== plan.projectId || session.bookId !== plan.bookId) throw new Error('mastering Review Studio session belongs to another project/book');
     const qaRun = this.store.get('qa_run', plan.qaRunId);
     if (!qaRun || qaRun.status !== 'approved' || !qaRun.locked) throw new Error('mastering requires an approved, locked QA run');
+    if (qaRun.projectId !== plan.projectId || qaRun.bookId !== plan.bookId || qaRun.reviewSessionId !== plan.reviewSessionId) {
+      throw new Error('mastering QA run belongs to another project/book/review session');
+    }
     return { session, qaRun };
   }
 

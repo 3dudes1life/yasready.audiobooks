@@ -29,9 +29,11 @@ if [[ ! -f "$PACKAGE" ]]; then
 fi
 if [[ -z "$CHARACTER" ]]; then echo "Enter series character key:"; read -r CHARACTER; fi
 if [[ -z "$VOICE_ID" ]]; then echo "Enter provider voice ID:"; read -r VOICE_ID; fi
+if [[ -z "$SAFETY_SCORE" ]]; then echo "Enter Casting Room series-safety score (0-100):"; read -r SAFETY_SCORE; fi
+if ! [[ "$SAFETY_SCORE" =~ ^[0-9]+([.][0-9]+)?$ ]]; then echo "❌ Safety score must be numeric."; exit 2; fi
 
 ARGS=(series-continuity-lock-voice "$PACKAGE" --character "$CHARACTER" --provider "$PROVIDER" --voice-id "$VOICE_ID" --approved-by operator --out "$PACKAGE")
-if [[ -n "$SAFETY_SCORE" ]]; then ARGS+=(--safety-score "$SAFETY_SCORE"); fi
+ARGS+=(--safety-score "$SAFETY_SCORE")
 
 cd "$REPO"
 node src/cli.js "${ARGS[@]}"

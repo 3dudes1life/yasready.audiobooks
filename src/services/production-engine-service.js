@@ -50,6 +50,19 @@ function countStatuses(jobs) {
   return counts;
 }
 
+function accountedProviderCost(result, fallback = null) {
+  const exact = Number(result?.actualCostUsd ?? result?.billedCostUsd);
+  if (Number.isFinite(exact) && exact >= 0) return { amountUsd: roundMoney(exact), costBasis: 'provider-settled' };
+  const estimatedFromBilling = Number(result?.estimatedCostUsd);
+  if (Number.isFinite(estimatedFromBilling) && estimatedFromBilling >= 0) {
+    return { amountUsd: roundMoney(estimatedFromBilling), costBasis: 'provider-billed-characters-estimate' };
+  }
+  const fallbackAmount = fallback === null || fallback === undefined || fallback === '' ? NaN : Number(fallback);
+  return Number.isFinite(fallbackAmount) && fallbackAmount >= 0
+    ? { amountUsd: roundMoney(fallbackAmount), costBasis: 'preflight-estimate' }
+    : { amountUsd: null, costBasis: 'unknown' };
+}
+
 export class ProductionEngineService {
   constructor(store, {
     directorService,
@@ -144,7 +157,7 @@ export class ProductionEngineService {
           estimatedCostUsd: roundMoney(estimate.amountUsd), estimatedCharacters: estimate.characters ?? renderText.length,
           budgetClass: 'initial', reuseAllowed: true, parentJobId: null, regenerationReason: null,
           status: 'queued', attemptCount: 0, asset: null, providerRequestId: null,
-          providerTraceId: null, billedCharacters: null, actualCostUsd: null, lastError: null,
+          providerTraceId: null, billedCharacters: null, accountedCostUsd: null, actualCostUsd: null, costBasis: null, lastError: null, failureStage: null,
           createdAt: nowIso(this.clock), updatedAt: nowIso(this.clock)
         })));
       }
@@ -180,6 +193,7 @@ export class ProductionEngineService {
     if (this.moneyGuard) {
       const guard = moneyGuardId ? this.moneyGuard.getGuard(moneyGuardId) : this.moneyGuard.activeGuardForProject(plan.projectId);
       if (!guard) throw new Error('Money Guard required for paid production but no active project guard exists');
+      if (guard.projectId !== plan.projectId) throw new Error('Money Guard belongs to another project');
       moneyAuthorization = this.moneyGuard.authorize(guard.id, {
         provider: plan.provider, operation: 'production_render', estimatedCostUsd: preflight.projectedTotalUsd,
         approvedBy, reason: reason || 'Production Engine arm', metadata: { planId: plan.id, bookId: plan.bookId }
@@ -202,13 +216,13 @@ export class ProductionEngineService {
   }
 
   actualSpend(planId) {
-    return roundMoney(this.store.list('production_job', (job) => job.planId === planId && job.status === 'ready')
-      .reduce((sum, job) => sum + (job.actualCostUsd ?? job.estimatedCostUsd ?? 0), 0));
+    return roundMoney(this.store.list('production_job', (job) => job.planId === planId)
+      .reduce((sum, job) => sum + (job.accountedCostUsd ?? job.actualCostUsd ?? 0), 0));
   }
 
   regenerationCommitted(planId) {
     return roundMoney(this.store.list('production_job', (job) => job.planId === planId && job.budgetClass === 'regeneration')
-      .reduce((sum, job) => sum + (job.actualCostUsd ?? job.estimatedCostUsd ?? 0), 0));
+      .reduce((sum, job) => sum + (job.accountedCostUsd ?? job.actualCostUsd ?? job.estimatedCostUsd ?? 0), 0));
   }
 
   requestRegeneration(sourceJobId, { reason } = {}) {
@@ -224,15 +238,15 @@ export class ProductionEngineService {
     return this.store.put(freeze({
       ...source, id: randomUUID(), parentJobId: source.id, budgetClass: 'regeneration', reuseAllowed: false,
       regenerationReason: reason, status: 'queued', attemptCount: 0, asset: null,
-      providerRequestId: null, providerTraceId: null, billedCharacters: null, actualCostUsd: null,
-      lastError: null, createdAt: nowIso(this.clock), updatedAt: nowIso(this.clock)
+      providerRequestId: null, providerTraceId: null, billedCharacters: null, accountedCostUsd: null, actualCostUsd: null, costBasis: null,
+      lastError: null, failureStage: null, createdAt: nowIso(this.clock), updatedAt: nowIso(this.clock)
     }));
   }
 
   findReusable(job) {
     if (!job.reuseAllowed) return null;
     return this.store.list('production_job', (candidate) =>
-      candidate.id !== job.id && candidate.fingerprint === job.fingerprint && candidate.status === 'ready' && candidate.asset
+      candidate.id !== job.id && candidate.projectId === job.projectId && candidate.fingerprint === job.fingerprint && candidate.status === 'ready' && candidate.asset
     )[0] ?? null;
   }
 
@@ -247,7 +261,7 @@ export class ProductionEngineService {
     if (reusable) {
       return this.store.update('production_job', job.id, (current) => freeze({
         ...current, status: 'ready', asset: reusable.asset, reusedFromJobId: reusable.id,
-        actualCostUsd: 0, billedCharacters: 0, updatedAt: nowIso(this.clock)
+        accountedCostUsd: 0, actualCostUsd: 0, costBasis: 'reused', billedCharacters: 0, failureStage: null, updatedAt: nowIso(this.clock)
       }));
     }
 
@@ -271,53 +285,80 @@ export class ProductionEngineService {
     if (typeof this.assetSink !== 'function') throw new Error('production rendering requires assetSink');
 
     let lastError = null;
+    let providerResult = null;
+    let billedCharacters = null;
+    let accountedCost = null;
+
+    // Retry only the provider request. Once the provider returns successfully, YasReady has crossed
+    // the billing boundary and must never call TTS again merely because downstream storage failed.
     for (let attempt = job.attemptCount + 1; attempt <= plan.maxAttempts; attempt += 1) {
       this.store.update('production_job', job.id, (current) => freeze({
-        ...current, status: attempt === 1 ? 'rendering' : 'retrying', attemptCount: attempt, updatedAt: nowIso(this.clock)
+        ...current, status: attempt === 1 ? 'rendering' : 'retrying', attemptCount: attempt,
+        failureStage: null, updatedAt: nowIso(this.clock)
       }));
       try {
-        const result = await provider.render({
+        providerResult = await provider.render({
           voiceId: job.voiceId, text: job.renderText, model: job.model, outputFormat: job.outputFormat,
           voiceSettings: job.voiceSettings, languageCode: job.languageCode,
           previousText: job.previousText, nextText: job.nextText
         });
-        const billedCharacters = Number.isFinite(Number(result.billedCharacters)) ? Number(result.billedCharacters) : job.estimatedCharacters;
-        let actualCostUsd = Number.isFinite(Number(result.estimatedCostUsd)) ? Number(result.estimatedCostUsd) : job.estimatedCostUsd;
-        actualCostUsd = roundMoney(actualCostUsd);
-        // Provider spend is captured immediately after a successful provider response. Storage/asset failures
-        // happen after the billable call and must never erase real spend from Money Guard or the ledger.
-        if (this.moneyGuard && plan.moneyAuthorizationId) {
+        billedCharacters = Number.isFinite(Number(providerResult.billedCharacters)) ? Number(providerResult.billedCharacters) : job.estimatedCharacters;
+        accountedCost = accountedProviderCost(providerResult, job.estimatedCostUsd);
+
+        if (this.moneyGuard && plan.moneyAuthorizationId && accountedCost.amountUsd !== null) {
           this.moneyGuard.capture(plan.moneyAuthorizationId, {
-            amountUsd: actualCostUsd, units: billedCharacters, unitType: 'characters',
-            metadata: { planId: plan.id, jobId: job.id, cueId: job.cueId, requestId: result.requestId ?? null, fingerprint: job.fingerprint, budgetClass: job.budgetClass }
+            amountUsd: accountedCost.amountUsd, units: billedCharacters, unitType: 'characters',
+            providerCall: true, costBasis: accountedCost.costBasis,
+            metadata: { planId: plan.id, jobId: job.id, cueId: job.cueId, requestId: providerResult.requestId ?? null, fingerprint: job.fingerprint, budgetClass: job.budgetClass }
           });
-        } else if (this.ledger) {
+        } else if (this.ledger && accountedCost.amountUsd !== null) {
           this.ledger.record({
             projectId: plan.projectId, provider: job.provider, operation: job.budgetClass === 'regeneration' ? 'production_regeneration' : 'production_render',
-            amountUsd: actualCostUsd, units: billedCharacters, unitType: 'characters',
-            metadata: { planId: plan.id, jobId: job.id, cueId: job.cueId, requestId: result.requestId ?? null, fingerprint: job.fingerprint }
+            amountUsd: accountedCost.amountUsd, units: billedCharacters, unitType: 'characters',
+            metadata: { planId: plan.id, jobId: job.id, cueId: job.cueId, requestId: providerResult.requestId ?? null, fingerprint: job.fingerprint, providerCall: true, costBasis: accountedCost.costBasis }
           });
         }
-        const asset = await this.assetSink(result, { plan, job: this.store.get('production_job', job.id) });
-        if (!asset || typeof asset !== 'object') throw new Error('assetSink must return an asset reference object');
-        if ('audio' in asset || 'data' in asset || 'bytesData' in asset) throw new Error('assetSink returned raw audio bytes; production store accepts references only');
-        return this.store.update('production_job', job.id, (current) => freeze({
-          ...current, status: 'ready', asset, providerRequestId: result.requestId ?? null,
-          providerTraceId: result.traceId ?? null, billedCharacters, actualCostUsd,
-          completedAt: nowIso(this.clock), lastError: null, updatedAt: nowIso(this.clock)
+
+        this.store.update('production_job', job.id, (current) => freeze({
+          ...current, status: 'rendered_pending_storage', providerRequestId: providerResult.requestId ?? null,
+          providerTraceId: providerResult.traceId ?? null, billedCharacters,
+          accountedCostUsd: accountedCost.amountUsd,
+          actualCostUsd: accountedCost.costBasis === 'provider-settled' ? accountedCost.amountUsd : null,
+          costBasis: accountedCost.costBasis, providerCompletedAt: nowIso(this.clock), lastError: null,
+          failureStage: null, updatedAt: nowIso(this.clock)
         }));
+        break;
       } catch (error) {
         lastError = error;
+        providerResult = null;
         const classification = classifyProductionError(error);
         if (!classification.retryable || attempt >= plan.maxAttempts) break;
         const delay = retryDelayMs(attempt, { random: this.random });
         await this.sleep(delay);
       }
     }
-    return this.store.update('production_job', job.id, (current) => freeze({
-      ...current, status: 'failed', lastError: String(lastError?.message ?? lastError ?? 'render failed'),
-      failedAt: nowIso(this.clock), updatedAt: nowIso(this.clock)
-    }));
+
+    if (!providerResult) {
+      return this.store.update('production_job', job.id, (current) => freeze({
+        ...current, status: 'failed', lastError: String(lastError?.message ?? lastError ?? 'render failed'),
+        failureStage: 'provider-render', failedAt: nowIso(this.clock), updatedAt: nowIso(this.clock)
+      }));
+    }
+
+    try {
+      const asset = await this.assetSink(providerResult, { plan, job: this.store.get('production_job', job.id) });
+      if (!asset || typeof asset !== 'object') throw new Error('assetSink must return an asset reference object');
+      if (['audio', 'data', 'bytes', 'bytesData'].some((key) => key in asset)) throw new Error('assetSink returned raw audio bytes; production store accepts references only');
+      return this.store.update('production_job', job.id, (current) => freeze({
+        ...current, status: 'ready', asset: freeze({ ...asset }),
+        completedAt: nowIso(this.clock), lastError: null, failureStage: null, updatedAt: nowIso(this.clock)
+      }));
+    } catch (error) {
+      return this.store.update('production_job', job.id, (current) => freeze({
+        ...current, status: 'failed', lastError: String(error?.message ?? error ?? 'asset storage failed'),
+        failureStage: 'asset-storage', failedAt: nowIso(this.clock), updatedAt: nowIso(this.clock)
+      }));
+    }
   }
 
   async run(planId, { maxJobs = null } = {}) {
@@ -348,14 +389,14 @@ export class ProductionEngineService {
     const counts = countStatuses(jobs);
     const ready = counts.ready ?? 0;
     const total = jobs.length;
-    const actualSpendUsd = this.actualSpend(planId);
+    const accountedSpendUsd = this.actualSpend(planId);
     const failed = jobs.filter((job) => job.status === 'failed').map((job) => ({ id: job.id, cueId: job.cueId, error: job.lastError }));
     return freeze({
       planId, status: plan.status, armed: plan.armed, totalJobs: total, counts: freeze(counts),
       completionPercent: total ? Number(((ready / total) * 100).toFixed(2)) : 0,
       initialEstimateUsd: plan.initialEstimateUsd, reserveBudgetUsd: plan.reserveBudgetUsd,
       projectedTotalUsd: plan.projectedTotalUsd, hardBudgetUsd: plan.hardBudgetUsd,
-      actualSpendUsd, remainingHardBudgetUsd: roundMoney(Math.max(0, plan.hardBudgetUsd - actualSpendUsd)),
+      accountedSpendUsd, actualSpendUsd: accountedSpendUsd, remainingHardBudgetUsd: roundMoney(Math.max(0, plan.hardBudgetUsd - accountedSpendUsd)),
       regenerationCommittedUsd: this.regenerationCommitted(planId),
       moneyGuard: this.moneyGuard && plan.moneyGuardId ? this.moneyGuard.report(plan.moneyGuardId) : null,
       failed: freeze(failed)

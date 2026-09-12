@@ -12,7 +12,7 @@ import {
   MoneyGuardService
 } from './index.js';
 
-const VERSION = '0.13.0';
+const VERSION = '0.13.1';
 const args = process.argv.slice(2);
 
 function flagValue(name, fallback = null) {
@@ -102,15 +102,20 @@ async function writeSeriesContinuityReports(result, outDir) {
 async function runSeriesContinuitySeed() {
   const prepPath = args[1];
   if (!prepPath) {
-    console.error('Usage: node src/cli.js series-continuity-seed <book-one-audio-bible-prep.json> [--out DIR] [--series-title TITLE] [--series-author AUTHOR]');
+    console.error('Usage: node src/cli.js series-continuity-seed <book-one-audio-bible-prep.json> [--existing series-continuity.json] [--out DIR] [--series-title TITLE] [--series-author AUTHOR]');
     process.exitCode = 2;
     return;
   }
   const prep = JSON.parse(await readFile(path.resolve(prepPath), 'utf8'));
+  const existingPath = flagValue('--existing');
+  const existingPackage = existingPath
+    ? JSON.parse(await readFile(path.resolve(existingPath), 'utf8'))
+    : null;
   const service = new SeriesContinuityService();
   const result = service.buildPackage(prep, {
     seriesTitle: flagValue('--series-title'),
-    seriesAuthor: flagValue('--series-author')
+    seriesAuthor: flagValue('--series-author'),
+    existingPackage
   });
   const out = flagValue('--out');
   const files = out ? await writeSeriesContinuityReports(result, out) : null;
@@ -133,6 +138,9 @@ async function runSeriesContinuitySeed() {
     lockedVoiceAssignments: result.package.voiceContinuity.lockedCount,
     pendingVoiceAssignments: result.package.voiceContinuity.pendingSeriesCharacterKeys.length,
     providerCallsPerformed: result.package.providerCallsPerformed,
+    refreshedFromExisting: Boolean(result.package.refresh),
+    preservedRelationshipLocks: result.package.refresh?.preservedRelationshipLocks ?? 0,
+    preservedVoiceLocks: result.package.refresh?.preservedVoiceLocks ?? 0,
     digest: result.package.digest,
     files
   }, null, 2));
@@ -427,7 +435,7 @@ if (args[0] === 'analyze') {
     manuscriptCommand: 'node src/cli.js analyze <file>',
     bookOneSupermanCommand: 'node src/cli.js superman <file> --out <directory>',
     bookOneAudioBiblePrepCommand: 'node src/cli.js audio-bible-prep <file> --out <directory>',
-    seriesContinuitySeedCommand: 'node src/cli.js series-continuity-seed <book-one-audio-bible-prep.json> --out <directory>',
+    seriesContinuitySeedCommand: 'node src/cli.js series-continuity-seed <book-one-audio-bible-prep.json> [--existing <series-continuity.json>] --out <directory>',
     seriesContinuityCompareCommand: 'node src/cli.js series-continuity-compare <series-continuity.json> <next-book-audio-bible-prep.json>',
     seriesRelationshipLockCommand: 'node src/cli.js series-continuity-lock-group <series-continuity.json> --members key1,key2,key3 --kind partner --out <file>',
     seriesVoiceLockCommand: 'node src/cli.js series-continuity-lock-voice <series-continuity.json> --character <key> --provider <provider> --voice-id <id> --out <file>',

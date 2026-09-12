@@ -2,7 +2,7 @@
 
 Professional audiobook production infrastructure for YasReady Publishing.
 
-**Current build: 0.13.0 — SaaS Money Guard**
+**Current build: 0.13.1 — Pre-External Superman / SaaS Boundary Hardening**
 
 YasReady Audiobooks is being developed as a standalone service first so audiobook experimentation cannot destabilize YasReady Publishing. The product goal is professional long-form audiobook production with strong continuity, human approval gates, cost protection, quality control, mastering and retailer-ready packaging.
 
@@ -30,6 +30,7 @@ YasReady Audiobooks is being developed as a standalone service first so audioboo
 - 0.12.0 Series Continuity — promotes locked book-level Audio Bible truth into stable series identities, excludes scene-only extras, preserves pronunciation decisions, blocks silent voice recasting, and provides next-book continuity comparison
 - 0.12.1 Relationship Continuity & Series Lock Hardening — adds locked relationship truth, explicit relationship-change protection, relationship drift comparison, voice-lock audit history and a required-core-voice lock state
 - 0.13.0 SaaS Money Guard — adds project/provider/operation spend ceilings, approval thresholds, reservation accounting, projected-vs-actual tracking, emergency lockdown, provider-overrun protection, and Casting/Production fail-closed spend authorization
+- 0.13.1 Pre-External Superman / SaaS Boundary Hardening — closes cross-project asset reuse, post-billing retry, QA spend-guard, series voice/materialization, safe-refresh and operator-flow gaps before external-book testing
 
 ## Book One Superman
 
@@ -65,11 +66,11 @@ After a book Audio Bible is locked, promote it into series truth:
 node src/cli.js series-continuity-seed "/path/to/book-one-audio-bible-prep.json" --out "$HOME/Desktop/Series-Continuity"
 ```
 
-0.12.1 keeps Narrator and primary identities required, carries recurring supporting/named minor roles forward, keeps generic provisional roles reference-only, and excludes scene-local extras entirely. Relationship truth can now be promoted or explicitly operator-locked, future books can be compared for direct relationship drift, and missing relationship mentions are not misclassified as contradictions. Identity, pronunciation and explicit relationship conflicts fail closed; voice and relationship replacements require explicit overrides with reasons and audit history. The Series Continuity workflow performs zero provider calls.
+0.12.1 keeps Narrator and primary identities required, carries recurring supporting/named minor roles forward, keeps generic provisional roles reference-only, and excludes scene-local extras entirely. Relationship truth can now be promoted or explicitly operator-locked, future books can be compared for direct relationship drift, and missing relationship mentions are not misclassified as contradictions. Identity, pronunciation and explicit relationship conflicts fail closed; voice and relationship replacements require explicit overrides with reasons and audit history. The Series Continuity workflow performs zero provider calls. 0.13.1 adds non-destructive `--existing` refresh so operator-confirmed relationship and voice locks survive a rebuild, and series voice locks require Casting Room safety scores.
 
 ## SaaS Money Guard
 
-0.13.0 adds a project-level safety envelope around paid provider actions. Money Guard reserves estimated spend before a provider call, counts open reservations against the hard cap, requires explicit approval for configured high-cost/warning-threshold actions, captures actual billable spend, and releases only unused reservation. Provider and operation ceilings can be lower than the project cap. If a provider overrun occurs, the charge remains visible and future spend locks down instead of hiding the variance. Money Guard never arms generation by itself; Casting Room and Production Engine still require their own workflow approvals.
+0.13.0 adds the project-level safety envelope. 0.13.1 hardens it across Casting, Production and Continuity + QA: provider calls are counted separately from simulations, QA alignment/transcription require guarded authorization when Money Guard is attached, audition reservations are released on every exit path, and a successful TTS response can never be retried merely because downstream asset storage failed. Captured dollars are **accounted spend** with an explicit cost basis; they are not mislabeled as a settled provider invoice when the provider only exposes billed-character estimates.
 
 Zero-spend validation:
 
@@ -105,6 +106,7 @@ npm test
 npm run check
 node src/cli.js
 npm run superman:fixture
+npm run boundary:fixture
 node src/cli.js audio-bible-prep <file> --out <directory>
 ```
 

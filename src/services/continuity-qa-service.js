@@ -38,6 +38,29 @@ function validateAssetPayload(payload) {
   });
 }
 
+function accountedProviderCost(result, fallback = null) {
+  const exact = Number(result?.actualCostUsd ?? result?.billedCostUsd);
+  if (Number.isFinite(exact) && exact >= 0) return { amountUsd: exact, costBasis: 'provider-settled' };
+  const estimated = Number(result?.estimatedCostUsd);
+  if (Number.isFinite(estimated) && estimated >= 0) return { amountUsd: estimated, costBasis: 'provider-estimate' };
+  const fallbackAmount = fallback === null || fallback === undefined || fallback === '' ? NaN : Number(fallback);
+  return Number.isFinite(fallbackAmount) && fallbackAmount >= 0
+    ? { amountUsd: fallbackAmount, costBasis: 'preflight-estimate' }
+    : { amountUsd: null, costBasis: 'unknown' };
+}
+
+async function qaEstimate(provider, kind, explicitAmount, context) {
+  const explicit = explicitAmount === null || explicitAmount === undefined || explicitAmount === '' ? NaN : Number(explicitAmount);
+  if (Number.isFinite(explicit) && explicit >= 0) return explicit;
+  const method = kind === 'alignment' ? provider?.estimateAlignmentCost : provider?.estimateTranscriptionCost;
+  if (typeof method === 'function') {
+    const result = await method.call(provider, context);
+    const amount = Number(result?.amountUsd ?? result);
+    if (Number.isFinite(amount) && amount >= 0) return amount;
+  }
+  throw new Error(`Money Guard requires an estimated ${kind} cost before the QA provider call`);
+}
+
 function severityRank(severity) {
   return ({ critical: 4, high: 3, medium: 2, low: 1, info: 0 })[severity] ?? 0;
 }
@@ -88,6 +111,7 @@ export class ContinuityQaService {
     audioBibleService = null,
     assetLoader = null,
     ledger = null,
+    moneyGuard = null,
     clock = () => new Date()
   } = {}) {
     if (!store) throw new Error('ContinuityQaService requires a store');
@@ -96,16 +120,22 @@ export class ContinuityQaService {
     this.audioBibleService = audioBibleService;
     this.assetLoader = assetLoader;
     this.ledger = ledger;
+    this.moneyGuard = moneyGuard;
     this.clock = clock;
   }
 
   createRun({ projectId, bookId, reviewSessionId, productionPlanId = null, bibleId = null, thresholds = {}, name = 'Continuity + QA' }) {
     if (!projectId || !bookId || !reviewSessionId) throw new Error('QA run requires projectId, bookId and reviewSessionId');
+    const session = this.store.get('review_session', reviewSessionId);
+    if (!session) throw new Error(`review_session ${reviewSessionId} not found`);
+    if (session.projectId !== projectId || session.bookId !== bookId) throw new Error('QA review session must belong to the same project/book');
+    const resolvedProductionPlanId = productionPlanId ?? session.productionPlanId ?? null;
+    if (resolvedProductionPlanId && session.productionPlanId && resolvedProductionPlanId !== session.productionPlanId) throw new Error('QA production plan does not match review session');
     const existing = this.store.list('qa_run', (row) => row.reviewSessionId === reviewSessionId && !row.locked)[0];
     if (existing) return existing;
     const now = nowIso(this.clock);
     return this.store.put(freeze({
-      id: randomUUID(), type: 'qa_run', projectId, bookId, reviewSessionId, productionPlanId,
+      id: randomUUID(), type: 'qa_run', projectId, bookId, reviewSessionId, productionPlanId: resolvedProductionPlanId,
       bibleId, name, thresholds: cleanThresholds(thresholds), status: 'in_progress', locked: false,
       reportCount: 0, createdAt: now, updatedAt: now
     }));
@@ -145,7 +175,9 @@ export class ContinuityQaService {
     runAlignment = true,
     runTranscription = true,
     sttModel = 'scribe_v2',
-    biasTranscriptionWithPronunciations = false
+    biasTranscriptionWithPronunciations = false,
+    moneyGuardId = null, approvedBy = null,
+    estimatedAlignmentCostUsd = null, estimatedTranscriptionCostUsd = null
   } = {}) {
     const run = this.#assertOpen(runId);
     const take = this.store.get('review_take', takeId);
@@ -153,6 +185,9 @@ export class ContinuityQaService {
     if (take.sessionId !== run.reviewSessionId) throw new Error('review take belongs to another QA session');
     const job = this.store.get('production_job', take.jobId);
     if (!job) throw new Error(`production_job ${take.jobId} not found`);
+    if (job.projectId !== run.projectId || job.bookId !== run.bookId || (run.productionPlanId && job.planId !== run.productionPlanId)) {
+      throw new Error('QA production job belongs to another project/book/production plan');
+    }
     const provider = this.providers[job.provider];
     if (!provider) throw new Error(`QA provider ${job.provider} is unavailable`);
     if (typeof this.assetLoader !== 'function') throw new Error('QA inspection requires assetLoader');
@@ -163,20 +198,80 @@ export class ContinuityQaService {
 
     let alignment = null;
     let transcription = null;
-    if (runAlignment) {
-      alignment = await provider.align({
-        audio: loaded.audio, sourceUrl: loaded.sourceUrl, text: canonical,
-        fileName: loaded.fileName, mediaType: loaded.mediaType
-      });
-    }
-    if (runTranscription) {
-      transcription = await provider.transcribe({
-        audio: loaded.audio, sourceUrl: loaded.sourceUrl,
-        fileName: loaded.fileName, mediaType: loaded.mediaType,
-        model: sttModel, languageCode: languageCode ?? job.languageCode ?? null,
-        diarize: false, tagAudioEvents: false, timestampsGranularity: 'word',
-        keyterms: biasTranscriptionWithPronunciations ? pronunciations.map((p) => p.term).slice(0, 1000) : []
-      });
+    const authorizations = new Map();
+    let alignmentEstimate = null;
+    let transcriptionEstimate = null;
+    let providerCallsPerformed = 0;
+
+    try {
+      if (this.moneyGuard && (runAlignment || runTranscription)) {
+        const guard = moneyGuardId ? this.moneyGuard.getGuard(moneyGuardId) : this.moneyGuard.activeGuardForProject(run.projectId);
+        if (!guard) throw new Error('Money Guard required for paid QA but no active project guard exists');
+        if (guard.projectId !== run.projectId) throw new Error('Money Guard belongs to another project');
+        if (runAlignment) {
+          alignmentEstimate = await qaEstimate(provider, 'alignment', estimatedAlignmentCostUsd, { take, job, canonical, loaded });
+          authorizations.set('alignment', this.moneyGuard.authorize(guard.id, {
+            provider: job.provider, operation: 'qa_alignment', estimatedCostUsd: alignmentEstimate,
+            approvedBy, reason: 'Continuity + QA forced alignment', metadata: { runId, takeId, jobId: job.id }
+          }));
+        }
+        if (runTranscription) {
+          transcriptionEstimate = await qaEstimate(provider, 'transcription', estimatedTranscriptionCostUsd, { take, job, canonical, loaded, sttModel });
+          authorizations.set('transcription', this.moneyGuard.authorize(guard.id, {
+            provider: job.provider, operation: 'qa_transcription', estimatedCostUsd: transcriptionEstimate,
+            approvedBy, reason: 'Continuity + QA transcription', metadata: { runId, takeId, jobId: job.id, sttModel }
+          }));
+        }
+      }
+
+      if (runAlignment) {
+        const auth = authorizations.get('alignment') ?? null;
+        if (auth && this.moneyGuard.getGuard(auth.guardId).status !== 'active') throw new Error('Money Guard blocked QA alignment provider call');
+        alignment = await provider.align({
+          audio: loaded.audio, sourceUrl: loaded.sourceUrl, text: canonical,
+          fileName: loaded.fileName, mediaType: loaded.mediaType
+        });
+        providerCallsPerformed += 1;
+        const accounted = accountedProviderCost(alignment, alignmentEstimate);
+        if (auth && accounted.amountUsd !== null) {
+          this.moneyGuard.capture(auth.id, {
+            amountUsd: accounted.amountUsd, providerCall: true, costBasis: accounted.costBasis,
+            metadata: { runId, takeId, jobId: job.id, operation: 'qa_alignment', requestId: alignment?.requestId ?? null }
+          });
+        } else if (this.ledger && accounted.amountUsd !== null) {
+          this.ledger.record({ projectId: run.projectId, provider: job.provider, operation: 'qa_alignment', amountUsd: accounted.amountUsd, metadata: { runId, takeId, jobId: job.id, providerCall: true, costBasis: accounted.costBasis } });
+        }
+      }
+      if (runTranscription) {
+        const auth = authorizations.get('transcription') ?? null;
+        if (auth && this.moneyGuard.getGuard(auth.guardId).status !== 'active') throw new Error('Money Guard blocked QA transcription provider call');
+        transcription = await provider.transcribe({
+          audio: loaded.audio, sourceUrl: loaded.sourceUrl,
+          fileName: loaded.fileName, mediaType: loaded.mediaType,
+          model: sttModel, languageCode: languageCode ?? job.languageCode ?? null,
+          diarize: false, tagAudioEvents: false, timestampsGranularity: 'word',
+          keyterms: biasTranscriptionWithPronunciations ? pronunciations.map((p) => p.term).slice(0, 1000) : []
+        });
+        providerCallsPerformed += 1;
+        const accounted = accountedProviderCost(transcription, transcriptionEstimate);
+        if (auth && accounted.amountUsd !== null) {
+          this.moneyGuard.capture(auth.id, {
+            amountUsd: accounted.amountUsd, providerCall: true, costBasis: accounted.costBasis,
+            metadata: { runId, takeId, jobId: job.id, operation: 'qa_transcription', requestId: transcription?.requestId ?? null, sttModel }
+          });
+        } else if (this.ledger && accounted.amountUsd !== null) {
+          this.ledger.record({ projectId: run.projectId, provider: job.provider, operation: 'qa_transcription', amountUsd: accounted.amountUsd, metadata: { runId, takeId, jobId: job.id, providerCall: true, costBasis: accounted.costBasis, sttModel } });
+        }
+      }
+    } finally {
+      if (this.moneyGuard) {
+        for (const auth of authorizations.values()) {
+          const current = this.store.get('money_authorization', auth.id);
+          if (current && ['authorized', 'partially_captured', 'captured'].includes(current.status)) {
+            this.moneyGuard.release(auth.id, { reason: 'QA operation finished; unused reservation released' });
+          }
+        }
+      }
     }
 
     const comparison = transcription ? compareTranscript(canonical, transcription.text ?? '') : null;
@@ -212,7 +307,7 @@ export class ContinuityQaService {
         languageProbability: transcription.language_probability ?? null,
         text: transcription.text ?? '', wordCount: transcription.words?.filter?.((w) => !w.type || w.type === 'word')?.length ?? null
       }) : null,
-      comparison, findingCount: findings.length, status,
+      comparison, findingCount: findings.length, status, providerCallsPerformed,
       biasTranscriptionWithPronunciations: Boolean(biasTranscriptionWithPronunciations),
       createdAt: nowIso(this.clock), updatedAt: nowIso(this.clock)
     }));

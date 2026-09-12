@@ -4,12 +4,13 @@ import { InMemoryStore } from '../src/repositories/in-memory-store.js';
 import { ReviewStudioService } from '../src/services/review-studio-service.js';
 
 function readyJob(store, id, asset = { storageLocator: `private://${id}.mp3`, mediaType: 'audio/mpeg' }) {
-  return store.put(Object.freeze({ id, type: 'production_job', status: 'ready', asset, estimatedCostUsd: 1 }));
+  return store.put(Object.freeze({ id, type: 'production_job', projectId: 'p1', bookId: 'b1', planId: 'prod1', status: 'ready', asset, estimatedCostUsd: 1 }));
 }
 
 function setup({ productionEngine = null } = {}) {
   const store = new InMemoryStore();
   const studio = new ReviewStudioService(store, { productionEngine });
+  store.put(Object.freeze({ id: 'prod1', type: 'production_plan', projectId: 'p1', bookId: 'b1' }));
   const session = studio.createSession({ projectId: 'p1', bookId: 'b1', productionPlanId: 'prod1' });
   const chapter = studio.openChapter(session.id, { chapterId: 'c1', order: 1, title: 'Chapter One' });
   return { store, studio, session, chapter };
@@ -29,7 +30,7 @@ test('review session is idempotent per production plan', () => {
 
 test('registerTake only accepts ready production jobs and auto labels A/B/C', () => {
   const { store, studio, chapter } = setup();
-  store.put(Object.freeze({ id: 'bad', type: 'production_job', status: 'queued', asset: { storageLocator: 'x' } }));
+  store.put(Object.freeze({ id: 'bad', type: 'production_job', projectId: 'p1', bookId: 'b1', planId: 'prod1', status: 'queued', asset: { storageLocator: 'x' } }));
   assert.throws(() => studio.registerTake(chapter.id, { jobId: 'bad' }), /only ready/);
   readyJob(store, 'j1'); readyJob(store, 'j2'); readyJob(store, 'j3');
   assert.equal(studio.registerTake(chapter.id, { jobId: 'j1' }).label, 'A');

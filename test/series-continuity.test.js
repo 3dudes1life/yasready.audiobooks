@@ -149,8 +149,8 @@ test('series voice lock cannot be silently recast', () => {
   pkg = withSeriesVoiceLock(pkg, { seriesCharacterKey: 'michael-rawlins', provider: 'elevenlabs', providerVoiceId: 'voice-a', safetyScore: 92 });
   assert.equal(pkg.voiceContinuity.lockedCount, 1);
   assert.equal(verifySeriesContinuityPackage(pkg).valid, true);
-  assert.throws(() => withSeriesVoiceLock(pkg, { seriesCharacterKey: 'michael-rawlins', provider: 'elevenlabs', providerVoiceId: 'voice-b' }), /explicit override/);
-  const changed = withSeriesVoiceLock(pkg, { seriesCharacterKey: 'michael-rawlins', provider: 'elevenlabs', providerVoiceId: 'voice-b', override: true, reason: 'author-approved recast' });
+  assert.throws(() => withSeriesVoiceLock(pkg, { seriesCharacterKey: 'michael-rawlins', provider: 'elevenlabs', providerVoiceId: 'voice-b', safetyScore: 90 }), /explicit override/);
+  const changed = withSeriesVoiceLock(pkg, { seriesCharacterKey: 'michael-rawlins', provider: 'elevenlabs', providerVoiceId: 'voice-b', safetyScore: 90, override: true, reason: 'author-approved recast' });
   assert.equal(changed.voiceContinuity.assignments[0].providerVoiceId, 'voice-b');
 });
 

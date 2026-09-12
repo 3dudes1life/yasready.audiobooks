@@ -10,6 +10,27 @@ function requireValue(value, label) {
   return value;
 }
 
+function assertAssetReference(asset) {
+  if (!asset || typeof asset !== 'object') throw new Error('Casting Room assetSink must return an asset reference object');
+  if (['audio', 'data', 'bytes', 'bytesData'].some((key) => key in asset)) {
+    throw new Error('Casting Room stores asset references, not raw audio bytes');
+  }
+  return asset;
+}
+
+function accountedProviderCost(result, fallback = null) {
+  const exact = Number(result?.actualCostUsd ?? result?.billedCostUsd);
+  if (Number.isFinite(exact) && exact >= 0) return { amountUsd: exact, costBasis: 'provider-settled' };
+  const estimatedFromBilling = Number(result?.estimatedCostUsd);
+  if (Number.isFinite(estimatedFromBilling) && estimatedFromBilling >= 0) {
+    return { amountUsd: estimatedFromBilling, costBasis: 'provider-billed-characters-estimate' };
+  }
+  const fallbackAmount = fallback === null || fallback === undefined || fallback === '' ? NaN : Number(fallback);
+  return Number.isFinite(fallbackAmount) && fallbackAmount >= 0
+    ? { amountUsd: fallbackAmount, costBasis: 'preflight-estimate' }
+    : { amountUsd: null, costBasis: 'unknown' };
+}
+
 export class CastingRoomService {
   constructor(store, { clock = () => new Date(), minimumSeriesSafety = 70 } = {}) {
     if (!store) throw new Error('CastingRoomService requires a store');
@@ -90,58 +111,97 @@ export class CastingRoomService {
     if (!estimate.withinBudget && !allowOverBudget) {
       throw new Error(`audition estimate $${estimate.amountUsd.toFixed(2)} exceeds $${plan.maxSpendUsd.toFixed(2)} budget`);
     }
+
     const moneyAuthorizations = new Map();
-    if (moneyGuard) {
-      const guard = moneyGuardId ? moneyGuard.getGuard(moneyGuardId) : moneyGuard.activeGuardForProject(plan.projectId);
-      if (!guard) throw new Error('Money Guard required for paid audition but no active project guard exists');
-      const byProvider = new Map();
-      for (const line of estimate.lines) {
-        const candidate = this.store.get('voice_candidate', line.candidateId);
-        byProvider.set(candidate.provider, Number(((byProvider.get(candidate.provider) ?? 0) + line.amountUsd).toFixed(6)));
+    let completed = false;
+    try {
+      if (moneyGuard) {
+        const guard = moneyGuardId ? moneyGuard.getGuard(moneyGuardId) : moneyGuard.activeGuardForProject(plan.projectId);
+        if (!guard) throw new Error('Money Guard required for paid audition but no active project guard exists');
+        if (guard.projectId !== plan.projectId) throw new Error('Money Guard belongs to another project');
+        const byProvider = new Map();
+        for (const line of estimate.lines) {
+          const candidate = this.store.get('voice_candidate', line.candidateId);
+          byProvider.set(candidate.provider, Number(((byProvider.get(candidate.provider) ?? 0) + line.amountUsd).toFixed(6)));
+        }
+        for (const [providerName, amountUsd] of byProvider.entries()) {
+          const authorization = moneyGuard.authorize(guard.id, {
+            provider: providerName, operation: 'audition_render', estimatedCostUsd: amountUsd,
+            approvedBy, reason: 'Casting Room audition plan', metadata: { planId: plan.id, characterId: plan.characterId }
+          });
+          moneyAuthorizations.set(providerName, authorization);
+        }
       }
-      for (const [providerName, amountUsd] of byProvider.entries()) {
-        const authorization = moneyGuard.authorize(guard.id, {
-          provider: providerName, operation: 'audition_render', estimatedCostUsd: amountUsd,
-          approvedBy, reason: 'Casting Room audition plan', metadata: { planId: plan.id, characterId: plan.characterId }
-        });
-        moneyAuthorizations.set(providerName, authorization);
+
+      const takes = [];
+      for (const candidateId of plan.candidateIds) {
+        const candidate = this.store.get('voice_candidate', candidateId);
+        const provider = providers[candidate.provider];
+        for (const script of plan.scripts) {
+          const fingerprint = renderFingerprint({ text: script.text, provider: candidate.provider, model: plan.model, voiceId: candidate.providerVoiceId, settings: { audition: true, purpose: script.purpose } });
+          const existing = this.store.list('audition_take', (take) =>
+            take.projectId === plan.projectId && take.planId === plan.id && take.candidateId === candidateId && take.scriptId === script.id && take.fingerprint === fingerprint && take.status === 'ready'
+          )[0];
+          if (existing) { takes.push(existing); continue; }
+
+          const moneyAuthorization = moneyAuthorizations.get(candidate.provider) ?? null;
+          if (moneyAuthorization) {
+            const guard = moneyGuard.getGuard(moneyAuthorization.guardId);
+            if (guard.status !== 'active') throw new Error(`Money Guard is ${guard.status}; audition provider call blocked`);
+          }
+
+          const result = await provider.render({ voiceId: candidate.providerVoiceId, text: script.text, model: plan.model });
+          const lineEstimate = estimate.lines.find((line) => line.candidateId === candidateId && line.scriptId === script.id);
+          const accounted = accountedProviderCost(result, lineEstimate?.amountUsd ?? null);
+          if (moneyAuthorization && accounted.amountUsd !== null) {
+            moneyGuard.capture(moneyAuthorization.id, {
+              amountUsd: accounted.amountUsd,
+              units: result.billedCharacters ?? script.text.length,
+              unitType: 'characters',
+              providerCall: true,
+              costBasis: accounted.costBasis,
+              metadata: { planId, candidateId, scriptId: script.id, fingerprint, requestId: result.requestId ?? null }
+            });
+          } else if (ledger && accounted.amountUsd !== null) {
+            ledger.record({
+              projectId: plan.projectId, provider: candidate.provider, operation: 'audition_render', amountUsd: accounted.amountUsd,
+              units: result.billedCharacters ?? script.text.length, unitType: 'characters',
+              metadata: { planId, candidateId, scriptId: script.id, fingerprint, providerCall: true, costBasis: accounted.costBasis, requestId: result.requestId ?? null }
+            });
+          }
+
+          const asset = assertAssetReference(await assetSink(result, { plan, candidate, script, fingerprint }));
+          const take = this.store.put(freeze({
+            id: randomUUID(), type: 'audition_take', projectId: plan.projectId, planId,
+            characterId: plan.characterId, candidateId, scriptId: script.id, fingerprint,
+            asset: freeze({ ...asset }), accountedCostUsd: accounted.amountUsd,
+            actualCostUsd: accounted.costBasis === 'provider-settled' ? accounted.amountUsd : null,
+            costBasis: accounted.costBasis, status: 'ready', createdAt: nowIso(this.clock)
+          }));
+          takes.push(take);
+        }
+      }
+      completed = true;
+      this.store.update('audition_plan', plan.id, (current) => freeze({
+        ...current, status: 'rendered', moneyAuthorizationIds: freeze([...moneyAuthorizations.values()].map((row) => row.id)), updatedAt: nowIso(this.clock)
+      }));
+      return freeze(takes);
+    } catch (error) {
+      this.store.update('audition_plan', plan.id, (current) => freeze({
+        ...current, status: 'needs_attention', lastError: String(error?.message ?? error),
+        moneyAuthorizationIds: freeze([...moneyAuthorizations.values()].map((row) => row.id)), updatedAt: nowIso(this.clock)
+      }));
+      throw error;
+    } finally {
+      if (moneyGuard) {
+        for (const authorization of moneyAuthorizations.values()) {
+          const current = this.store.get('money_authorization', authorization.id);
+          if (current && ['authorized', 'partially_captured', 'captured'].includes(current.status)) {
+            moneyGuard.release(authorization.id, { reason: completed ? 'audition plan completed; unused estimate buffer released' : 'audition plan stopped; unused reservation released' });
+          }
+        }
       }
     }
-    const takes = [];
-    for (const candidateId of plan.candidateIds) {
-      const candidate = this.store.get('voice_candidate', candidateId);
-      const provider = providers[candidate.provider];
-      for (const script of plan.scripts) {
-        const fingerprint = renderFingerprint({ text: script.text, provider: candidate.provider, model: plan.model, voiceId: candidate.providerVoiceId, settings: { audition: true, purpose: script.purpose } });
-        const existing = this.store.list('audition_take', (take) => take.fingerprint === fingerprint)[0];
-        if (existing) { takes.push(existing); continue; }
-        const moneyAuthorization = moneyAuthorizations.get(candidate.provider) ?? null;
-        if (moneyAuthorization) {
-          const guard = moneyGuard.getGuard(moneyAuthorization.guardId);
-          if (guard.status !== 'active') throw new Error(`Money Guard is ${guard.status}; audition provider call blocked`);
-        }
-        const result = await provider.render({ voiceId: candidate.providerVoiceId, text: script.text, model: plan.model });
-        const lineEstimate = estimate.lines.find((line) => line.candidateId === candidateId && line.scriptId === script.id);
-        const estimatedLineCost = lineEstimate?.amountUsd ?? null;
-        const actualCostUsd = Number.isFinite(Number(result.estimatedCostUsd)) ? Number(result.estimatedCostUsd) : estimatedLineCost;
-        // Capture billable spend before writing the asset; a storage failure does not make a provider call free.
-        if (moneyAuthorization && actualCostUsd !== null) {
-          moneyGuard.capture(moneyAuthorization.id, { amountUsd: actualCostUsd, units: result.billedCharacters ?? script.text.length, unitType: 'characters', metadata: { planId, candidateId, scriptId: script.id, fingerprint } });
-        } else if (ledger && actualCostUsd !== null) {
-          ledger.record({ projectId: plan.projectId, provider: candidate.provider, operation: 'audition_render', amountUsd: actualCostUsd, metadata: { planId, candidateId, scriptId: script.id, fingerprint } });
-        }
-        const asset = await assetSink(result, { plan, candidate, script, fingerprint });
-        const take = this.store.put(freeze({
-          id: randomUUID(), type: 'audition_take', projectId: plan.projectId, planId,
-          characterId: plan.characterId, candidateId, scriptId: script.id, fingerprint,
-          asset, estimatedCostUsd: actualCostUsd, status: 'ready', createdAt: nowIso(this.clock)
-        }));
-        takes.push(take);
-      }
-    }
-    for (const authorization of moneyAuthorizations.values()) moneyGuard.release(authorization.id, { reason: 'audition plan completed; unused estimate buffer released' });
-    this.store.update('audition_plan', plan.id, (current) => freeze({ ...current, status: 'rendered', moneyAuthorizationIds: freeze([...moneyAuthorizations.values()].map((row) => row.id)), updatedAt: nowIso(this.clock) }));
-    return freeze(takes);
   }
 
   lockCast({ projectId, seriesId = null, bookId = null, characterId, candidateId, scope = seriesId ? 'series' : 'book', approvedBy = 'operator', overrideRisk = false, reason = null }) {
@@ -161,6 +221,41 @@ export class CastingRoomService {
       characterId, scope, provider: candidate.provider, providerVoiceId: candidate.providerVoiceId,
       candidateId, safetySnapshot: candidate.safety, locked: true, approvedBy,
       riskOverride: Boolean(overrideRisk), riskOverrideReason: reason,
+      source: 'casting-room',
+      createdAt: existing?.createdAt ?? nowIso(this.clock), updatedAt: nowIso(this.clock)
+    });
+    return existing ? this.store.update('voice_assignment', existing.id, () => record) : this.store.put(record);
+  }
+
+  importSeriesAssignment({
+    projectId, seriesId, characterId, provider, providerVoiceId, safetyScore,
+    approvedBy = 'series-continuity', overrideRisk = false, reason = null
+  }) {
+    requireValue(projectId, 'projectId');
+    requireValue(seriesId, 'seriesId');
+    requireValue(characterId, 'characterId');
+    requireValue(provider, 'provider');
+    requireValue(providerVoiceId, 'providerVoiceId');
+    const score = Number(safetyScore);
+    if (!Number.isFinite(score) || score < 0 || score > 100) throw new Error('imported series voice requires safetyScore between 0 and 100');
+    if (score < this.minimumSeriesSafety && !overrideRisk) {
+      throw new Error(`series cast import blocked: safety score ${score}/${this.minimumSeriesSafety}`);
+    }
+    if (overrideRisk && !String(reason ?? '').trim()) throw new Error('risk override requires a reason');
+
+    const existing = this.store.list('voice_assignment', (item) =>
+      item.projectId === projectId && item.seriesId === seriesId && item.characterId === characterId && item.scope === 'series'
+    )[0];
+    if (existing?.locked) {
+      if (existing.provider === provider && existing.providerVoiceId === providerVoiceId) return existing;
+      throw new Error('series cast assignment is locked; explicit Casting Room unlock is required before recasting');
+    }
+    const record = freeze({
+      id: existing?.id ?? randomUUID(), type: 'voice_assignment', projectId, seriesId, bookId: null,
+      characterId, scope: 'series', provider, providerVoiceId, candidateId: null,
+      safetySnapshot: freeze({ score, source: 'series-continuity-package' }), locked: true, approvedBy,
+      riskOverride: Boolean(overrideRisk), riskOverrideReason: reason,
+      source: 'series-continuity-package',
       createdAt: existing?.createdAt ?? nowIso(this.clock), updatedAt: nowIso(this.clock)
     });
     return existing ? this.store.update('voice_assignment', existing.id, () => record) : this.store.put(record);

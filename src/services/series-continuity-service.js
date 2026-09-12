@@ -1,6 +1,8 @@
 import { AudioBibleService } from './audio-bible-service.js';
+import { CastingRoomService } from './casting-room-service.js';
 import {
   buildSeriesContinuityPackage,
+  refreshSeriesContinuityPackage,
   compareBookToSeriesContinuity,
   renderSeriesCharacterCsv,
   renderSeriesContinuityMarkdown,
@@ -15,13 +17,17 @@ import {
 const freeze = (value) => Object.freeze(value);
 
 export class SeriesContinuityService {
-  constructor(store = null) {
+  constructor(store = null, { audioBibleService = null, castingRoomService = null } = {}) {
     this.store = store;
-    this.audioBible = store ? new AudioBibleService(store) : null;
+    this.audioBible = store ? (audioBibleService ?? new AudioBibleService(store)) : null;
+    this.castingRoom = store ? (castingRoomService ?? new CastingRoomService(store)) : null;
   }
 
   buildPackage(prep, options = {}) {
-    const seriesPackage = buildSeriesContinuityPackage(prep, options);
+    const { existingPackage = null, ...buildOptions } = options ?? {};
+    const seriesPackage = existingPackage
+      ? refreshSeriesContinuityPackage(prep, existingPackage, buildOptions)
+      : buildSeriesContinuityPackage(prep, buildOptions);
     return freeze({
       package: seriesPackage,
       markdown: renderSeriesContinuityMarkdown(seriesPackage),
@@ -29,6 +35,10 @@ export class SeriesContinuityService {
       pronunciationCsv: renderSeriesPronunciationCsv(seriesPackage),
       relationshipCsv: renderSeriesRelationshipCsv(seriesPackage)
     });
+  }
+
+  refreshPackage(prep, existingPackage, options = {}) {
+    return this.buildPackage(prep, { ...options, existingPackage });
   }
 
   compare(seriesPackage, nextPrep) {
@@ -112,8 +122,32 @@ export class SeriesContinuityService {
       });
     }
 
+    const voiceAssignments = [];
+    for (const row of seriesPackage.voiceContinuity?.assignments ?? []) {
+      const character = characterByKey.get(row.seriesCharacterKey);
+      if (!character) throw new Error(`series voice assignment references unknown character ${row.seriesCharacterKey}`);
+      voiceAssignments.push(this.castingRoom.importSeriesAssignment({
+        projectId,
+        seriesId: series.id,
+        characterId: character.id,
+        provider: row.provider,
+        providerVoiceId: row.providerVoiceId,
+        safetyScore: row.safetyScore,
+        approvedBy: row.approvedBy ?? 'series-continuity',
+        overrideRisk: Boolean(row.override && Number(row.safetyScore) < this.castingRoom.minimumSeriesSafety),
+        reason: row.overrideReason ?? null
+      }));
+    }
+
     const snapshot = this.audioBible.snapshot(bible.id);
-    return freeze({ series, bible: this.store.get('audio_bible', bible.id), characterByKey, snapshot, continuity: this.audioBible.continuityReport(bible.id) });
+    return freeze({
+      series,
+      bible: this.store.get('audio_bible', bible.id),
+      characterByKey,
+      voiceAssignments: freeze(voiceAssignments),
+      snapshot,
+      continuity: this.audioBible.continuityReport(bible.id)
+    });
   }
 
   createInheritedBookBible({ projectId, bookId, seriesBibleId, name = 'Inherited Book Audio Bible' }) {

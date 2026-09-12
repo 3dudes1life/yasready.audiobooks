@@ -1,9 +1,9 @@
 {
   "name": "@yasready/audiobooks",
-  "version": "0.13.0",
+  "version": "0.13.1",
   "private": true,
   "type": "module",
-  "description": "YasReady Audiobooks SaaS Money Guard, Relationship Continuity & Series Lock Hardening, Series Continuity, Audio Bible Lock, Book One Prep, Superman, Distribution Brain, Mastering Lab, Continuity + QA Brain, Review Studio, Production Engine, Director and Casting Room",
+  "description": "YasReady Audiobooks Pre-External Superman / SaaS Boundary Hardening, SaaS Money Guard, Series Continuity, Audio Bible Lock, Production, QA, Mastering and Distribution",
   "engines": {
     "node": ">=20"
   },
@@ -20,6 +20,7 @@
     "series:lock-relationship": "node src/cli.js series-continuity-lock-relationship",
     "series:lock-group": "node src/cli.js series-continuity-lock-group",
     "series:lock-voice": "node src/cli.js series-continuity-lock-voice",
-    "money-guard:fixture": "node src/cli.js money-guard-fixture"
+    "money-guard:fixture": "node src/cli.js money-guard-fixture",
+    "boundary:fixture": "node --test test/saas-boundary-hardening.test.js"
   }
 }

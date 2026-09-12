@@ -3,6 +3,7 @@ import { sha256, stableJson } from '../core/hash.js';
 
 export const SERIES_CONTINUITY_RELEASE = '0.12.1';
 export const SERIES_CONTINUITY_SCHEMA_VERSION = 2;
+export const SERIES_MINIMUM_VOICE_SAFETY = 70;
 
 const freeze = (value) => Object.freeze(value);
 const SYMMETRIC_RELATIONSHIP_KINDS = new Set([
@@ -355,6 +356,58 @@ export function buildSeriesContinuityPackage(prep, {
   return finalizePackage(payload);
 }
 
+
+export function refreshSeriesContinuityPackage(prep, existingPackage, options = {}) {
+  const check = verifySeriesContinuityPackage(existingPackage);
+  if (!check.valid) throw new Error(`cannot refresh invalid Series Continuity package: ${check.reason}`);
+  const fresh = buildSeriesContinuityPackage(prep, {
+    ...options,
+    seriesTitle: options.seriesTitle ?? existingPackage.series?.title ?? null,
+    seriesAuthor: options.seriesAuthor ?? existingPackage.series?.author ?? null
+  });
+
+  if (existingPackage.sourceBook?.sourceHash && fresh.sourceBook?.sourceHash && existingPackage.sourceBook.sourceHash !== fresh.sourceBook.sourceHash) {
+    throw new Error('Series Continuity refresh source hash changed; use a new seed or explicitly review the manuscript change');
+  }
+
+  const keys = new Set(fresh.characters.map((row) => row.seriesCharacterKey));
+  const sourceRelationships = new Map((fresh.relationships ?? []).map((row) => [row.relationshipKey, row]));
+  const relationships = [...(fresh.relationships ?? [])];
+  for (const locked of existingPackage.relationships ?? []) {
+    if (!keys.has(locked.fromSeriesCharacterKey) || !keys.has(locked.toSeriesCharacterKey)) {
+      throw new Error(`Series Continuity refresh would orphan locked relationship ${locked.relationshipKey}`);
+    }
+    const source = sourceRelationships.get(locked.relationshipKey);
+    if (source && (source.kind !== locked.kind || source.fromSeriesCharacterKey !== locked.fromSeriesCharacterKey || source.toSeriesCharacterKey !== locked.toSeriesCharacterKey)) {
+      throw new Error(`Series Continuity refresh conflicts with locked relationship ${locked.relationshipKey}`);
+    }
+    const i = relationships.findIndex((row) => row.relationshipKey === locked.relationshipKey);
+    if (i >= 0) relationships[i] = clone(locked);
+    else relationships.push(clone(locked));
+  }
+
+  const assignments = [];
+  for (const locked of existingPackage.voiceContinuity?.assignments ?? []) {
+    if (!keys.has(locked.seriesCharacterKey)) {
+      throw new Error(`Series Continuity refresh would orphan locked voice ${locked.seriesCharacterKey}`);
+    }
+    assignments.push(clone(locked));
+  }
+
+  const { digest: _digest, ...base } = fresh;
+  return finalizePackage({
+    ...clone(base),
+    relationships,
+    voiceContinuity: { assignments },
+    refresh: {
+      source: 'existing-series-continuity',
+      priorDigest: existingPackage.digest,
+      preservedRelationshipLocks: (existingPackage.relationships ?? []).length,
+      preservedVoiceLocks: (existingPackage.voiceContinuity?.assignments ?? []).length
+    }
+  });
+}
+
 function packageCharacterIdentities(character) {
   return uniqueText([character.canonicalName, ...(character.aliases ?? [])]).map(normalizeIdentity).filter(Boolean);
 }
@@ -547,11 +600,14 @@ export function withSeriesVoiceLock(seriesPackage, {
   if (!cleanProvider || !cleanVoiceId) throw new Error('series voice lock requires provider and providerVoiceId');
   if (!cleanApprovedBy) throw new Error('series voice lock requires approvedBy');
   const numericSafetyScore = safetyScore == null || safetyScore === '' ? null : Number(safetyScore);
-  if (numericSafetyScore != null && (!Number.isFinite(numericSafetyScore) || numericSafetyScore < 0 || numericSafetyScore > 100)) {
-    throw new Error('series voice lock safetyScore must be between 0 and 100');
+  if (numericSafetyScore == null || !Number.isFinite(numericSafetyScore) || numericSafetyScore < 0 || numericSafetyScore > 100) {
+    throw new Error('series voice lock requires safetyScore between 0 and 100');
   }
   const current = seriesPackage.voiceContinuity?.assignments?.find((row) => row.seriesCharacterKey === seriesCharacterKey);
-  if (current && current.provider === cleanProvider && current.providerVoiceId === cleanVoiceId) return seriesPackage;
+  if (current && current.provider === cleanProvider && current.providerVoiceId === cleanVoiceId && current.safetyScore === numericSafetyScore) return seriesPackage;
+  if (numericSafetyScore < SERIES_MINIMUM_VOICE_SAFETY && !override) {
+    throw new Error(`series voice lock blocked: safety score ${numericSafetyScore}/${SERIES_MINIMUM_VOICE_SAFETY}`);
+  }
   if (current && !override) throw new Error(`series voice for ${seriesCharacterKey} is locked; explicit override is required`);
   if (override && !text(reason)) throw new Error('series voice override requires a reason');
 

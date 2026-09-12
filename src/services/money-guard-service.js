@@ -95,7 +95,7 @@ export class MoneyGuardService {
     return this.store.put(record);
   }
 
-  capture(authorizationId, { amountUsd, units = null, unitType = null, metadata = {} } = {}) {
+  capture(authorizationId, { amountUsd, units = null, unitType = null, metadata = {}, providerCall = false, costBasis = 'accounted' } = {}) {
     const auth = this.store.get('money_authorization', authorizationId);
     if (!auth) throw new Error(`money_authorization ${authorizationId} not found`);
     if (!['authorized', 'partially_captured', 'captured'].includes(auth.status)) throw new Error(`cannot capture ${auth.status} authorization`);
@@ -128,6 +128,8 @@ export class MoneyGuardService {
       overProviderCap,
       overOperationCap,
       captureMetadata: freeze({ ...(current.captureMetadata ?? {}), ...metadata }),
+      providerCallCount: (current.providerCallCount ?? 0) + (providerCall ? 1 : 0),
+      costBasis: costBasis || current.costBasis || 'accounted',
       updatedAt: nowIso(this.clock)
     }));
 
@@ -135,7 +137,7 @@ export class MoneyGuardService {
       this.ledger.record({
         projectId: auth.projectId, provider: auth.provider, operation: auth.operation,
         amountUsd: amount, units, unitType,
-        metadata: { moneyGuardId: guard.id, authorizationId: auth.id, ...metadata }
+        metadata: { moneyGuardId: guard.id, authorizationId: auth.id, providerCall: Boolean(providerCall), costBasis: costBasis || 'accounted', ...metadata }
       }, { clock: this.clock });
     }
 
@@ -192,6 +194,7 @@ export class MoneyGuardService {
       hardCapUsd: guard.policy.hardCapUsd,
       warningThresholdUsd,
       capturedUsd: spend.capturedUsd,
+      accountedCapturedUsd: spend.capturedUsd,
       reservedUsd: spend.reservedUsd,
       committedUsd: spend.committedUsd,
       availableUsd: roundMoney(Math.max(0, guard.policy.hardCapUsd - spend.committedUsd)),
@@ -208,7 +211,7 @@ export class MoneyGuardService {
       }),
       acceptingPaidAuthorizations: guard.status === 'active' && spend.committedUsd < guard.policy.hardCapUsd,
       paidGenerationArmed: false,
-      providerCallsPerformed: 0
+      providerCallsPerformed: authorizations.reduce((sum, row) => sum + Number(row.providerCallCount ?? 0), 0)
     });
   }
 }

@@ -1,4 +1,4 @@
-# Series Continuity — 0.12.1
+# Series Continuity — 0.12.1 core, hardened at 0.13.1
 
 0.12.1 promotes a locked, production-ready book Audio Bible into reusable series truth and hardens that truth with relationship and voice locks that cannot be silently replaced.
 
@@ -23,7 +23,7 @@ A future book is blocked only when it explicitly presents a contradictory relati
 
 `seriesLock.status` begins as `OPEN_FOR_CASTING`. Narrator and every primary character are required voice locks. When those required voice assignments are approved, the state becomes `SERIES_CORE_LOCKED`.
 
-Voice locks are revisioned and digest-protected. Recasting an already locked series voice requires an explicit override and reason, and prior assignment truth remains in audit history.
+Voice locks are revisioned and digest-protected. 0.13.1 requires a 0–100 Casting Room safety score and blocks a series lock below the safety floor unless an explicit, reasoned risk override is supplied. Recasting an already locked series voice also requires an explicit override and reason, and prior assignment truth remains in audit history.
 
 ## What is excluded
 
@@ -72,6 +72,18 @@ bash scripts/RUN_SERIES_VOICE_LOCK.command \
   "95"
 ```
 
+## Safe refresh
+
+Never rebuild an established series package by dropping operator truth. 0.13.1 can refresh from the latest locked Audio Bible while preserving relationship and voice locks:
+
+```bash
+bash scripts/RUN_SERIES_CONTINUITY_REFRESH.command \
+  "/path/to/book-one-audio-bible-prep.json" \
+  "/path/to/series-continuity.json"
+```
+
+The CLI equivalent is `series-continuity-seed ... --existing series-continuity.json`. Refresh fails closed if the canonical source hash changed or a preserved lock would be orphaned/conflicted.
+
 ## Compare a future book
 
 ```bash
@@ -84,7 +96,7 @@ The comparison reports recurring/new characters, required-character gaps, role d
 
 ## Materialization
 
-`SeriesContinuityService.materializeSeriesBible()` turns a package into a real series-scoped Audio Bible, including locked relationships. `createInheritedBookBible()` creates a book-scoped child Bible that inherits series characters, pronunciations and relationships through the existing Audio Bible inheritance chain.
+`SeriesContinuityService.materializeSeriesBible()` turns a package into a real series-scoped Audio Bible, including locked relationships. At 0.13.1, package voice locks also materialize into real Casting Room `voice_assignment` records, so package truth and runtime casting truth cannot drift. `createInheritedBookBible()` creates a book-scoped child Bible that inherits series characters, pronunciations and relationships through the existing Audio Bible inheritance chain.
 
 ## Safety
 

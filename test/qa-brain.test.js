@@ -19,8 +19,9 @@ class Store {
 
 function fixture({ transcript = 'Michael walked home.', alignmentLoss = 0.1 } = {}) {
   const store = new Store();
+  store.put({ id: 'session1', type: 'review_session', projectId: 'p1', bookId: 'b1', productionPlanId: 'prod1', status: 'approved', locked: true });
   store.put({ id: 'take1', type: 'review_take', sessionId: 'session1', chapterReviewId: 'chapter-review1', jobId: 'job1', asset: { storageLocator: 'private://take1.mp3' } });
-  store.put({ id: 'job1', type: 'production_job', provider: 'mock', cueId: 'cue1', languageCode: 'en' });
+  store.put({ id: 'job1', type: 'production_job', projectId: 'p1', bookId: 'b1', planId: 'prod1', provider: 'mock', cueId: 'cue1', languageCode: 'en' });
   store.put({ id: 'cue1', type: 'director_cue', canonicalText: 'Michael walked home.' });
   const calls = { align: 0, transcribe: 0, keyterms: null };
   const provider = {
