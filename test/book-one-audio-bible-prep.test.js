@@ -293,7 +293,7 @@ test('0.11.4 prep accounting uses applied narrator routing as the single quoted-
     const store = new InMemoryStore();
     const service = new BookOneAudioBiblePrepService(store);
     const result = await service.runFile(file);
-    assert.equal(result.prep.release, '0.11.5');
+    assert.equal(result.prep.release, '0.11.6');
     assert.equal(result.prep.intelligence.resolutionCounts.narratorRouted, result.prep.dialogueReview.quotedNarrationSegments);
     assert.equal(result.prep.providerCallsPerformed, 0);
   } finally {
@@ -385,12 +385,61 @@ test('0.11.5 prep exports explicit Superman engine provenance instead of a stale
     const store = new InMemoryStore();
     const service = new BookOneAudioBiblePrepService(store);
     const result = await service.runFile(file);
-    assert.equal(result.prep.release, '0.11.5');
-    assert.equal(result.prep.schemaVersion, 4);
+    assert.equal(result.prep.release, '0.11.6');
+    assert.equal(result.prep.schemaVersion, 5);
     assert.equal(typeof result.prep.superman.engineRelease, 'string');
     assert.equal(Object.hasOwn(result.prep.superman, 'release'), false);
     assert.equal(result.prep.providerCallsPerformed, 0);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+
+test('0.11.6 does not promote Derek into the permanent Book One continuity roster', () => {
+  const report = fakeSupermanReport();
+  report.characterDiscovery.candidates.push({ name: 'Derek', observedAs: ['Derek'], mentions: 2, averageConfidence: 0.88, highConfidenceMentions: 2, inferredReviewMentions: 0 });
+  const plan = buildBookOneCharacterPlan(report, { provisionalRoles: [{
+    canonicalName: "New Year's Couple – Man (Derek)", aliases: ['Derek'], role: 'minor', mentions: 1,
+    averageConfidence: 0.92, seriesCharacterKey: null, castingStatus: 'scene-local',
+    source: 'book-one-intelligence-contextual-role', continuityScope: 'scene'
+  }] });
+  assert.equal(plan.some((x) => x.canonicalName === 'Derek'), false);
+  const sceneRole = plan.find((x) => x.canonicalName === "New Year's Couple – Man (Derek)");
+  assert.ok(sceneRole);
+  assert.equal(sceneRole.continuityScope, 'scene');
+  assert.equal(sceneRole.seriesCharacterKey, null);
+});
+
+test('0.11.6 names the anonymous New Years woman as a scene-local role, not Dereks Girlfriend', () => {
+  const ingest = JSON.parse(JSON.stringify(ingestShape([
+    'Chapter 34 - New Years Eve', '',
+    'A straight couple nearby erupted into an argument. Her boyfriend Derek shrugged.', '',
+    '“Are you bisexual now?”', '',
+    'she demanded.'
+  ].join('\n'))));
+  ingest.analysis.chapters[0].order = 34;
+  const intelligence = buildDialogueIntelligence(ingest);
+  assert.equal(intelligence.provisionalRoles.some((x) => x.canonicalName === "Derek's Girlfriend"), false);
+  const woman = intelligence.provisionalRoles.find((x) => x.canonicalName === "New Year's Couple – Woman");
+  assert.ok(woman);
+  assert.equal(woman.continuityScope, 'scene');
+  assert.equal(woman.seriesCharacterKey, null);
+});
+
+test('0.11.6 resolves explicit post-dialogue attribution such as Micheal exclaimed', () => {
+  const ingest = ingestShape(['Chapter 1', '', 'They stared at the screen.', '', '“He really wants this.”', '', 'Micheal exclaimed.'].join('\n'));
+  const intelligence = buildDialogueIntelligence(ingest);
+  const review = buildDialogueReviewQueue(ingest, { intelligence });
+  assert.equal(review.queue.some((x) => x.dialogue === 'He really wants this.'), false);
+  assert.ok(review.autoBindings.some((x) => x.segmentId === segmentIdFor(ingest, 'He really wants this.') && x.speaker === 'Michael Rawlins'));
+});
+
+test('0.11.6 resolves realtor action lead without promoting the realtor to series continuity', () => {
+  const ingest = JSON.parse(JSON.stringify(ingestShape(['Chapter 43 – The Waiting Game', '', 'The realtor was already pulling out her phone.', '', '“Let me message the seller. We’ll get it looked at today.”'].join('\n'))));
+  ingest.analysis.chapters[0].order = 43;
+  const intelligence = buildDialogueIntelligence(ingest);
+  const review = buildDialogueReviewQueue(ingest, { intelligence });
+  assert.equal(review.queue.some((x) => x.dialogue.startsWith('Let me message the seller')), false);
+  assert.ok(review.autoBindings.some((x) => x.speaker === 'Realtor'));
 });

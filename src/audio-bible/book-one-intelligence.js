@@ -9,13 +9,15 @@ const CANONICAL_ALIASES = Object.freeze({
   'Michael Rawlins': ['Michael', 'Rawlins', 'Micheal'],
   'Juan Delgado': ['Juan', 'Delgado'],
   'Christopher Lancaster': ['Christopher', 'Chris', 'Lancaster'],
-  Dani: ['Dani'], Evan: ['Evan'], Drew: ['Drew'], Alex: ['Alex'], Nick: ['Nick'], Derek: ['Derek'], Kayla: ['Kayla'], Noah: ['Noah'], Paris: ['Paris']
+  Dani: ['Dani'], Evan: ['Evan'], Drew: ['Drew'], Alex: ['Alex'], Nick: ['Nick'], Kayla: ['Kayla'], Noah: ['Noah'], Paris: ['Paris'],
+  "Michael's Mother": ['Mama'], "Michael's Brother": [], Realtor: ['Realtor'], Landlord: ['Landlord'],
+  "New Year's Couple – Man (Derek)": ['Derek']
 });
 
 const MALE_SPEAKERS = new Set([
-  'Michael Rawlins', 'Juan Delgado', 'Christopher Lancaster', 'Evan', 'Drew', 'Alex', 'Nick', 'Derek', 'Noah', "Michael's Brother"
+  'Michael Rawlins', 'Juan Delgado', 'Christopher Lancaster', 'Evan', 'Drew', 'Alex', 'Nick', 'Noah', "Michael's Brother", "New Year's Couple – Man (Derek)"
 ]);
-const FEMALE_SPEAKERS = new Set(['Dani', 'Kayla', "Michael's Mother", 'Realtor', 'Landlord', "Derek's Girlfriend", 'Pop Star']);
+const FEMALE_SPEAKERS = new Set(['Dani', 'Kayla', "Michael's Mother", 'Realtor', 'Landlord', "New Year's Couple – Woman", 'Pop Star']);
 
 const RELATIONAL_ROLES = Object.freeze([
   Object.freeze({
@@ -66,8 +68,15 @@ const CONTEXTUAL_ROLES = Object.freeze([
     test: ({ before, trail, after }) => (/\bthe pop star\b/i.test(before) || (/^Her voice\b/i.test(after) && /\bthe pop star\b/i.test(trail))) && /\b(?:her voice|yelling into her phone|wig sideways)\b/i.test(`${before} ${after} ${trail}`)
   }),
   Object.freeze({
-    canonicalName: "Derek's Girlfriend", aliases: ['the girlfriend', 'his girlfriend'], role: 'minor',
-    seriesCharacterKey: 'derek-girlfriend', chapterMin: 34, chapterMax: 34,
+    canonicalName: "New Year's Couple – Man (Derek)", aliases: ['Derek', 'the boyfriend', 'her boyfriend'], role: 'minor',
+    seriesCharacterKey: null, chapterMin: 34, chapterMax: 34,
+    test: ({ before, after, dialogue }) => /\bDerek\b/i.test(before)
+      && /^he\b/i.test(after)
+      && !/\bDerek\b/i.test(dialogue)
+  }),
+  Object.freeze({
+    canonicalName: "New Year's Couple – Woman", aliases: ['the girlfriend', 'his girlfriend', 'the woman'], role: 'minor',
+    seriesCharacterKey: null, chapterMin: 34, chapterMax: 34,
     test: ({ before, trail, after, dialogue }) => /\bstraight couple\b|\bher boyfriend\b/i.test(`${trail} ${before}`)
       && (/\bDerek\b/i.test(dialogue) || new RegExp(`^she\\s+(?:${TAG_VERBS})\\b`, 'i').test(after))
   }),
@@ -85,7 +94,11 @@ const CONTEXTUAL_ROLES = Object.freeze([
 
 function clean(value) { return String(value ?? '').replace(/\s+/g, ' ').trim(); }
 function wordCount(value) { return clean(value).split(/\s+/).filter(Boolean).length; }
-function canon(name, aliases = BOOK_ONE_PROFILE.aliases) { return canonicalizeSpeakerCandidate(name, { aliases }); }
+function canon(name, aliases = BOOK_ONE_PROFILE.aliases) {
+  const value = clean(name);
+  if (/^Derek$/i.test(value)) return "New Year's Couple – Man (Derek)";
+  return canonicalizeSpeakerCandidate(name, { aliases });
+}
 function sameScene(a, b) { return a && b && a.chapter.order === b.chapter.order && a.scene.order === b.scene.order; }
 function escaped(value) { return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 function sceneKey(row) { return `${row?.chapter?.order ?? '?'}:${row?.scene?.order ?? '?'}`; }
@@ -613,6 +626,45 @@ function extendedBefore(rows, index, count = 4) {
   return parts.join(' ');
 }
 
+
+function explicitSpeakerWithinAfter(rows, index, maxLookahead = 3) {
+  const current = rows[index];
+  for (let offset = 1; offset <= maxLookahead; offset += 1) {
+    const row = rows[index + offset];
+    if (!sameScene(current, row)) break;
+    if (row.segment.kind === 'dialogue') break;
+    const text = clean(row.segment.text);
+    const speaker = explicitAfterSpeechSpeaker(text, null);
+    if (speaker) return { speaker, offset };
+    const rel = relationalSubject(text, Number(current.chapter.order));
+    if (rel && new RegExp(`\\b(?:${SPEECH_VERBS}|voice)\\b`, 'i').test(text)) return { speaker: rel, offset };
+    const voice = /^(?:from [^,]+,\s*)?(?:they heard\s+)?(his|her) voice\b/i.exec(text);
+    if (voice) {
+      const antecedent = recentNamedAntecedent(rows, index, voice[1].toLowerCase() === 'his' ? 'he' : 'she', 10);
+      if (antecedent) return { speaker: antecedent, offset };
+    }
+  }
+  return null;
+}
+
+function leadCueResolution(rows, index) {
+  const row = rows[index];
+  const before = sameScene(row, rows[index - 1]) ? clean(rows[index - 1].segment.text) : '';
+  const trail = extendedBefore(rows, index, 4);
+  if (/\bJuan broke it[.!]?$/i.test(before)) return { speaker: 'Juan Delgado', confidence: 0.97, evidence: 'explicit-dialogue-lead:juan-broke-it' };
+  if (/\bDani was deep in storytelling mode[.!]?$/i.test(before)) return { speaker: 'Dani', confidence: 0.97, evidence: 'explicit-dialogue-lead:dani-storytelling' };
+  if (/\brealtor\b[^.!?]{0,80}\bpulling out her phone\b/i.test(before)) return { speaker: 'Realtor', confidence: 0.97, evidence: 'explicit-dialogue-lead:realtor-action' };
+  if (/\bafter a while, Juan chuckled[.!]?$/i.test(before)) return { speaker: 'Juan Delgado', confidence: 0.96, evidence: 'explicit-dialogue-lead:juan-chuckled' };
+  if (/\bfrom outside, he called[,:]?$/i.test(before)) {
+    const prior = recentNamedAntecedent(rows, index - 1, 'he', 10);
+    if (prior) return { speaker: prior, confidence: 0.95, evidence: 'pronoun-call-antecedent:he' };
+  }
+  if (/\bher eyes moved next to Juan[.!]?$/i.test(before) && /Michael[’']s mother|his mother|his mom|Mama/i.test(trail)) {
+    return { speaker: "Michael's Mother", confidence: 0.96, evidence: 'maternal-scene-antecedent' };
+  }
+  return null;
+}
+
 export function buildDialogueIntelligence(ingestResult, { aliases = BOOK_ONE_PROFILE.aliases } = {}) {
   const rows = analysisRowsForIntelligence(ingestResult);
   const resolutions = new Map();
@@ -654,6 +706,15 @@ export function buildDialogueIntelligence(ingestResult, { aliases = BOOK_ONE_PRO
       continue;
     }
 
+    const rawCandidateName = clean(row.segment.speakerCandidate?.name);
+    if (Number(row.chapter.order) === 34 && /^Derek$/i.test(rawCandidateName)) {
+      const sceneMan = CONTEXTUAL_ROLES.find((role) => role.canonicalName === "New Year's Couple – Man (Derek)");
+      resolutions.set(segmentId, freeze({ speaker: sceneMan.canonicalName, confidence: 0.97, evidence: 'scene-local-named-extra', classification: 'spoken-dialogue', provisional: true, authority: 'override' }));
+      provisionalMentions.set(sceneMan.canonicalName, (provisionalMentions.get(sceneMan.canonicalName) ?? 0) + 1);
+      counts.contextualRole += 1;
+      continue;
+    }
+
     const relational = relationalRoleFromContext(row, before, after);
     if (relational && relationalSpeechCue(relational, before, after)) {
       resolutions.set(segmentId, freeze({ speaker: relational.canonicalName, confidence: 0.92, evidence: 'relational-role-context', classification: 'spoken-dialogue', provisional: true, authority: 'review-only' }));
@@ -667,6 +728,20 @@ export function buildDialogueIntelligence(ingestResult, { aliases = BOOK_ONE_PRO
       resolutions.set(segmentId, freeze({ speaker: contextual.canonicalName, confidence: 0.97, evidence: 'contextual-anonymous-role', classification: 'spoken-dialogue', provisional: true, authority: 'override' }));
       provisionalMentions.set(contextual.canonicalName, (provisionalMentions.get(contextual.canonicalName) ?? 0) + 1);
       counts.contextualRole += 1;
+      continue;
+    }
+
+    const leadCue = leadCueResolution(rows, i);
+    if (leadCue) {
+      resolutions.set(segmentId, freeze({ ...leadCue, classification: 'spoken-dialogue', authority: 'review-only' }));
+      counts.explicitContext += 1;
+      continue;
+    }
+
+    const widerAfter = explicitSpeakerWithinAfter(rows, i, 3);
+    if (widerAfter) {
+      resolutions.set(segmentId, freeze({ speaker: widerAfter.speaker, confidence: widerAfter.offset === 1 ? 0.97 : 0.93, evidence: `post-dialogue-attribution:${widerAfter.offset}`, classification: 'spoken-dialogue', authority: 'review-only' }));
+      counts.explicitContext += 1;
       continue;
     }
 
@@ -730,8 +805,9 @@ export function buildDialogueIntelligence(ingestResult, { aliases = BOOK_ONE_PRO
       highConfidenceMentions: provisionalMentions.get(role.canonicalName),
       inferredReviewMentions: 0,
       castingPriority: role.role === 'supporting' ? 2 : 3,
-      seriesCharacterKey: role.seriesCharacterKey,
-      castingStatus: 'provisional',
+      seriesCharacterKey: CONTEXTUAL_ROLES.includes(role) ? null : role.seriesCharacterKey,
+      castingStatus: CONTEXTUAL_ROLES.includes(role) ? 'scene-local' : 'provisional',
+      continuityScope: CONTEXTUAL_ROLES.includes(role) ? 'scene' : 'book',
       source: CONTEXTUAL_ROLES.includes(role) ? 'book-one-intelligence-contextual-role' : 'book-one-intelligence-relational-role',
       provisional: true
     }));

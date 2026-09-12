@@ -1,6 +1,6 @@
 # Book One Audio Bible Prep
 
-0.11.5 keeps the Audio Bible Prep workflow and closes another layer of context that the real Book One manuscript can resolve safely without handing the author a spreadsheet chore. The goal remains conservative automation: reduce work only when the manuscript supplies enough evidence, and fail closed when it does not.
+0.11.6 is the Residual Review Finalizer. It keeps conservative speaker resolution while separating permanent continuity roles from one-scene extras. The goal remains conservative automation: reduce work only when the manuscript supplies enough evidence, and fail closed when it does not.
 
 ## Command
 
@@ -25,7 +25,7 @@ bash scripts/RUN_BOOK_ONE_AUDIO_BIBLE_PREP.command "/path/to/book_1.docx"
 
 ## Context Resolver Closure
 
-Existing canonical dialogue at confidence >= 0.75 remains eligible for safe binding. 0.11.5 adds evidence-supported resolution for split dialogue/tag/dialogue chains, nearby named antecedents, local pronoun continuity, direct-address exclusion, and a deliberately small set of contextual unnamed roles that are explicit in the manuscript.
+Existing canonical dialogue at confidence >= 0.75 remains eligible for safe binding. 0.11.6 adds evidence-supported resolution for split dialogue/tag/dialogue chains, nearby named antecedents, local pronoun continuity, direct-address exclusion, and a deliberately small set of contextual unnamed roles that are explicit in the manuscript.
 
 Important fail-closed rules:
 
@@ -41,7 +41,7 @@ The real Book One queue now has no `quick-confirm` or `manual-identify` rows. Th
 
 ## Contextual provisional roles
 
-0.11.5 can create provisional one-scene roles only when explicit local evidence supports them. For the real Book One run this adds seven contextual roles on top of the four relational roles already found: Juan's Friend, Housewarming Guest, Drag Queen, Pop Star, Derek's Girlfriend, New Year's Guest – Younger, and New Year's Guest – Older. All remain visibly provisional until casting decisions are made.
+0.11.6 gives every role an explicit continuity scope. Book-level roles may participate in later series continuity; scene-local roles are production-only extras and have no reusable series character key. The New Year’s Eve background couple is therefore represented as `New Year's Couple – Man (Derek)` and `New Year's Couple – Woman`, both scene-local. Derek is no longer a permanent canonical Book One cast member, and the unnamed woman is no longer mislabeled as `Derek's Girlfriend`.
 
 ## Displayed text and narration
 
@@ -49,7 +49,7 @@ The quote classifier now also closes safe embedded examples, self-declared label
 
 ## Provenance
 
-The prep release and the nested Superman engine are now explicit separate fields. The prep exports `release: 0.11.5`, while `superman.engineRelease` records the underlying Superman engine release. This avoids a stale-looking nested release value without hiding the real engine provenance.
+The prep release and the nested Superman engine are now explicit separate fields. The prep exports `release: 0.11.6`, while `superman.engineRelease` records the underlying Superman engine release. This avoids a stale-looking nested release value without hiding the real engine provenance.
 
 ## Pronunciation safety
 

@@ -10,7 +10,7 @@ import {
   ProjectService
 } from './index.js';
 
-const VERSION = '0.11.5';
+const VERSION = '0.11.6';
 const args = process.argv.slice(2);
 
 function flagValue(name, fallback = null) {
@@ -124,6 +124,8 @@ async function runAudioBiblePrep() {
     status: result.prep.status,
     supermanScore: result.prep.superman.score,
     characters: result.prep.characterPlan.length,
+    permanentCharacters: result.prep.intelligence?.permanentRoleCount ?? result.prep.characterPlan.filter((x) => (x.continuityScope ?? 'book') !== 'scene').length,
+    sceneLocalRoles: result.prep.intelligence?.sceneLocalRoleCount ?? result.prep.characterPlan.filter((x) => x.continuityScope === 'scene').length,
     primaryCharacters: result.prep.characterPlan.filter((x) => x.role === 'primary').length,
     supportingCharacters: result.prep.characterPlan.filter((x) => x.role === 'supporting').length,
     minorCharacters: result.prep.characterPlan.filter((x) => x.role === 'minor').length,

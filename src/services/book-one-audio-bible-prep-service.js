@@ -81,12 +81,13 @@ export class BookOneAudioBiblePrepService {
         role: planned.role,
         seriesCharacterKey: planned.seriesCharacterKey,
         performanceProfile: {
-          prepRelease: '0.11.5',
+          prepRelease: '0.11.6',
           castingStatus: planned.castingStatus,
           sourceMentions: planned.mentions,
           sourceConfidence: planned.averageConfidence,
           provisional: Boolean(planned.provisional),
-          source: planned.source
+          source: planned.source,
+          continuityScope: planned.continuityScope ?? 'book'
         }
       });
       characterByName.set(planned.canonicalName, character);
@@ -111,8 +112,8 @@ export class BookOneAudioBiblePrepService {
     const snapshot = this.audioBible.snapshot(bible.id);
     const productionReady = review.needsReview === 0 && pronunciationReview.needsConfirmation === 0;
     const prep = freeze({
-      schemaVersion: 4,
-      release: '0.11.5',
+      schemaVersion: 5,
+      release: '0.11.6',
       status: 'READY_FOR_AUDIO_BIBLE_REVIEW',
       providerCallsPerformed: 0,
       book: freeze({
@@ -134,6 +135,8 @@ export class BookOneAudioBiblePrepService {
         correctedSafeBindings: review.correctedSafeBindings,
         quotedNarrationSegments: review.quotedNarrationSegments,
         provisionalRoles: intelligence.provisionalRoles.map((x) => x.canonicalName),
+        permanentRoleCount: characterPlan.filter((x) => (x.continuityScope ?? 'book') !== 'scene').length,
+        sceneLocalRoleCount: characterPlan.filter((x) => x.continuityScope === 'scene').length,
         resolutionCounts: review.intelligenceApplied,
         detectionCounts: review.intelligenceDetected
       }),

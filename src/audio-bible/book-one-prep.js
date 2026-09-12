@@ -4,6 +4,7 @@ import { addressedCanonicalName, buildDialogueIntelligence, intelligenceResoluti
 
 const freeze = (value) => Object.freeze(value);
 const PRIMARY = new Set(['Michael Rawlins', 'Juan Delgado', 'Christopher Lancaster']);
+const SCENE_LOCAL_SOURCE_NAMES = new Set(['Derek']);
 const DISCOURSE_PREFIX = /^(?:then|but|and|so|meanwhile|suddenly)\s+/i;
 const NOISY_PHRASE_PREFIXES = new Set(['and', 'as', 'because', 'but', 'by', 'figured', 'maybe', 'on', 'said', 'so', 'then', 'well']);
 const EMPHATIC_ALL_CAPS = new Set(['LOVE', 'RIGHT', 'OHHH', 'GURL']);
@@ -75,6 +76,7 @@ export function buildBookOneCharacterPlan(supermanReport, { includeNarrator = tr
     }));
   }
   for (const candidate of candidates) {
+    if (SCENE_LOCAL_SOURCE_NAMES.has(candidate.name)) continue;
     const role = classifyBookOneCharacter(candidate);
     rows.push(freeze({
       canonicalName: candidate.name,
@@ -103,10 +105,11 @@ export function buildBookOneCharacterPlan(supermanReport, { includeNarrator = tr
       highConfidenceMentions: provisional.highConfidenceMentions ?? provisional.mentions ?? 0,
       inferredReviewMentions: provisional.inferredReviewMentions ?? 0,
       castingPriority: provisional.castingPriority ?? 3,
-      seriesCharacterKey: provisional.seriesCharacterKey ?? slug(provisional.canonicalName),
+      seriesCharacterKey: provisional.seriesCharacterKey === undefined ? slug(provisional.canonicalName) : provisional.seriesCharacterKey,
       castingStatus: provisional.castingStatus ?? 'provisional',
       source: provisional.source ?? 'book-one-intelligence',
-      provisional: true
+      provisional: true,
+      continuityScope: provisional.continuityScope ?? (provisional.source === 'book-one-intelligence-contextual-role' ? 'scene' : 'book')
     }));
     existing.add(provisional.canonicalName.toLowerCase());
   }
@@ -461,10 +464,10 @@ export function buildPronunciationReview(ingestResult, characterPlan, { maxDetec
 }
 
 export function renderCharacterPlanCsv(rows) {
-  const header = ['canonical_name', 'role', 'mentions', 'average_confidence', 'aliases', 'series_character_key', 'casting_status', 'notes'];
+  const header = ['canonical_name', 'role', 'mentions', 'average_confidence', 'aliases', 'continuity_scope', 'series_character_key', 'casting_status', 'notes'];
   const lines = [header.map(csvCell).join(',')];
   for (const row of rows) lines.push([
-    row.canonicalName, row.role, row.mentions, row.averageConfidence, row.aliases, row.seriesCharacterKey, row.castingStatus, ''
+    row.canonicalName, row.role, row.mentions, row.averageConfidence, row.aliases, row.continuityScope ?? 'book', row.seriesCharacterKey ?? '', row.castingStatus, ''
   ].map(csvCell).join(','));
   return `${lines.join('\n')}\n`;
 }
@@ -497,7 +500,8 @@ export function renderAudioBiblePrepMarkdown(prep) {
     `**Book:** ${prep.book.title}`,
     `**Author:** ${prep.book.author ?? 'Not supplied'}`, '',
     '## What YasReady prepared', '',
-    `- ${prep.characterPlan.length} Audio Bible roles including Narrator`,
+    `- ${prep.characterPlan.filter((x) => (x.continuityScope ?? 'book') !== 'scene').length} permanent Audio Bible role(s) including Narrator`,
+    `- ${prep.characterPlan.filter((x) => x.continuityScope === 'scene').length} scene-local extra role(s) excluded from series continuity`,
     `- ${prep.dialogueReview.autoBound.toLocaleString()} dialogue/displayed-text segment(s) safely resolved and bound`,
     `- ${prep.intelligence?.reviewReduction?.toLocaleString?.() ?? 0} avoidable review chore(s) removed by ${prep.release} context-resolver intelligence`,
     `- ${prep.intelligence?.quotedNarrationSegments?.toLocaleString?.() ?? 0} quoted/displayed-text segment(s) routed to Narrator instead of fake speakers`,
@@ -509,10 +513,10 @@ export function renderAudioBiblePrepMarkdown(prep) {
     `- ${prep.dialogueReview.priorityCounts.manualIdentify.toLocaleString()} line(s) needing manual speaker identification`,
     `- ${prep.pronunciationReview.candidateCount.toLocaleString()} conservative pronunciation candidate(s) awaiting author confirmation`, '',
     '## Character plan', '',
-    '| Character | Role | Mentions | Aliases |', '| --- | --- | ---: | --- |'
+    '| Character | Role | Scope | Mentions | Aliases |', '| --- | --- | --- | ---: | --- |'
   ];
   for (const row of prep.characterPlan) {
-    lines.push(`| ${row.canonicalName.replace(/\|/g, '\\|')} | ${row.role} | ${row.mentions} | ${(row.aliases ?? []).join(', ').replace(/\|/g, '\\|')} |`);
+    lines.push(`| ${row.canonicalName.replace(/\|/g, '\\|')} | ${row.role} | ${row.continuityScope ?? 'book'} | ${row.mentions} | ${(row.aliases ?? []).join(', ').replace(/\|/g, '\\|')} |`);
   }
   lines.push('', '## Review workflow', '',
     '1. Open `dialogue-review.csv`. Work top-to-bottom: one-suggestion rows first, then multi-speaker context review, then manual identification if any remain.',
