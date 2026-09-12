@@ -2,7 +2,7 @@
 
 Professional audiobook production infrastructure for YasReady Publishing.
 
-**Current build: 0.13.3 — Casting Scope Integrity Closure**
+**Current build: 0.14.0 — External Book Superman**
 
 YasReady Audiobooks is being developed as a standalone service first so audiobook experimentation cannot destabilize YasReady Publishing. The product goal is professional long-form audiobook production with strong continuity, human approval gates, cost protection, quality control, mastering and retailer-ready packaging.
 
@@ -33,6 +33,7 @@ YasReady Audiobooks is being developed as a standalone service first so audioboo
 - 0.13.1 Pre-External Superman / SaaS Boundary Hardening — closes cross-project asset reuse, post-billing retry, QA spend-guard, series voice/materialization, safe-refresh and operator-flow gaps before external-book testing
 - 0.13.2 Final SaaS Boundary Closure — enforces canonical project/book ownership through Casting/Director/Production/Review/QA/Mastering, makes Director approval transitive, requires complete exact-run QA coverage, adds safe failed-render recovery, invalidates stale distribution packages, and separates accounted estimates from provider-settled spend
 - 0.13.3 Casting Scope Integrity Closure — fails closed when a character is not actually visible to the requested book/series, requires `bookId` for book-scoped locks, and preserves valid series-Bible inheritance
+- 0.14.0 External Book Superman — disables Book One identity assumptions, detects prior-book truth leakage, optionally verifies a distinct source hash, and runs an unrelated book through a zero-spend full-stack wiring probe from Audio Bible through W3C distribution packaging
 
 ## Book One Superman
 
@@ -69,6 +70,22 @@ node src/cli.js series-continuity-seed "/path/to/book-one-audio-bible-prep.json"
 ```
 
 0.12.1 keeps Narrator and primary identities required, carries recurring supporting/named minor roles forward, keeps generic provisional roles reference-only, and excludes scene-local extras entirely. Relationship truth can now be promoted or explicitly operator-locked, future books can be compared for direct relationship drift, and missing relationship mentions are not misclassified as contradictions. Identity, pronunciation and explicit relationship conflicts fail closed; voice and relationship replacements require explicit overrides with reasons and audit history. The Series Continuity workflow performs zero provider calls. 0.13.1 adds non-destructive `--existing` refresh so operator-confirmed relationship and voice locks survive a rebuild, and series voice locks require Casting Room safety scores.
+
+## External Book Superman
+
+0.14.0 is the generalization gate. It analyzes an unrelated manuscript with the Book One alias profile disabled, treats unsupported Book One character/title truth as hostile contamination, and can compare the external source hash against the baseline book. It then uses the external project/book to exercise Audio Bible, Casting, Director, Production + Money Guard, Review, QA, Mastering preflight and W3C Distribution packaging without arming production or making paid provider calls. Review/QA/Mastering/Distribution use synthetic asset references only, so this proves wiring and ownership — not synthesized-audio quality.
+
+Run a real unrelated manuscript:
+
+```bash
+node src/cli.js external-superman "/path/to/unrelated-book.epub" --out "$HOME/Desktop/External-Book-Superman"
+```
+
+Zero-spend fixture:
+
+```bash
+npm run external:fixture
+```
 
 ## SaaS Money Guard
 
@@ -121,4 +138,4 @@ node src/cli.js audio-bible-prep <file> --out <directory>
 
 ## Roadmap
 
-Next: **0.14.0 — External Book Superman**. Run an unrelated manuscript through the full intelligence, continuity, money-safety, QA and distribution-readiness stack before the 1.0 production boundary.
+Next: **1.0.0 — YasReady Audiobooks production boundary**, after External Book Superman is proven against a real unrelated manuscript and any 0.14.x cleanup is closed.

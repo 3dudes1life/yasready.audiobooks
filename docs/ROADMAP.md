@@ -25,5 +25,5 @@
 - ✅ 0.13.1 Pre-External Superman / SaaS Boundary Hardening
 - ✅ 0.13.2 Final SaaS Boundary Closure
 - ✅ 0.13.3 Casting Scope Integrity Closure
-- ⏭️ 0.14.0 External Book Superman
-- 1.0.0 YasReady Audiobooks
+- ✅ 0.14.0 External Book Superman
+- ⏭️ 1.0.0 YasReady Audiobooks

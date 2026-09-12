@@ -3,6 +3,7 @@ import path from 'node:path';
 import {
   BookOneAudioBiblePrepService,
   BookOneSupermanService,
+  ExternalBookSupermanService,
   CostLedger,
   GenerationRegistry,
   InMemoryStore,
@@ -12,7 +13,7 @@ import {
   MoneyGuardService
 } from './index.js';
 
-const VERSION = '0.13.2';
+const VERSION = '0.14.0';
 const args = process.argv.slice(2);
 
 function flagValue(name, fallback = null) {
@@ -293,6 +294,64 @@ async function runSuperman({ fixture = false } = {}) {
   if (result.report.status === 'BLOCKED') process.exitCode = 3;
 }
 
+async function writeExternalSupermanReports(result, outDir) {
+  const resolved = path.resolve(outDir);
+  await mkdir(resolved, { recursive: true });
+  const jsonPath = path.join(resolved, 'external-book-superman-report.json');
+  const markdownPath = path.join(resolved, 'external-book-superman-report.md');
+  await writeFile(jsonPath, JSON.stringify(result.report, null, 2));
+  await writeFile(markdownPath, result.markdown);
+  return { json: jsonPath, markdown: markdownPath };
+}
+
+async function runExternalSuperman({ fixture = false } = {}) {
+  const store = new InMemoryStore();
+  const superman = new ExternalBookSupermanService(store);
+  const model = flagValue('--model', 'eleven_multilingual_v2');
+  const out = flagValue('--out');
+  const baselineSourceHash = flagValue('--baseline-hash');
+  let result;
+  if (fixture) {
+    result = await superman.runFixture({ model, baselineSourceHash });
+  } else {
+    const filePath = args[1];
+    if (!filePath) {
+      console.error('Usage: node src/cli.js external-superman <unrelated.epub|docx|txt> [--out DIR] [--model MODEL] [--title TITLE] [--author AUTHOR] [--baseline-hash HASH]');
+      process.exitCode = 2;
+      return;
+    }
+    result = await superman.runFile(filePath, {
+      model,
+      title: flagValue('--title'),
+      author: flagValue('--author'),
+      baselineSourceHash
+    });
+  }
+  const files = out ? await writeExternalSupermanReports(result, out) : null;
+  console.log(JSON.stringify({
+    version: VERSION,
+    superman: 'external-book',
+    status: result.report.status,
+    score: result.report.score,
+    title: result.report.manuscript.title,
+    author: result.report.manuscript.author,
+    words: result.report.manuscript.metrics.words,
+    chapters: result.report.manuscript.narrativeChapterCount,
+    possibleCharacters: result.report.characterDiscovery.candidateCount,
+    priorTruthLeaks: result.report.generalization.priorTruthLeakCount,
+    baselineSourceDistinct: result.report.generalization.sourceHashDistinctFromBaseline,
+    stackProbe: result.report.stackProbe.status,
+    stackStages: result.report.stackProbe.stages?.map((row) => ({ stage: row.stage, status: row.status })) ?? [],
+    estimatedInitialTtsUsd: result.report.production.initialTtsUsd,
+    recommendedProductionBudgetUsd: result.report.production.recommendedProductionBudgetUsd,
+    providerCallsPerformed: result.report.providerCallsPerformed,
+    paidGenerationArmed: result.report.gates.paidGenerationArmed,
+    nextAction: result.report.nextAction,
+    files
+  }, null, 2));
+  if (result.report.status === 'BLOCKED') process.exitCode = 3;
+}
+
 async function runAudioBiblePrep() {
   const filePath = args[1];
   if (!filePath) {
@@ -410,6 +469,10 @@ if (args[0] === 'analyze') {
   await runSuperman();
 } else if (args[0] === 'superman-fixture') {
   await runSuperman({ fixture: true });
+} else if (args[0] === 'external-superman') {
+  await runExternalSuperman();
+} else if (args[0] === 'external-superman-fixture') {
+  await runExternalSuperman({ fixture: true });
 } else if (args[0] === 'audio-bible-prep') {
   await runAudioBiblePrep();
 } else if (args[0] === 'series-continuity-seed') {
@@ -440,6 +503,7 @@ if (args[0] === 'analyze') {
     version: VERSION, project,
     manuscriptCommand: 'node src/cli.js analyze <file>',
     bookOneSupermanCommand: 'node src/cli.js superman <file> --out <directory>',
+    externalBookSupermanCommand: 'node src/cli.js external-superman <unrelated-file> --out <directory>',
     bookOneAudioBiblePrepCommand: 'node src/cli.js audio-bible-prep <file> --out <directory>',
     seriesContinuitySeedCommand: 'node src/cli.js series-continuity-seed <book-one-audio-bible-prep.json> [--existing <series-continuity.json>] --out <directory>',
     seriesContinuityCompareCommand: 'node src/cli.js series-continuity-compare <series-continuity.json> <next-book-audio-bible-prep.json>',
@@ -449,7 +513,7 @@ if (args[0] === 'analyze') {
     workflow: {
       manuscriptBrain: 'ready', audioBible: 'ready', castingRoom: 'ready', audiobookDirector: 'ready',
       productionEngine: 'ready', reviewStudio: 'ready', continuityQa: 'ready', masteringLab: 'ready',
-      distributionBrain: 'ready', operatorFlowAudit: 'ready', bookOneSuperman: 'ready',
+      distributionBrain: 'ready', operatorFlowAudit: 'ready', bookOneSuperman: 'ready', externalBookSuperman: 'ready',
       bookOneAudioBiblePrep: 'ready', seriesContinuity: 'ready', moneyGuard: 'ready', finalSaasBoundaryClosure: 'ready'
     },
     distributionProfiles: ['acx-2026', 'spotify-direct-2026', 'apple-partner-2026', 'w3c-audiobook-2020'],
