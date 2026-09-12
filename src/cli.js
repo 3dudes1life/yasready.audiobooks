@@ -9,7 +9,7 @@ import {
   ProjectService
 } from './index.js';
 
-const VERSION = '0.11.0';
+const VERSION = '0.11.1';
 const args = process.argv.slice(2);
 
 function flagValue(name, fallback = null) {
@@ -27,10 +27,12 @@ function reportSummary(report, files = null) {
     title: report.manuscript.title,
     author: report.manuscript.author,
     words: report.manuscript.metrics.words,
-    chapters: report.manuscript.metrics.chapters,
+    chapters: report.manuscript.narrativeChapterCount ?? report.manuscript.metrics.chapters,
+    sourceSections: report.manuscript.sourceSectionCount ?? report.manuscript.metrics.chapters,
     scenes: report.manuscript.metrics.scenes,
     segments: report.manuscript.metrics.segments,
     possibleCharacters: report.characterDiscovery.candidateCount,
+    speakerAttribution: report.speakerAttribution ?? null,
     estimatedFinishedHours: report.manuscript.estimatedFinishedHours,
     estimatedInitialTtsUsd: report.production.initialTtsUsd,
     recommendedProductionBudgetUsd: report.production.recommendedProductionBudgetUsd,

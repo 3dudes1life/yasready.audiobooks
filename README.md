@@ -2,7 +2,7 @@
 
 Professional audiobook production infrastructure for YasReady Publishing.
 
-**Current build: 0.11.0 — Book One Superman**
+**Current build: 0.11.1 — Book One Superman Cleanup**
 
 YasReady Audiobooks is being developed as a standalone service first so audiobook experimentation cannot destabilize YasReady Publishing. The product goal is professional long-form audiobook production with strong continuity, human approval gates, cost protection, quality control, mastering and retailer-ready packaging.
 
@@ -19,6 +19,7 @@ YasReady Audiobooks is being developed as a standalone service first so audioboo
 - 0.9 Mastering Lab — FFmpeg assembly, loudness/RMS/peak/noise/silence validation and distribution masters
 - 0.10 Distribution Brain — platform preflight, metadata/cover validation, W3C manifests, package export and operator UX flow
 - 0.11 Book One Superman — full-novel zero-spend stress test, whole-book render rehearsal, character discovery and production/cost readiness report
+- 0.11.1 Book One Superman Cleanup — contextual dialogue attribution, canonical alias grouping, front-matter separation and metadata/path UX fixes
 
 ## Book One Superman
 

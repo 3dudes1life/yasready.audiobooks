@@ -11,6 +11,7 @@
 - ✅ 0.9.0 Mastering Lab
 - ✅ 0.10.0 Distribution Brain
 - ✅ 0.11.0 Book One Superman
+- ✅ 0.11.1 Book One Superman Cleanup
 - ⏭️ 0.12.0 Series Continuity
 - 0.13.0 SaaS Money Guard
 - 0.14.0 External Book Superman

@@ -3,6 +3,7 @@ import { FfmpegAdapter } from '../mastering/ffmpeg-adapter.js';
 import { ManuscriptService } from './manuscript-service.js';
 import { ProjectService } from './project-service.js';
 import {
+  BOOK_ONE_PROFILE,
   buildBookOneSupermanReport,
   buildSyntheticBookOneFixture,
   renderSupermanMarkdown
@@ -27,7 +28,7 @@ export class BookOneSupermanService {
     if (!String(filePath ?? '').trim()) throw new Error('Book One Superman requires a manuscript file path');
     const project = this.projects.create({ name: options.projectName ?? 'Book One Superman' });
     const ingestResult = this.manuscripts.ingestFile(project.id, filePath, {
-      ...(options.title ? { title: options.title } : {}),
+      title: options.title ?? BOOK_ONE_PROFILE.title,
       ...(options.author ? { author: options.author } : {}),
       ...(options.language ? { language: options.language } : {})
     });

@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { analyzeManuscript, segmentScene } from '../src/manuscript/analyzer.js';
+import { analyzeManuscript, segmentScene, splitChapters } from '../src/manuscript/analyzer.js';
 import {
+  BOOK_ONE_PROFILE,
   buildBookOneSupermanReport,
   buildSpeakerCandidateRoster,
   buildSyntheticBookOneFixture,
@@ -34,7 +35,7 @@ test('synthetic Book One fixture produces a multi-chapter full-book rehearsal', 
 test('candidate roster extracts real names and excludes pronoun noise', () => {
   const ingest = ingestFromText('Chapter 1\n\nHe said, “No.”\n\nMichael said, “Yes.”\n\nJuan asked, “Really?”');
   const roster = buildSpeakerCandidateRoster(ingest.analysis);
-  assert.deepEqual(roster.map((row) => row.name).sort(), ['Juan', 'Michael']);
+  assert.deepEqual(roster.map((row) => row.name).sort(), ['Juan Delgado', 'Michael Rawlins']);
 });
 
 test('production rehearsal chunks the whole manuscript under the model safety cap', () => {
@@ -86,4 +87,48 @@ test('Markdown report contains operator-facing production rehearsal, not manuscr
   assert.match(markdown, /Production rehearsal — ZERO SPEND/);
   assert.match(markdown, /Provider calls performed:\*\* 0/);
   assert.equal(markdown.includes(secretPhrase), false);
+});
+
+
+test('contextual dialogue attribution uses nearby action and speech tags without stealing the next paragraph lead', () => {
+  const segments = segmentScene('Rawlins said, “Earlier.”\n\nRawlins raised an eyebrow.\n\n“I am fine.”\n\nDelgado replied, “Sure you are.”');
+  const dialogue = segments.filter((row) => row.kind === 'dialogue');
+  assert.equal(dialogue[1].speakerCandidate?.name, 'Rawlins');
+  assert.equal(dialogue[1].speakerCandidate?.evidence, 'context-before-action');
+  assert.equal(dialogue[2].speakerCandidate?.name, 'Delgado');
+});
+
+test('print front matter is separated before the first numbered chapter', () => {
+  const sections = splitChapters('Tres Amigos, Una Vida\n\nby D.C.W.\n\nCopyright 2025\nAll rights reserved\n\nTable of Contents\n\nChapter 1: Departure\n\nStory starts here.');
+  assert.equal(sections[0].title, 'Front Matter');
+  assert.equal(sections[1].title, 'Chapter 1: Departure');
+});
+
+test('front matter byline is inferred when document metadata is missing', () => {
+  const analysis = analyzeManuscript({
+    format: 'txt', filename: 'fixture.txt', sourceHash: 'hash', metadata: {},
+    text: 'Book Title\n\nby D.C.W.\n\nCopyright 2025\nAll rights reserved\n\nChapter 1\n\nHello world.'
+  }, { title: BOOK_ONE_PROFILE.title });
+  assert.equal(analysis.metadata.title, BOOK_ONE_PROFILE.title);
+  assert.equal(analysis.metadata.author, 'D.C.W.');
+});
+
+test('Book One aliases collapse first names surnames and known typo evidence without rewriting text', () => {
+  const ingest = ingestFromText('Chapter 1\n\nMichael said, “One.”\n\nRawlins replied, “Two.”\n\nMicheal said, “Three.”\n\nJuan said, “Four.”\n\nDelgado replied, “Five.”\n\nChris said, “Six.”');
+  const roster = buildSpeakerCandidateRoster(ingest.analysis);
+  const names = roster.map((row) => row.name);
+  assert.ok(names.includes('Michael Rawlins'));
+  assert.ok(names.includes('Juan Delgado'));
+  assert.ok(names.includes('Christopher Lancaster'));
+  const michael = roster.find((row) => row.name === 'Michael Rawlins');
+  assert.deepEqual(new Set(michael.observedAs), new Set(['Michael', 'Rawlins', 'Micheal']));
+});
+
+test('Superman cost rehearsal excludes print-only Front Matter but preserves it in source section counts', () => {
+  const ingest = ingestFromText('Book Title\n\nby D.C.W.\n\nCopyright 2025\nAll rights reserved\n\nTable of Contents\n\nChapter 1: Departure\n\nMichael said, “Hello.”');
+  const report = buildBookOneSupermanReport(ingest, { ffmpegHealth: { ok: true } });
+  assert.equal(report.manuscript.sourceSectionCount, 2);
+  assert.equal(report.manuscript.narrativeChapterCount, 1);
+  assert.equal(report.production.excludedSectionCount, 1);
+  assert.deepEqual(report.production.excludedSections, ['Front Matter']);
 });

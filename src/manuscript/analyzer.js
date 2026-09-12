@@ -2,8 +2,19 @@ import { createHash } from 'node:crypto';
 
 const CHAPTER_HEADING = /^(?:(?:chapter|chap(?:ter)?\.?|ch\.)\s+(?:\d+[a-z]?|[ivxlcdm]+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty)(?:\s*[:.\-–—]\s*.*)?|prologue|epilogue|introduction|preface|afterword|acknowledg(?:e)?ments|author(?:'s)?\s+note|part\s+(?:\d+|[ivxlcdm]+|one|two|three|four|five)(?:\s*[:.\-–—]\s*.*)?)$/i;
 const SCENE_BREAK = /^(?:\*\s*\*\s*\*|#|#{3,}|[-–—]\s*[-–—]\s*[-–—]|•\s*•\s*•)$/;
-const SPEECH_VERBS = 'said|asked|replied|answered|whispered|murmured|shouted|yelled|called|added|continued|laughed|snapped|sighed|offered|admitted|insisted|promised|teased|joked|warned|cried';
-const NON_CHARACTER_SPEAKERS = new Set(['he', 'she', 'they', 'we', 'i', 'you', 'it', 'someone', 'somebody', 'everyone', 'everybody', 'nobody', 'who']);
+const SPEECH_VERBS = 'said|asked|replied|answered|whispered|murmured|shouted|yelled|called|added|continued|laughed|snapped|sighed|offered|admitted|insisted|promised|teased|joked|warned|cried|muttered|retorted|declared|spoke|echoed|quipped|remarked|responded';
+const NON_CHARACTER_SPEAKERS = new Set([
+  'he', 'she', 'they', 'we', 'i', 'you', 'it', 'someone', 'somebody', 'everyone', 'everybody', 'nobody', 'who',
+  'the', 'a', 'an', 'this', 'that', 'then', 'meanwhile', 'suddenly', 'before', 'after', 'once', 'neither', 'both',
+  'at', 'as', 'when', 'later', 'eventually', 'her', 'his', 'from', 'one', 'about', 'afterward', 'and', 'back',
+  'by', 'during', 'finally', 'nearby', 'not', 'outside', 'their', 'but', 'just', 'more', 'next', 'on', 'something',
+  'sure', 'taking', 'was', 'while', 'downstairs', 'laughter', 'drinks', 'soon'
+]);
+const FRONT_MATTER_MARKERS = [
+  /\bcopyright\b/i, /\ball rights reserved\b/i, /\bdedication\b/i, /\btable of contents\b/i,
+  /\bisbn\b/i, /\bfirst edition\b/i, /\bprinted in\b/i, /\bcover design\b/i, /\bthis is a work of fiction\b/i
+];
+const CONTINUATION_CUE = /\b(?:continued|continuing|added|went on|resumed|kept going|finished|then added|before continuing)\b/i;
 
 function cleanText(text = '') {
   return String(text)
@@ -22,6 +33,13 @@ function detectHeading(line) {
   const value = line.trim();
   if (value.length > 100) return false;
   return CHAPTER_HEADING.test(value);
+}
+
+function looksLikeFrontMatter(text) {
+  const source = String(text ?? '').slice(0, 12000);
+  const hits = FRONT_MATTER_MARKERS.filter((pattern) => pattern.test(source)).length;
+  const hasByline = /(?:^|\n)\s*by\s+[^\n]{2,80}(?:\n|$)/im.test(source);
+  return hits >= 2 || (hits >= 1 && hasByline);
 }
 
 export function splitChapters(text) {
@@ -46,7 +64,8 @@ export function splitChapters(text) {
   flush();
 
   if (!chapters.length) return [{ title: 'Chapter 1', text: cleanText(text) }];
-  if (chapters.length > 1 && chapters[0].title === 'Chapter 1' && chapters[0].text.length < 80) {
+  if (chapters.length > 1 && chapters[0].title === 'Chapter 1'
+    && (chapters[0].text.length < 80 || looksLikeFrontMatter(chapters[0].text))) {
     chapters[0].title = 'Front Matter';
   }
   return chapters;
@@ -70,9 +89,8 @@ export function splitScenes(chapterText) {
 }
 
 function validSpeakerName(name) {
-  const clean = String(name ?? '').trim();
+  const clean = String(name ?? '').trim().replace(/[’']s$/u, '');
   if (!clean || NON_CHARACTER_SPEAKERS.has(clean.toLowerCase())) return null;
-  // Keep the original capitalization rule meaningful even though the verb regexes are case-insensitive.
   const parts = clean.split(/\s+/);
   if (parts.some((part) => !/^\p{Lu}[\p{L}’'-]*$/u.test(part))) return null;
   return clean;
@@ -92,12 +110,119 @@ function speakerCandidate(paragraph) {
   return null;
 }
 
+function leadingNarrationName(text) {
+  const match = /^\s*([A-Z][A-Za-z’'-]+)(?:[’']s)?\b/u.exec(String(text ?? ''));
+  return validSpeakerName(match?.[1]);
+}
+
+function taggedNarrationSpeaker(text) {
+  const name = '([A-Z][A-Za-z’\\\'-]+)';
+  const match = new RegExp(`^\\s*${name}(?:[’']s)?(?:\\s+[^.!?]{0,45}?)?\\s+(?:${SPEECH_VERBS})\\b`, 'i').exec(String(text ?? ''));
+  return validSpeakerName(match?.[1]);
+}
+
+function candidate(name, confidence, evidence) {
+  const resolved = validSpeakerName(name);
+  return resolved ? { name: resolved, confidence, evidence } : null;
+}
+
+function nearbyAttributedNames(segments, index, radius = 8) {
+  const names = new Map();
+  const start = Math.max(0, index - radius);
+  const end = Math.min(segments.length - 1, index + radius);
+  for (let i = start; i <= end; i += 1) {
+    const row = segments[i];
+    if (row.kind !== 'dialogue' || !row.speakerCandidate) continue;
+    const name = validSpeakerName(row.speakerCandidate.name);
+    if (!name) continue;
+    names.set(name.toLowerCase(), name);
+  }
+  return [...names.values()];
+}
+
+export function inferDialogueContext(segmentsInput) {
+  const segments = segmentsInput.map((row) => ({ ...row, speakerCandidate: row.speakerCandidate ? { ...row.speakerCandidate } : null }));
+  const trustedNames = new Set(segments
+    .filter((row) => row.kind === 'dialogue' && row.speakerCandidate?.name)
+    .map((row) => String(row.speakerCandidate.name).toLowerCase()));
+  const isTrusted = (name) => name && trustedNames.has(String(name).toLowerCase());
+
+  // Pass 1: high-confidence local context. This is intentionally conservative.
+  for (let i = 0; i < segments.length; i += 1) {
+    const row = segments[i];
+    if (row.kind !== 'dialogue' || row.speakerCandidate) continue;
+    const prev = segments[i - 1] ?? null;
+    const prev2 = segments[i - 2] ?? null;
+    const next = segments[i + 1] ?? null;
+    const next2 = segments[i + 2] ?? null;
+
+    // A narration line immediately after dialogue that says "Rawlins muttered/replied/..."
+    // is the strongest contextual tag for the dialogue we just saw.
+    if (next?.kind === 'narration') {
+      const afterTag = taggedNarrationSpeaker(next.text);
+      const isLeadForNextQuote = next2?.kind === 'dialogue' && next2.paragraphIndex === next.paragraphIndex;
+      if (afterTag && !isLeadForNextQuote) {
+        trustedNames.add(afterTag.toLowerCase());
+        row.speakerCandidate = candidate(afterTag, 0.9, 'context-after-speech-tag');
+        continue;
+      }
+    }
+
+    if (prev?.kind === 'narration') {
+      const beforeName = leadingNarrationName(prev.text);
+      const beforeTag = taggedNarrationSpeaker(prev.text);
+      const followsDialogue = prev2?.kind === 'dialogue';
+      const sameParagraphLead = prev.paragraphIndex === row.paragraphIndex;
+
+      // If the narration is a speech tag for the previous quote, don't steal it for the next line.
+      // A same-paragraph lead-in (Michael said, “...”) belongs to the current quote.
+      if (beforeTag && followsDialogue && !sameParagraphLead && !CONTINUATION_CUE.test(prev.text)) {
+        // leave unresolved for a later, lower-confidence conversational pass
+      } else if (beforeName && (isTrusted(beforeName) || sameParagraphLead) && (!beforeTag || !followsDialogue || sameParagraphLead || CONTINUATION_CUE.test(prev.text))) {
+        if (beforeTag) trustedNames.add(beforeName.toLowerCase());
+        row.speakerCandidate = candidate(beforeName, beforeTag ? 0.82 : 0.77, beforeTag ? 'context-before-speech-lead' : 'context-before-action');
+        continue;
+      } else if (CONTINUATION_CUE.test(prev.text) && prev2?.speakerCandidate) {
+        row.speakerCandidate = candidate(prev2.speakerCandidate.name, 0.74, 'context-continuation');
+        continue;
+      }
+    }
+  }
+
+  // Pass 2: low-confidence two-person turn inference. It improves review ergonomics without
+  // pretending certainty; downstream auto-binding already requires higher confidence.
+  for (let i = 0; i < segments.length; i += 1) {
+    const row = segments[i];
+    if (row.kind !== 'dialogue' || row.speakerCandidate) continue;
+    const localNames = nearbyAttributedNames(segments, i, 8);
+    if (localNames.length !== 2) continue;
+
+    let previousDialogue = null;
+    for (let j = i - 1; j >= Math.max(0, i - 4); j -= 1) {
+      if (segments[j].kind === 'dialogue') { previousDialogue = segments[j]; break; }
+    }
+    if (!previousDialogue?.speakerCandidate) continue;
+
+    const previousKey = previousDialogue.speakerCandidate.name.toLowerCase();
+    const other = localNames.find((name) => name.toLowerCase() !== previousKey);
+    if (!other) continue;
+
+    const bridge = segments.slice(Math.max(0, (segments.indexOf(previousDialogue) + 1)), i)
+      .filter((x) => x.kind === 'narration');
+    if (bridge.some((x) => leadingNarrationName(x.text) && !CONTINUATION_CUE.test(x.text))) continue;
+    row.speakerCandidate = candidate(other, 0.68, 'context-alternating-pair');
+  }
+
+  return segments;
+}
+
 export function segmentScene(sceneText) {
   const paragraphs = cleanText(sceneText).split(/\n\s*\n+/).map((value) => value.trim()).filter(Boolean);
   const segments = [];
   let order = 0;
 
-  for (const paragraph of paragraphs) {
+  for (let paragraphIndex = 0; paragraphIndex < paragraphs.length; paragraphIndex += 1) {
+    const paragraph = paragraphs[paragraphIndex];
     const speaker = speakerCandidate(paragraph);
     const quoteRegex = /[“"]([^”"\n]+)[”"]/g;
     let cursor = 0;
@@ -106,22 +231,30 @@ export function segmentScene(sceneText) {
       matched = true;
       const start = match.index ?? 0;
       const narration = paragraph.slice(cursor, start).trim();
-      if (narration) segments.push({ order: order++, kind: 'narration', text: narration, speakerCandidate: null });
+      if (narration) segments.push({ order: order++, paragraphIndex, kind: 'narration', text: narration, speakerCandidate: null });
       const dialogue = match[1].trim();
-      if (dialogue) segments.push({ order: order++, kind: 'dialogue', text: dialogue, speakerCandidate: speaker });
+      if (dialogue) segments.push({ order: order++, paragraphIndex, kind: 'dialogue', text: dialogue, speakerCandidate: speaker });
       cursor = start + match[0].length;
     }
     const remainder = paragraph.slice(cursor).trim();
     if (remainder) {
       const kind = !matched && /^[“"]/.test(paragraph) ? 'dialogue' : 'narration';
-      segments.push({ order: order++, kind, text: remainder.replace(/^[“"]|[”"]$/g, '').trim(), speakerCandidate: kind === 'dialogue' ? speaker : null });
+      segments.push({ order: order++, paragraphIndex, kind, text: remainder.replace(/^[“"]|[”"]$/g, '').trim(), speakerCandidate: kind === 'dialogue' ? speaker : null });
     }
   }
-  return segments;
+  return inferDialogueContext(segments);
 }
 
 function words(text) {
   return (String(text).match(/[\p{L}\p{N}]+(?:[’'-][\p{L}\p{N}]+)*/gu) ?? []).length;
+}
+
+function inferAuthor(text) {
+  const front = String(text ?? '').slice(0, 5000);
+  const match = /(?:^|\n)\s*by\s+([^\n]{2,80})(?:\n|$)/im.exec(front);
+  if (!match) return null;
+  const value = match[1].trim().replace(/\s{2,}/g, ' ');
+  return value.length <= 80 ? value : null;
 }
 
 export function countProduction({ text, chapters }) {
@@ -168,7 +301,7 @@ export function analyzeManuscript(extracted, options = {}) {
 
   const metrics = countProduction({ text, chapters });
   return Object.freeze({
-    schemaVersion: 2,
+    schemaVersion: 3,
     source: Object.freeze({
       format: extracted.format,
       filename: extracted.filename,
@@ -177,7 +310,7 @@ export function analyzeManuscript(extracted, options = {}) {
     }),
     metadata: Object.freeze({
       title: options.title ?? extracted.metadata?.title ?? null,
-      author: options.author ?? extracted.metadata?.author ?? null,
+      author: options.author ?? extracted.metadata?.author ?? inferAuthor(text) ?? null,
       language: options.language ?? extracted.metadata?.language ?? 'en'
     }),
     metrics,

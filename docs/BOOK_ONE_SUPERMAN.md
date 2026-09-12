@@ -1,41 +1,36 @@
-# 0.11.0 — Book One Superman
+# Book One Superman
 
-Book One Superman is the first full-novel stress harness for YasReady Audiobooks.
+Book One Superman is a zero-spend, full-manuscript readiness gate for YasReady Audiobooks.
 
-It is intentionally **zero-spend**. The harness imports a real EPUB/DOCX/TXT manuscript, runs manuscript structure and character-discovery checks, rehearses Production Engine chunking across the entire book, estimates TTS spend and regeneration reserve, verifies local FFmpeg readiness, and produces JSON + Markdown operator reports. It never arms paid production or calls a TTS provider.
+## 0.11.1 cleanup behavior
 
-## Run a real manuscript
+The cleanup pass adds contextual dialogue attribution, Book One alias consolidation, front-matter separation, byline inference, and metadata/run-script UX fixes revealed by the first real *Tres Amigos, Una Vida* DOCX run.
+
+Dialogue attribution now distinguishes three levels:
+
+- **High confidence** — explicit tags or strong local context. Eligible for normal Audio Bible review.
+- **Contextually inferred / human review** — useful conversational inference below the automatic binding confidence threshold.
+- **Unresolved** — left unassigned rather than guessed.
+
+The Book One roster groups known aliases for review only. The manuscript itself is never rewritten. Current Book One groupings are Michael Rawlins (`Michael`, `Rawlins`, `Micheal`, `Then Michael`), Juan Delgado (`Juan`, `Delgado`), and Christopher Lancaster (`Christopher`, `Chris`, `Lancaster`).
+
+Print-only `Front Matter` is preserved in source analysis but excluded from narration-cost rehearsal. This keeps copyright pages and tables of contents from inflating audiobook generation cost while leaving the source untouched.
+
+## Run
 
 ```bash
-node src/cli.js superman "/path/to/book.epub" --out "$HOME/Desktop/Book-One-Superman"
+bash scripts/RUN_BOOK_ONE_SUPERMAN.command "/full/path/to/book_1.docx"
 ```
 
-Or on macOS:
+Optional overrides:
 
 ```bash
-bash scripts/RUN_BOOK_ONE_SUPERMAN.command "/path/to/book.epub"
+bash scripts/RUN_BOOK_ONE_SUPERMAN.command "/full/path/to/book_1.docx" \
+  --title "Tres Amigos, Una Vida – A Throuple Love Story" \
+  --author "D.C.W." \
+  --model eleven_multilingual_v2
 ```
 
-## Synthetic rehearsal
+The script accepts pasted `~/...` paths and writes JSON + Markdown reports to the Desktop by default.
 
-```bash
-npm run superman:fixture
-```
-
-The synthetic rehearsal proves the harness itself without using copyrighted manuscript content.
-
-## Release gates
-
-- No duplicate chapter-content hashes.
-- Long novels may not silently collapse into one chapter.
-- Every chapter must produce renderable segments.
-- Production chunking must stay under the selected model's safety cap.
-- Dialogue attribution risk is surfaced before ensemble casting.
-- Likely pronouns such as “He” and “She” are not allowed to become character candidates.
-- TTS estimates include a configurable regeneration reserve and audition allowance.
-- Provider calls performed by Superman are always zero.
-- The report contains hashes/metrics, not the manuscript text.
-
-## What happens after the report
-
-A clean Superman report means the manuscript is safe to move into Audio Bible + Casting. It does **not** mean paid narration should start. The existing Casting, Director and Production Engine approval/budget gates remain authoritative.
+Book One Superman performs no paid voice generation.
