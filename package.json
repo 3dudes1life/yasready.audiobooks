@@ -1,15 +1,13 @@
 {
   "name": "@yasready/audiobooks",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
-  "description": "YasReady Audiobooks Audio Bible, manuscript intelligence and production foundation",
-  "engines": {
-    "node": ">=20"
-  },
+  "description": "YasReady Audiobooks Casting Room, Audio Bible, manuscript intelligence and production foundation",
+  "engines": { "node": ">=20" },
   "scripts": {
     "test": "node --test",
-    "check": "node --check src/index.js && node --check src/cli.js && node --check src/manuscript/analyzer.js && node --check src/manuscript/extractors.js && node --check src/manuscript/zip-reader.js && node --check src/services/manuscript-service.js && node --check src/bible/normalization.js && node --check src/services/audio-bible-service.js",
+    "check": "node --check src/index.js && node --check src/cli.js && node --check src/manuscript/analyzer.js && node --check src/manuscript/extractors.js && node --check src/manuscript/zip-reader.js && node --check src/services/manuscript-service.js && node --check src/bible/normalization.js && node --check src/services/audio-bible-service.js && node --check src/casting/voice-profile.js && node --check src/providers/elevenlabs-provider.js && node --check src/services/casting-room-service.js",
     "demo": "node src/cli.js",
     "analyze": "node src/cli.js analyze"
   }
