@@ -2,7 +2,7 @@
 
 Professional audiobook production infrastructure for YasReady Publishing.
 
-**Current build: 0.11.7 — Speaker Truth Closure**
+**Current build: 0.11.8 — Audio Bible Lock & Pronunciation Closure**
 
 YasReady Audiobooks is being developed as a standalone service first so audiobook experimentation cannot destabilize YasReady Publishing. The product goal is professional long-form audiobook production with strong continuity, human approval gates, cost protection, quality control, mastering and retailer-ready packaging.
 
@@ -26,6 +26,7 @@ YasReady Audiobooks is being developed as a standalone service first so audioboo
 - 0.11.5 Context Resolver Closure — split pronoun/tag chains, local actor resolution, reaction-verb safety, contextual anonymous roles, quote-pattern closure and explicit Superman engine provenance
 - 0.11.6 Residual Review Finalizer — closes the residual Book One review cases, separates scene-local extras from permanent continuity, and supports explicit multi-speaker dialogue
 - 0.11.7 Speaker Truth Closure — adds a high-authority speaker-truth verifier, protects anonymous self-identification and narrator/media classifications, prunes false one-mention roster noise, and closes Book One speaker review with zero paid calls
+- 0.11.8 Audio Bible Lock & Pronunciation Closure — reconciles scene-local/collective dialogue out of false unresolved continuity counts, applies bounded production pronunciation defaults, fixes `DJing` classification, persists explicit pronunciation rules, and emits a locked production-ready Audio Bible when all gates are closed
 
 ## Book One Superman
 
@@ -51,7 +52,7 @@ After Superman passes, build the local operator pack:
 node src/cli.js audio-bible-prep "/path/to/book_1.docx" --out "$HOME/Desktop/Book-One-Audio-Bible-Prep"
 ```
 
-The prep pack creates canonical character tiers, safely auto-binds high-confidence dialogue, applies fail-safe Book One intelligence for quoted/non-spoken text and context-supported speakers, and writes targeted dialogue/pronunciation CSVs. 0.11.7 closes the Book One speaker-truth pass while preserving the `book` vs `scene` continuity boundary. One-scene extras remain resolvable for production but never receive reusable series character keys or pollute future-book continuity. Explicit `they said together` lines can carry a multi-speaker binding rather than a fake single speaker. Reaction-only verbs and generic anonymous actors are explicit safety blockers so the resolver prefers review over a confident wrong speaker. Provisional unnamed roles remain explicitly marked. Those local review files contain manuscript excerpts and must not be committed. The prep run performs zero provider calls.
+The prep pack creates canonical character tiers, safely resolves dialogue, preserves the `book` vs `scene` continuity boundary, and writes local dialogue/pronunciation artifacts. 0.11.8 closes the Audio Bible gate: scene-local and collective dialogue count as resolved without becoming permanent cast entries; deterministic pronunciation defaults are persisted only where an explicit rule is useful; standard names/places remain standard-reading rows with no unnecessary override. When speaker review, pronunciation blockers, and continuity unresolved counts are all zero, the pack emits `AUDIO_BIBLE_LOCKED` and `productionReady: true`. The prep run still performs zero provider calls.
 
 ## Current distribution targets
 

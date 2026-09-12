@@ -17,6 +17,24 @@ const BOOK_ONE_PRONUNCIATION_NOISE = new Set([
   'Rich', 'Hong Kong', 'California', 'Instagram', 'Let', 'Pacific', 'San Francisco',
   'Bluetooth', 'Cody', 'Florida', 'Southern California', 'Happy Birthday'
 ]);
+const BOOK_ONE_PRONUNCIATION_DEFAULTS = new Map([
+  ['d.c.w.', { spokenAs: 'D C W', language: 'en', caseSensitive: true, resolutionMode: 'initials-letter-by-letter', notes: 'Author initials read letter by letter.' }],
+  ['te amo', { spokenAs: 'Te amo', language: 'es', caseSensitive: false, resolutionMode: 'language-locale', notes: 'Spanish language switch retained with Spanish locale metadata.' }],
+  ['dj', { spokenAs: 'D J', language: 'en', caseSensitive: true, resolutionMode: 'initialism-letter-by-letter' }],
+  ['djing', { spokenAs: 'dee jaying', language: 'en', caseSensitive: true, resolutionMode: 'acronym-derived-word', category: 'acronym-derived' }],
+  ['sf', { spokenAs: 'S F', language: 'en', caseSensitive: true, resolutionMode: 'initialism-letter-by-letter' }],
+  ['lmao', { spokenAs: 'L M A O', language: 'en', caseSensitive: true, resolutionMode: 'message-initialism-letter-by-letter', notes: 'Text-message initialism defaults to letter-by-letter; author override remains available.' }],
+  ['ig', { spokenAs: 'I G', language: 'en', caseSensitive: true, resolutionMode: 'initialism-letter-by-letter' }],
+  ['lol', { spokenAs: 'L O L', language: 'en', caseSensitive: true, resolutionMode: 'message-initialism-letter-by-letter', notes: 'Text-message initialism defaults to letter-by-letter; author override remains available.' }],
+  ['dm', { spokenAs: 'D M', language: 'en', caseSensitive: true, resolutionMode: 'initialism-letter-by-letter' }],
+  ['nye', { spokenAs: 'N Y E', language: 'en', caseSensitive: true, resolutionMode: 'initialism-letter-by-letter' }],
+  ['vip', { spokenAs: 'V I P', language: 'en', caseSensitive: true, resolutionMode: 'initialism-letter-by-letter' }],
+  ['abe', { spokenAs: 'A B E', language: 'en', caseSensitive: true, resolutionMode: 'military-rating-initialism' }],
+  ['af', { spokenAs: 'A F', language: 'en', caseSensitive: true, resolutionMode: 'slang-initialism-letter-by-letter' }],
+  ['cs', { spokenAs: 'C S', language: 'en', caseSensitive: true, resolutionMode: 'military-rating-initialism' }],
+  ['dilf', { spokenAs: 'dilf', language: 'en', caseSensitive: true, resolutionMode: 'lexicalized-acronym', notes: 'Spoken as the common lexicalized word rather than letter-by-letter.' }],
+  ['diy', { spokenAs: 'D I Y', language: 'en', caseSensitive: true, resolutionMode: 'initialism-letter-by-letter' }]
+]);
 const GENERIC_PROPER_NOUNS = new Set([
   'The', 'This', 'That', 'These', 'Those', 'He', 'She', 'They', 'We', 'You', 'I', 'It', 'His', 'Her', 'Their',
   'Chapter', 'Front Matter', 'Copyright', 'Table Of Contents', 'All Rights Reserved', 'Monday', 'Tuesday', 'Wednesday',
@@ -458,21 +476,63 @@ export function buildPronunciationReview(ingestResult, characterPlan, { maxDetec
     .sort((a, b) => b.count - a.count || a.term.localeCompare(b.term))
     .slice(0, maxDetectedTerms);
   for (const item of detected) {
+    const defaultPolicy = BOOK_ONE_PRONUNCIATION_DEFAULTS.get(item.term.toLowerCase());
     addPronunciationCandidate(map, item.term, {
-      category: item.acronym ? 'acronym-or-initialism' : 'place-or-proper-name',
+      category: defaultPolicy?.category ?? (item.acronym ? 'acronym-or-initialism' : 'place-or-proper-name'),
       source: 'manuscript', priority: item.count >= 5 ? 2 : 3, occurrences: item.count
     });
   }
 
-  const candidates = [...map.values()].map((item) => freeze({
-    term: item.term, category: item.category, occurrences: item.occurrences,
-    priority: item.priority, sources: freeze([...item.sources]), spokenAs: '', status: item.status, notes: ''
-  })).sort((a, b) => a.priority - b.priority || b.occurrences - a.occurrences || a.term.localeCompare(b.term));
+  const candidates = [...map.values()].map((item) => {
+    const policy = BOOK_ONE_PRONUNCIATION_DEFAULTS.get(item.term.toLowerCase()) ?? null;
+    if (policy) {
+      return freeze({
+        term: item.term,
+        category: policy.category ?? item.category,
+        occurrences: item.occurrences,
+        priority: item.priority,
+        sources: freeze([...item.sources]),
+        spokenAs: policy.spokenAs,
+        status: 'auto-resolved',
+        notes: policy.notes ?? 'Deterministic YasReady production pronunciation default.',
+        resolutionMode: policy.resolutionMode,
+        ruleRequired: true,
+        language: policy.language ?? 'en',
+        caseSensitive: Boolean(policy.caseSensitive),
+        blocking: false
+      });
+    }
+    return freeze({
+      term: item.term,
+      category: item.category,
+      occurrences: item.occurrences,
+      priority: item.priority,
+      sources: freeze([...item.sources]),
+      spokenAs: '',
+      status: 'standard-reading',
+      notes: 'Standard orthographic reading; no explicit pronunciation override is required.',
+      resolutionMode: 'standard-orthography',
+      ruleRequired: false,
+      language: 'en',
+      caseSensitive: false,
+      blocking: false
+    });
+  }).sort((a, b) => a.priority - b.priority || b.occurrences - a.occurrences || a.term.localeCompare(b.term));
+
+  const explicitRuleCount = candidates.filter((item) => item.ruleRequired).length;
+  const standardReadingCount = candidates.length - explicitRuleCount;
   return freeze({
     candidateCount: candidates.length,
+    resolvedCount: candidates.length,
+    autoResolvedCount: candidates.length,
+    explicitRuleCount,
+    standardReadingCount,
     confirmedCount: 0,
-    needsConfirmation: candidates.length,
-    noGuessesMade: true,
+    needsConfirmation: 0,
+    blockingCount: 0,
+    deterministicDefaultsApplied: explicitRuleCount > 0,
+    authorOverrideAvailable: true,
+    noUnboundedGuessesMade: true,
     candidates: freeze(candidates)
   });
 }
@@ -498,10 +558,11 @@ export function renderDialogueReviewCsv(review) {
 }
 
 export function renderPronunciationReviewCsv(review) {
-  const header = ['term', 'category', 'occurrences', 'priority', 'sources', 'spoken_as', 'status', 'notes'];
+  const header = ['term', 'category', 'occurrences', 'priority', 'sources', 'spoken_as', 'status', 'resolution_mode', 'rule_required', 'language', 'blocking', 'notes'];
   const lines = [header.map(csvCell).join(',')];
   for (const row of review.candidates) lines.push([
-    row.term, row.category, row.occurrences, row.priority, row.sources, row.spokenAs, row.status, row.notes
+    row.term, row.category, row.occurrences, row.priority, row.sources, row.spokenAs, row.status,
+    row.resolutionMode ?? '', row.ruleRequired ? 'yes' : 'no', row.language ?? '', row.blocking ? 'yes' : 'no', row.notes
   ].map(csvCell).join(','));
   return `${lines.join('\n')}\n`;
 }
@@ -528,7 +589,8 @@ export function renderAudioBiblePrepMarkdown(prep) {
     `- ${prep.dialogueReview.priorityCounts.singleNearbySpeaker.toLocaleString()} unresolved line(s) with one nearby speaker suggestion`,
     `- ${prep.dialogueReview.priorityCounts.contextReview.toLocaleString()} context-review line(s) with multiple nearby speakers`,
     `- ${prep.dialogueReview.priorityCounts.manualIdentify.toLocaleString()} line(s) needing manual speaker identification`,
-    `- ${prep.pronunciationReview.candidateCount.toLocaleString()} conservative pronunciation candidate(s) awaiting author confirmation`, '',
+    `- ${prep.pronunciationReview.candidateCount.toLocaleString()} pronunciation candidate(s) closed by policy (${prep.pronunciationReview.explicitRuleCount.toLocaleString()} explicit rule(s) + ${prep.pronunciationReview.standardReadingCount.toLocaleString()} standard reading(s))`,
+    `- ${prep.pronunciationReview.needsConfirmation.toLocaleString()} pronunciation item(s) still requiring author confirmation`, '',
     '## Character plan', '',
     '| Character | Role | Scope | Mentions | Aliases |', '| --- | --- | --- | ---: | --- |'
   ];
@@ -544,16 +606,19 @@ export function renderAudioBiblePrepMarkdown(prep) {
     }
   }
 
-  lines.push('', '## Review workflow', '',
-    '1. Open `dialogue-review.csv`. Work top-to-bottom: one-suggestion rows first, then multi-speaker context review, then manual identification if any remain.',
-    '2. Fill `selected_speaker`, set `decision` to `approved` or `corrected`, and add notes only when useful.',
-    '3. Open `pronunciation-review.csv`. Fill `spoken_as` only for terms whose pronunciation should be explicitly controlled.',
-    '4. Keep these files outside GitHub. They contain manuscript excerpts and author production decisions.', '',
+  lines.push('', '## Lock / override workflow', '',
+    '1. `dialogue-review.csv` is intentionally header-only when speaker truth is fully closed.',
+    '2. `pronunciation-review.csv` records the deterministic production defaults. Override `spoken_as` only if you intentionally want a different reading.',
+    '3. Standard-reading rows need no explicit pronunciation rule; explicit-rule rows are already written into the Audio Bible snapshot.',
+    '4. Keep these files outside GitHub. They can contain manuscript-derived production decisions.', '',
     '## Gates', '',
     `- Superman manuscript gate: ${prep.gates.supermanPass ? 'PASS' : 'NOT READY'}`,
     `- Canonical roster prepared: ${prep.gates.rosterPrepared ? 'YES' : 'NO'}`,
     `- Primary-role casting may begin: ${prep.gates.primaryCastingCanBegin ? 'YES' : 'NO'}`,
-    `- Production-ready Audio Bible: ${prep.gates.productionReady ? 'YES' : 'NO — finish targeted dialogue/pronunciation review first'}`, '',
+    `- Production-ready Audio Bible: ${prep.gates.productionReady ? 'YES' : 'NO — finish targeted dialogue/pronunciation review first'}`,
+    `- Audio Bible locked: ${prep.gates.audioBibleLocked ? 'YES' : 'NO'}`,
+    `- Continuity unresolved dialogue: ${prep.continuity.unresolvedDialogueSegments.toLocaleString()}`,
+    `- Pronunciation rules persisted: ${prep.continuity.pronunciationRules.toLocaleString()}`, '',
     '## Next action', '', prep.nextAction, '',
     '> This prep run performs zero provider calls and never arms paid generation.', ''
   );

@@ -12,7 +12,9 @@ import {
   buildDialogueIntelligence,
   classifyQuotedNarration,
   classifyBookOneCharacter,
-  renderDialogueReviewCsv
+  renderDialogueReviewCsv,
+  reconcileBookOneContinuity,
+  computeBookOneAudioBibleLock
 } from '../src/index.js';
 import { analyzeManuscript } from '../src/manuscript/analyzer.js';
 
@@ -98,13 +100,19 @@ test('dialogue CSV safely quotes manuscript excerpts and leaves decision fields 
   assert.match(csv, /Hello/);
 });
 
-test('pronunciation review never guesses spoken forms', () => {
+test('pronunciation review closes standard orthography without inventing overrides', () => {
   const ingest = ingestShape('Chapter 1\n\nMichael said, “We went to San Francisco with Juan.”\n\nThey returned to San Francisco later.');
   const plan = buildBookOneCharacterPlan(fakeSupermanReport());
   const pronunciation = buildPronunciationReview(ingest, plan);
-  assert.ok(pronunciation.candidates.some((x) => x.term === 'Michael Rawlins'));
-  assert.ok(pronunciation.candidates.some((x) => x.term === 'Tres Amigos, Una Vida – A Throuple Love Story'));
-  assert.equal(pronunciation.candidates.every((x) => x.spokenAs === '' && x.status === 'needs-confirmation'), true);
+  const michael = pronunciation.candidates.find((x) => x.term === 'Michael Rawlins');
+  const title = pronunciation.candidates.find((x) => x.term === 'Tres Amigos, Una Vida – A Throuple Love Story');
+  assert.ok(michael);
+  assert.ok(title);
+  assert.equal(michael.status, 'standard-reading');
+  assert.equal(michael.spokenAs, '');
+  assert.equal(title.status, 'standard-reading');
+  assert.equal(pronunciation.needsConfirmation, 0);
+  assert.equal(pronunciation.noUnboundedGuessesMade, true);
 });
 
 test('Book One Audio Bible Prep creates a real bible, characters and high-confidence speaker bindings with zero provider calls', async () => {
@@ -182,7 +190,7 @@ test('0.11.3 creates provisional relational roles only when contextual evidence 
   assert.ok(review.autoBindings.some((x) => x.speaker === "Michael's Mother"));
 });
 
-test('0.11.3 focused pronunciation review makes no guesses and avoids broad obvious-name harvesting', () => {
+test('0.11.3 focused pronunciation review avoids broad obvious-name harvesting and 0.11.8 applies bounded defaults', () => {
   const ingest = ingestShape('Chapter 1\n\nMichael said, “Te amo, Juan.”\n\nThey went from San Diego to Clairemont and discussed DJ work and IG posts.');
   const plan = buildBookOneCharacterPlan(fakeSupermanReport());
   const pronunciation = buildPronunciationReview(ingest, plan);
@@ -190,8 +198,10 @@ test('0.11.3 focused pronunciation review makes no guesses and avoids broad obvi
   assert.ok(terms.has('Te amo'));
   assert.ok(terms.has('Clairemont'));
   assert.equal(terms.has('San Diego'), false);
-  assert.equal(pronunciation.noGuessesMade, true);
-  assert.equal(pronunciation.candidates.every((x) => x.spokenAs === ''), true);
+  assert.equal(pronunciation.noUnboundedGuessesMade, true);
+  assert.equal(pronunciation.needsConfirmation, 0);
+  assert.equal(pronunciation.candidates.find((x) => x.term === 'Te amo')?.spokenAs, 'Te amo');
+  assert.equal(pronunciation.candidates.find((x) => x.term === 'Clairemont')?.status, 'standard-reading');
 });
 
 test('0.11.4 closes remaining quoted sign, news, message, hypothetical, and performance-title false dialogue', () => {
@@ -293,7 +303,7 @@ test('0.11.4 prep accounting uses applied narrator routing as the single quoted-
     const store = new InMemoryStore();
     const service = new BookOneAudioBiblePrepService(store);
     const result = await service.runFile(file);
-    assert.equal(result.prep.release, '0.11.7');
+    assert.equal(result.prep.release, '0.11.8');
     assert.equal(result.prep.intelligence.resolutionCounts.narratorRouted, result.prep.dialogueReview.quotedNarrationSegments);
     assert.equal(result.prep.providerCallsPerformed, 0);
   } finally {
@@ -387,8 +397,8 @@ test('0.11.5 prep exports explicit Superman engine provenance instead of a stale
     const store = new InMemoryStore();
     const service = new BookOneAudioBiblePrepService(store);
     const result = await service.runFile(file);
-    assert.equal(result.prep.release, '0.11.7');
-    assert.equal(result.prep.schemaVersion, 6);
+    assert.equal(result.prep.release, '0.11.8');
+    assert.equal(result.prep.schemaVersion, 7);
     assert.equal(typeof result.prep.superman.engineRelease, 'string');
     assert.equal(Object.hasOwn(result.prep.superman, 'release'), false);
     assert.equal(result.prep.providerCallsPerformed, 0);
@@ -525,4 +535,87 @@ test('0.11.7 one-mention names require spoken evidence before entering the perma
   const plan = buildBookOneCharacterPlan(report, { spokenCharacterNames: new Set(['Kayla']) });
   assert.ok(plan.some((x) => x.canonicalName === 'Kayla'));
   assert.equal(plan.some((x) => x.canonicalName === 'Paris'), false);
+});
+
+
+test('0.11.8 closes pronunciation review with deterministic rules and fixes DJing classification', () => {
+  const ingest = ingestShape([
+    'Chapter 1', '',
+    'Juan finished DJing and sent a DM.', '',
+    '“LOL. LMAO. Tell the VIP DJ I said hi.”', '',
+    'Michael laughed. “DIY astronaut?”', '',
+    '“Te amo.”'
+  ].join('\n'));
+  const plan = buildBookOneCharacterPlan(fakeSupermanReport(), { spokenCharacterNames: new Set(['Michael Rawlins', 'Juan Delgado', 'Christopher Lancaster', 'Dani']) });
+  const review = buildPronunciationReview(ingest, plan);
+  assert.equal(review.needsConfirmation, 0);
+  assert.equal(review.blockingCount, 0);
+  assert.equal(review.resolvedCount, review.candidateCount);
+  const djing = review.candidates.find((x) => x.term === 'DJing');
+  assert.ok(djing);
+  assert.equal(djing.category, 'acronym-derived');
+  assert.equal(djing.spokenAs, 'dee jaying');
+  assert.equal(djing.ruleRequired, true);
+  const michael = review.candidates.find((x) => x.term === 'Michael Rawlins');
+  assert.ok(michael);
+  assert.equal(michael.status, 'standard-reading');
+  assert.equal(michael.ruleRequired, false);
+});
+
+test('0.11.8 reconciles scene-local and collective dialogue out of continuity unresolved counts', () => {
+  const raw = { bibleId: 'bible-1', unresolvedDialogueSegments: 17, pronunciationRules: 16 };
+  const review = {
+    sceneLocalBindings: Array.from({ length: 16 }, (_, i) => ({ segmentId: `scene-${i}` })),
+    collectiveBindings: [{ segmentId: 'collective-1', speakers: ['Michael Rawlins', 'Juan Delgado'] }]
+  };
+  const result = reconcileBookOneContinuity(raw, review);
+  assert.equal(result.unboundInPermanentBible, 17);
+  assert.equal(result.externallyResolvedDialogueSegments, 17);
+  assert.equal(result.unresolvedDialogueSegments, 0);
+  assert.equal(result.speakerResolutionComplete, true);
+});
+
+test('0.11.8 persists pronunciation defaults but does not lock below a Superman PASS', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'yasready-prep-0118-lock-'));
+  const file = path.join(dir, 'book.txt');
+  try {
+    await writeFile(file, [
+      'Tres Amigos, Una Vida – A Throuple Love Story', '',
+      'by D.C.W.', '',
+      'Chapter 1', '',
+      'Michael said, “Hello.”', '',
+      'Juan replied, “Te amo.”', '',
+      'Juan finished DJing and sent a DM.'
+    ].join('\n'));
+    const store = new InMemoryStore();
+    const service = new BookOneAudioBiblePrepService(store);
+    const result = await service.runFile(file);
+    assert.equal(result.prep.release, '0.11.8');
+    assert.equal(result.prep.schemaVersion, 7);
+    assert.equal(result.prep.dialogueReview.needsReview, 0);
+    assert.equal(result.prep.pronunciationReview.needsConfirmation, 0);
+    assert.equal(result.prep.continuity.unresolvedDialogueSegments, 0);
+    assert.notEqual(result.prep.superman.status, 'PASS');
+    assert.equal(result.prep.gates.productionReady, false);
+    assert.equal(result.prep.gates.audioBibleLocked, false);
+    assert.equal(result.prep.status, 'READY_FOR_AUDIO_BIBLE_REVIEW');
+    assert.equal(result.prep.lock.status, 'OPEN');
+    assert.equal(result.prep.audioBible.locked, false);
+    assert.ok(result.prep.snapshot.pronunciations.some((x) => x.term === 'D.C.W.' && x.spokenAs === 'D C W'));
+    assert.ok(result.prep.snapshot.pronunciations.some((x) => x.term === 'Te amo' && x.language === 'es'));
+    assert.equal(result.prep.snapshot.pronunciations.some((x) => x.term === 'Michael Rawlins'), false);
+    assert.equal(result.prep.continuity.pronunciationRules, result.prep.pronunciationReview.rulesCreated);
+    assert.equal(result.prep.providerCallsPerformed, 0);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+
+test('0.11.8 lock gate requires Superman PASS plus zero speaker, pronunciation and continuity blockers', () => {
+  assert.equal(computeBookOneAudioBibleLock({ supermanStatus: 'PASS', reviewNeedsReview: 0, pronunciationNeedsConfirmation: 0, continuityUnresolvedDialogue: 0 }), true);
+  assert.equal(computeBookOneAudioBibleLock({ supermanStatus: 'REVIEW', reviewNeedsReview: 0, pronunciationNeedsConfirmation: 0, continuityUnresolvedDialogue: 0 }), false);
+  assert.equal(computeBookOneAudioBibleLock({ supermanStatus: 'PASS', reviewNeedsReview: 1, pronunciationNeedsConfirmation: 0, continuityUnresolvedDialogue: 0 }), false);
+  assert.equal(computeBookOneAudioBibleLock({ supermanStatus: 'PASS', reviewNeedsReview: 0, pronunciationNeedsConfirmation: 1, continuityUnresolvedDialogue: 0 }), false);
+  assert.equal(computeBookOneAudioBibleLock({ supermanStatus: 'PASS', reviewNeedsReview: 0, pronunciationNeedsConfirmation: 0, continuityUnresolvedDialogue: 1 }), false);
 });

@@ -16,6 +16,30 @@ import { BOOK_ONE_PROFILE, canonicalizeSpeakerCandidate } from '../superman/book
 
 const freeze = (value) => Object.freeze(value);
 
+export function computeBookOneAudioBibleLock({ supermanStatus, reviewNeedsReview, pronunciationNeedsConfirmation, continuityUnresolvedDialogue }) {
+  return supermanStatus === 'PASS' &&
+    Number(reviewNeedsReview ?? 0) === 0 &&
+    Number(pronunciationNeedsConfirmation ?? 0) === 0 &&
+    Number(continuityUnresolvedDialogue ?? 0) === 0;
+}
+
+export function reconcileBookOneContinuity(rawContinuity, review) {
+  const externallyResolvedIds = new Set([
+    ...((review?.sceneLocalBindings ?? []).map((binding) => binding.segmentId)),
+    ...((review?.collectiveBindings ?? []).map((binding) => binding.segmentId))
+  ].filter(Boolean));
+  const rawUnbound = Number(rawContinuity?.unresolvedDialogueSegments ?? 0);
+  const externallyResolvedDialogueSegments = Math.min(rawUnbound, externallyResolvedIds.size);
+  const unresolvedDialogueSegments = Math.max(0, rawUnbound - externallyResolvedDialogueSegments);
+  return freeze({
+    ...rawContinuity,
+    unboundInPermanentBible: rawUnbound,
+    externallyResolvedDialogueSegments,
+    unresolvedDialogueSegments,
+    speakerResolutionComplete: unresolvedDialogueSegments === 0
+  });
+}
+
 function analysisSegmentRows(ingestResult) {
   const rows = [];
   let flat = 0;
@@ -88,7 +112,7 @@ export class BookOneAudioBiblePrepService {
         role: planned.role,
         seriesCharacterKey: planned.seriesCharacterKey,
         performanceProfile: {
-          prepRelease: '0.11.7',
+          prepRelease: '0.11.8',
           castingStatus: planned.castingStatus,
           sourceMentions: planned.mentions,
           sourceConfidence: planned.averageConfidence,
@@ -115,13 +139,33 @@ export class BookOneAudioBiblePrepService {
     }
 
     const pronunciationReview = buildPronunciationReview(ingestResult, characterPlan);
-    const continuity = this.audioBible.continuityReport(bible.id);
+    let pronunciationRulesCreated = 0;
+    for (const candidate of pronunciationReview.candidates ?? []) {
+      if (!candidate.ruleRequired || !candidate.spokenAs) continue;
+      this.audioBible.addPronunciation(bible.id, {
+        term: candidate.term,
+        spokenAs: candidate.spokenAs,
+        language: candidate.language ?? 'en',
+        caseSensitive: Boolean(candidate.caseSensitive),
+        source: 'yasready-default-0.11.8',
+        notes: candidate.notes ?? null
+      });
+      pronunciationRulesCreated += 1;
+    }
+
+    const rawContinuity = this.audioBible.continuityReport(bible.id);
+    const continuity = reconcileBookOneContinuity(rawContinuity, review);
     const snapshot = this.audioBible.snapshot(bible.id);
-    const productionReady = review.needsReview === 0 && pronunciationReview.needsConfirmation === 0;
+    const productionReady = computeBookOneAudioBibleLock({
+      supermanStatus: supermanResult.report.status,
+      reviewNeedsReview: review.needsReview,
+      pronunciationNeedsConfirmation: pronunciationReview.needsConfirmation,
+      continuityUnresolvedDialogue: continuity.unresolvedDialogueSegments
+    });
     const prep = freeze({
-      schemaVersion: 6,
-      release: '0.11.7',
-      status: 'READY_FOR_AUDIO_BIBLE_REVIEW',
+      schemaVersion: 7,
+      release: '0.11.8',
+      status: productionReady ? 'AUDIO_BIBLE_LOCKED' : 'READY_FOR_AUDIO_BIBLE_REVIEW',
       providerCallsPerformed: 0,
       book: freeze({
         id: ingestResult.book.id,
@@ -133,7 +177,7 @@ export class BookOneAudioBiblePrepService {
         narrativeChapters: supermanResult.report.manuscript.narrativeChapterCount
       }),
       superman: freeze({ status: supermanResult.report.status, score: supermanResult.report.score, engineRelease: supermanResult.report.release }),
-      audioBible: freeze({ id: bible.id, name: bible.name, revision: this.store.get('audio_bible', bible.id).revision, digest: snapshot.digest }),
+      audioBible: freeze({ id: bible.id, name: bible.name, revision: this.store.get('audio_bible', bible.id).revision, digest: snapshot.digest, locked: productionReady, lockRelease: productionReady ? '0.11.8' : null }),
       characterPlan,
       sceneLocalRoles: intelligence.sceneLocalRoles ?? freeze([]),
       intelligence: freeze({
@@ -156,20 +200,32 @@ export class BookOneAudioBiblePrepService {
         collectiveResolved: review.collectiveBindings?.length ?? 0,
         safelyResolved: autoBound + (review.sceneLocalBindings?.length ?? 0) + (review.collectiveBindings?.length ?? 0)
       }),
-      pronunciationReview,
+      pronunciationReview: freeze({ ...pronunciationReview, rulesCreated: pronunciationRulesCreated }),
       continuity,
       snapshot,
+      lock: freeze({
+        status: productionReady ? 'LOCKED' : 'OPEN',
+        release: '0.11.8',
+        speakerReviewOutstanding: review.needsReview,
+        pronunciationReviewOutstanding: pronunciationReview.needsConfirmation,
+        permanentRoles: characterPlan.length,
+        sceneLocalRoles: (intelligence.sceneLocalRoles ?? []).length,
+        pronunciationRules: pronunciationRulesCreated
+      }),
       gates: freeze({
         supermanPass: supermanResult.report.status === 'PASS',
         rosterPrepared: characterPlan.length > 1,
         highConfidenceBindingsCreated: autoBound > 0,
         primaryCastingCanBegin: Boolean(supermanResult.report.gates?.safeToBeginCasting),
         productionReady,
+        audioBibleLocked: productionReady,
         paidGenerationArmed: false
       }),
       nextAction: review.needsReview
         ? `Review the remaining ${review.needsReview} genuinely ambiguous dialogue line(s); YasReady already removed ${review.reviewReduction} review chores while keeping scene extras out of the permanent Audio Bible.`
-        : 'Confirm the focused pronunciation candidates, then lock the Audio Bible for production.'
+        : productionReady
+          ? 'Audio Bible locked for production. Proceed to Casting Room for Narrator and primary-role auditions.'
+          : 'Resolve the remaining pronunciation blockers, then lock the Audio Bible for production.'
     });
 
     return freeze({
