@@ -30,18 +30,38 @@ export function createProject({ name, source = 'standalone' }, options) {
     name,
     source,
     status: 'draft',
-    schemaVersion: 1,
+    schemaVersion: 2,
     locked: false
   }, options), ['name']);
 }
 
-export function createBook({ projectId, title, author = null, language = 'en' }, options) {
-  return requireFields(entity('book', { projectId, title, author, language }, options), ['projectId', 'title']);
+export function createBook({
+  projectId, title, author = null, language = 'en', sourceFormat = null,
+  sourceHash = null, manuscriptMetrics = null
+}, options) {
+  return requireFields(entity('book', {
+    projectId, title, author, language, sourceFormat, sourceHash, manuscriptMetrics
+  }, options), ['projectId', 'title']);
 }
 
-export function createSegment({ projectId, bookId, chapterId, sceneId, order, text, kind = 'narration', characterId = null }, options) {
+export function createChapter({ projectId, bookId, order, title, textHash = null }, options) {
+  return requireFields(entity('chapter', {
+    projectId, bookId, order, title, textHash, status: 'draft', locked: false
+  }, options), ['projectId', 'bookId', 'order', 'title']);
+}
+
+export function createScene({ projectId, bookId, chapterId, order, textHash = null }, options) {
+  return requireFields(entity('scene', {
+    projectId, bookId, chapterId, order, textHash, status: 'draft', locked: false
+  }, options), ['projectId', 'bookId', 'chapterId', 'order']);
+}
+
+export function createSegment({
+  projectId, bookId, chapterId, sceneId, order, text, kind = 'narration',
+  characterId = null, speakerCandidate = null
+}, options) {
   return requireFields(entity('segment', {
     projectId, bookId, chapterId, sceneId, order, text, kind, characterId,
-    status: 'draft', approvedTakeId: null, locked: false
-  }, options), ['projectId', 'bookId', 'chapterId', 'sceneId', 'text']);
+    speakerCandidate, status: 'draft', approvedTakeId: null, locked: false
+  }, options), ['projectId', 'bookId', 'chapterId', 'sceneId', 'order', 'text']);
 }

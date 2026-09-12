@@ -1,49 +1,33 @@
-# Architecture — 0.1.0
+# Architecture — 0.2.0
 
 ## Core hierarchy
 
 `Book -> Chapter -> Scene -> Segment -> Take -> Master`
 
-A **Segment** is the smallest production unit intended for selective regeneration. A **Take** records one rendered attempt for a segment. A **Master** is assembled only from explicitly approved takes.
+0.2.0 turns a source manuscript into the first four production layers while preserving source-integrity hashes.
 
-## Persistent entities
+## Manuscript pipeline
 
-- Project
-- Book
-- Chapter
-- Scene
-- Segment
-- Character
-- VoiceAssignment
-- Pronunciation
-- Provider
-- GenerationRequest
-- CostEvent
-- Approval
-- AudioAsset
-- AlignmentRecord
-- Master
+`Source file -> Extract -> Normalize -> Structure -> Segment -> Count -> Persist`
 
-Every entity carries an id, timestamps and a project id where applicable.
+Supported source formats are EPUB, DOCX and UTF-8 text/Markdown. EPUB and DOCX are read from their ZIP/XML structures directly with Node built-ins; no external conversion service is required.
 
-## Provider boundary
+## Conservative inference
 
-Audio engines must implement `AudioProvider`. No domain service may contain provider-specific HTTP logic.
+The manuscript brain must prefer a warning over an invented fact. Dialogue detection is deterministic. Speaker attribution in 0.2.0 is deliberately conservative and is stored only as `speakerCandidate` evidence, never as a locked character assignment. Character identity belongs to the 0.3.0 Audio Bible.
 
-This allows ElevenLabs, OpenAI or future engines to be swapped or compared without rewriting production state.
+## Source integrity
+
+Each source gets a SHA-256 hash. The normalized manuscript, chapter bodies and scenes also receive hashes. This gives later builds a way to detect changed manuscripts and invalidate only the production work actually affected.
 
 ## Money safety
 
-Every generation request must have a deterministic render fingerprint based on canonical text, provider, model, voice, settings, pronunciation dictionary version and director instructions.
+`productionCharacters` is an estimate, not a customer quote. It intentionally excludes future provider wrappers, pronunciation payloads or director markup. Pricing arrives after provider-specific cost modeling.
 
-Identical fingerprints are reusable. The production engine should never pay twice for identical work unless the caller explicitly requests a fresh take.
+## Provider boundary
 
-All variable provider spending is recorded as append-only `CostEvent` entries.
-
-## Approval safety
-
-Approved production units are locked. Changes require an explicit unlock event. Later builds must not silently regenerate approved segments or masters.
+Audio engines continue to implement `AudioProvider`; manuscript code contains no provider HTTP logic.
 
 ## Storage safety
 
-Git is never used for customer manuscripts or generated audio. `AudioAsset` stores metadata and an opaque storage locator only.
+Source files and generated audio are never committed to Git. The service stores metadata and opaque private-storage references only.
