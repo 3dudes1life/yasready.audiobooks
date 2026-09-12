@@ -12,3 +12,5 @@ export * from './manuscript/zip-reader.js';
 export * from './manuscript/xml.js';
 export * from './manuscript/extractors.js';
 export * from './manuscript/analyzer.js';
+export * from './bible/normalization.js';
+export * from './services/audio-bible-service.js';

@@ -20,7 +20,7 @@ if (args[0] === 'analyze') {
     const project = projects.create({ name: `Analysis — ${filePath}` });
     const result = manuscripts.ingestFile(project.id, filePath);
     console.log(JSON.stringify({
-      version: '0.2.0',
+      version: '0.3.0',
       format: result.analysis.source.format,
       metadata: result.analysis.metadata,
       metrics: result.analysis.metrics,
@@ -34,7 +34,7 @@ if (args[0] === 'analyze') {
   const ledger = new CostLedger();
   const generations = new GenerationRegistry();
 
-  const project = projects.create({ name: 'YasReady Audiobooks — 0.2.0 Demo' });
+  const project = projects.create({ name: 'YasReady Audiobooks — 0.3.0 Demo' });
   const generation = generations.register({
     text: 'Foundation test passage.', provider: 'demo-provider', model: 'demo-model',
     voiceId: 'demo-voice', settings: { stability: 'default' },
@@ -47,7 +47,7 @@ if (args[0] === 'analyze') {
   });
 
   console.log(JSON.stringify({
-    version: '0.2.0', project,
+    version: '0.3.0', project,
     manuscriptCommand: 'node src/cli.js analyze <file>',
     duplicateProtection: generation.request.fingerprint,
     recordedCostUsd: ledger.total(project.id), providerCallsPerformed: 0

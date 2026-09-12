@@ -1,44 +1,38 @@
 # YasReady Audiobooks
 
-**Version 0.2.0 — Manuscript Brain**
+Professional audiobook production infrastructure for YasReady Publishing.
 
-YasReady Audiobooks is a standalone audiobook-production service designed to later integrate with YasReady Publishing through a narrow, stable API boundary.
+**Current build: 0.3.0 — Audio Bible**
 
-## What 0.2.0 adds
+The project is intentionally standalone while the audiobook workflow is perfected. It will integrate with YasReady Publishing only after the full production pipeline passes real-book stress testing.
 
-- native EPUB, DOCX and UTF-8 text manuscript intake
-- no runtime package dependencies for manuscript extraction
-- EPUB package/spine ordering and metadata extraction
-- DOCX paragraph and core metadata extraction
-- chapter-heading detection with front/back matter support
-- explicit scene-break detection
+## What exists now
+
+### 0.1.0 — Production Foundation
+- Book → Chapter → Scene → Segment → Take → Master production architecture
+- provider abstraction, cost ledger and duplicate-render protection
+- project lifecycle/approval foundations
+- private asset references rather than committing audio bytes
+
+### 0.2.0 — Manuscript Brain
+- EPUB, DOCX, TXT and Markdown manuscript intake
+- chapter/scene segmentation
 - narration/dialogue segmentation
-- conservative speaker-candidate attribution with confidence/evidence
-- words, source characters, production characters and runtime estimates
-- source and normalized-text SHA-256 integrity hashes
-- warnings when chapter/dialogue structure looks suspicious
-- persistence into the 0.1.0 Book → Chapter → Scene → Segment model
-- CLI manuscript analysis without making any voice-provider calls
+- conservative speaker-candidate evidence
+- production character/word/runtime metrics
+- manuscript hierarchy persistence
 
-## Run
+### 0.3.0 — Audio Bible
+- series and book Audio Bibles with inheritance
+- canonical characters, aliases, roles and performance profiles
+- relationship graph
+- pronunciation rules with book-level overrides
+- conservative speaker resolution and auditable bindings
+- deterministic Bible digest for future render-cache invalidation
+- continuity reporting
 
-Requires Node 20+.
+## Rules
 
-```bash
-npm test
-npm run check
-npm run demo
-node src/cli.js analyze /path/to/book.epub
-```
+Do not commit manuscripts, generated audio, voice assets, API keys or customer data to Git.
 
-## Production-count rule
-
-`sourceCharacters` measures the normalized extracted manuscript. `productionCharacters` measures the current narration/dialogue segments and is an estimate of text that will eventually be sent to a voice provider. Later director/casting builds may change billable character counts, so 0.2.0 does not present it as a final quote.
-
-## Safety rule
-
-Do not commit manuscripts, generated masters, voice assets, customer content or API secrets to this repository. Manuscripts are read at runtime and represented in the production model; customer source files belong in private storage.
-
-## Architecture contract
-
-Publishing should eventually call the audiobook service rather than importing its internal implementation.
+A manuscript parser may suggest a speaker, but it may never silently create or recast a canonical character. Casting and voice generation come in later builds.

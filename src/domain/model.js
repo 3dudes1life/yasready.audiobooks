@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
 
 export const EntityTypes = Object.freeze([
-  'project', 'book', 'chapter', 'scene', 'segment', 'character',
-  'voice_assignment', 'pronunciation', 'provider', 'generation_request',
-  'cost_event', 'approval', 'audio_asset', 'alignment_record', 'master'
+  'project', 'book', 'chapter', 'scene', 'segment', 'series', 'audio_bible',
+  'character', 'relationship', 'speaker_binding', 'voice_assignment', 'pronunciation',
+  'provider', 'generation_request', 'cost_event', 'approval', 'audio_asset',
+  'alignment_record', 'master'
 ]);
 
 export function nowIso(clock = () => new Date()) {
@@ -30,7 +31,7 @@ export function createProject({ name, source = 'standalone' }, options) {
     name,
     source,
     status: 'draft',
-    schemaVersion: 2,
+    schemaVersion: 3,
     locked: false
   }, options), ['name']);
 }
@@ -64,4 +65,52 @@ export function createSegment({
     projectId, bookId, chapterId, sceneId, order, text, kind, characterId,
     speakerCandidate, status: 'draft', approvedTakeId: null, locked: false
   }, options), ['projectId', 'bookId', 'chapterId', 'sceneId', 'order', 'text']);
+}
+
+
+export function createSeries({ projectId, title, author = null, description = null }, options) {
+  return requireFields(entity('series', { projectId, title, author, description }, options), ['projectId', 'title']);
+}
+
+export function createAudioBible({
+  projectId, name, scope, bookId = null, seriesId = null, parentBibleId = null
+}, options) {
+  return requireFields(entity('audio_bible', {
+    projectId, name, scope, bookId, seriesId, parentBibleId, revision: 1, schemaVersion: 3, locked: false
+  }, options), ['projectId', 'name', 'scope']);
+}
+
+export function createCharacter({
+  projectId, bibleId, canonicalName, aliases = [], role = 'supporting', pronouns = null,
+  description = null, performanceProfile = {}, seriesCharacterKey = null
+}, options) {
+  return requireFields(entity('character', {
+    projectId, bibleId, canonicalName, aliases: Object.freeze([...aliases]), role, pronouns, description,
+    performanceProfile: Object.freeze({ ...performanceProfile }), seriesCharacterKey
+  }, options), ['projectId', 'bibleId', 'canonicalName']);
+}
+
+export function createRelationship({
+  projectId, bibleId, fromCharacterId, toCharacterId, kind, label = null, notes = null
+}, options) {
+  return requireFields(entity('relationship', {
+    projectId, bibleId, fromCharacterId, toCharacterId, kind, label, notes
+  }, options), ['projectId', 'bibleId', 'fromCharacterId', 'toCharacterId', 'kind']);
+}
+
+export function createPronunciation({
+  projectId, bibleId, term, normalizedTerm, spokenAs, notation = 'plain', language = 'en',
+  caseSensitive = false, source = 'author', notes = null
+}, options) {
+  return requireFields(entity('pronunciation', {
+    projectId, bibleId, term, normalizedTerm, spokenAs, notation, language, caseSensitive, source, notes
+  }, options), ['projectId', 'bibleId', 'term', 'normalizedTerm', 'spokenAs']);
+}
+
+export function createSpeakerBinding({
+  projectId, bibleId, segmentId, characterId, source = 'audio-bible', confidence = 1, evidence = null
+}, options) {
+  return requireFields(entity('speaker_binding', {
+    projectId, bibleId, segmentId, characterId, source, confidence, evidence
+  }, options), ['projectId', 'bibleId', 'segmentId', 'characterId']);
 }
