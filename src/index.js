@@ -28,3 +28,7 @@ export * from './services/continuity-qa-service.js';
 export * from './mastering/profiles.js';
 export * from './mastering/ffmpeg-adapter.js';
 export * from './services/mastering-lab-service.js';
+export * from './distribution/profiles.js';
+export * from './distribution/w3c-manifest.js';
+export * from './services/distribution-brain-service.js';
+export * from './ux/operator-flow.js';

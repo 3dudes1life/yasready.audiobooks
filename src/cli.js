@@ -6,7 +6,7 @@ import {
   ProjectService
 } from './index.js';
 
-const VERSION = '0.9.0';
+const VERSION = '0.10.0';
 const args = process.argv.slice(2);
 
 if (args[0] === 'analyze') {
@@ -44,7 +44,12 @@ if (args[0] === 'analyze') {
   console.log(JSON.stringify({
     version: VERSION, project,
     manuscriptCommand: 'node src/cli.js analyze <file>',
-    reviewStudio: 'ready', continuityQa: 'ready', masteringLab: 'ready',
+    workflow: {
+      manuscriptBrain: 'ready', audioBible: 'ready', castingRoom: 'ready', audiobookDirector: 'ready',
+      productionEngine: 'ready', reviewStudio: 'ready', continuityQa: 'ready', masteringLab: 'ready',
+      distributionBrain: 'ready', operatorFlowAudit: 'ready'
+    },
+    distributionProfiles: ['acx-2026', 'spotify-direct-2026', 'apple-partner-2026', 'w3c-audiobook-2020'],
     duplicateProtection: generation.request.fingerprint,
     recordedCostUsd: ledger.total(project.id), providerCallsPerformed: 0
   }, null, 2));

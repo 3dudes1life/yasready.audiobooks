@@ -1,16 +1,16 @@
 # Build Roadmap
 
-- 0.1.0 Production Foundation
-- 0.2.0 Manuscript Brain
-- 0.3.0 Audio Bible
-- 0.4.0 Casting Room
-- 0.5.0 Audiobook Director
-- 0.6.0 Production Engine
-- 0.7.0 Review Studio
-- 0.8.0 Continuity + QA Brain
-- 0.9.0 Mastering Lab
-- 0.10.0 Distribution Brain
-- 0.11.0 Book One Superman
+- ✅ 0.1.0 Production Foundation
+- ✅ 0.2.0 Manuscript Brain
+- ✅ 0.3.0 Audio Bible
+- ✅ 0.4.0 Casting Room
+- ✅ 0.5.0 Audiobook Director
+- ✅ 0.6.0 Production Engine
+- ✅ 0.7.0 Review Studio
+- ✅ 0.8.0 Continuity + QA Brain
+- ✅ 0.9.0 Mastering Lab
+- ✅ 0.10.0 Distribution Brain
+- ⏭️ 0.11.0 Book One Superman
 - 0.12.0 Series Continuity
 - 0.13.0 SaaS Money Guard
 - 0.14.0 External Book Superman
