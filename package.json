@@ -1,0 +1,13 @@
+{
+  "name": "@yasready/audiobooks",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "YasReady Audiobooks production foundation",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "test": "node --test",
+    "check": "node --check src/index.js && node --check src/cli.js",
+    "demo": "node src/cli.js"
+  }
+}
