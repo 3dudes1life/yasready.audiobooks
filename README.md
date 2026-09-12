@@ -2,7 +2,7 @@
 
 Professional audiobook production infrastructure for YasReady Publishing.
 
-**Current build: 0.12.0 — Series Continuity**
+**Current build: 0.12.1 — Relationship Continuity & Series Lock Hardening**
 
 YasReady Audiobooks is being developed as a standalone service first so audiobook experimentation cannot destabilize YasReady Publishing. The product goal is professional long-form audiobook production with strong continuity, human approval gates, cost protection, quality control, mastering and retailer-ready packaging.
 
@@ -27,7 +27,8 @@ YasReady Audiobooks is being developed as a standalone service first so audioboo
 - 0.11.6 Residual Review Finalizer — closes the residual Book One review cases, separates scene-local extras from permanent continuity, and supports explicit multi-speaker dialogue
 - 0.11.7 Speaker Truth Closure — adds a high-authority speaker-truth verifier, protects anonymous self-identification and narrator/media classifications, prunes false one-mention roster noise, and closes Book One speaker review with zero paid calls
 - 0.11.8 Audio Bible Lock & Pronunciation Closure — reconciles scene-local/collective dialogue out of false unresolved continuity counts, applies bounded production pronunciation defaults, fixes `DJing` classification, persists explicit pronunciation rules, and emits a locked production-ready Audio Bible when all gates are closed
-- 0.12 Series Continuity — promotes locked book-level Audio Bible truth into stable series identities, excludes scene-only extras, preserves pronunciation decisions, blocks silent voice recasting, and provides next-book continuity comparison
+- 0.12.0 Series Continuity — promotes locked book-level Audio Bible truth into stable series identities, excludes scene-only extras, preserves pronunciation decisions, blocks silent voice recasting, and provides next-book continuity comparison
+- 0.12.1 Relationship Continuity & Series Lock Hardening — adds locked relationship truth, explicit relationship-change protection, relationship drift comparison, voice-lock audit history and a required-core-voice lock state
 
 ## Book One Superman
 
@@ -63,7 +64,7 @@ After a book Audio Bible is locked, promote it into series truth:
 node src/cli.js series-continuity-seed "/path/to/book-one-audio-bible-prep.json" --out "$HOME/Desktop/Series-Continuity"
 ```
 
-0.12.0 keeps Narrator and primary identities required, carries recurring supporting/named minor roles forward, keeps generic provisional roles reference-only, and excludes scene-local extras entirely. Future books can be compared against the package before production; identity/pronunciation conflicts fail closed, and series voice locks cannot be silently replaced. The Series Continuity workflow performs zero provider calls.
+0.12.1 keeps Narrator and primary identities required, carries recurring supporting/named minor roles forward, keeps generic provisional roles reference-only, and excludes scene-local extras entirely. Relationship truth can now be promoted or explicitly operator-locked, future books can be compared for direct relationship drift, and missing relationship mentions are not misclassified as contradictions. Identity, pronunciation and explicit relationship conflicts fail closed; voice and relationship replacements require explicit overrides with reasons and audit history. The Series Continuity workflow performs zero provider calls.
 
 ## Current distribution targets
 

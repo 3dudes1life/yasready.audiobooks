@@ -11,7 +11,7 @@ import {
   SeriesContinuityService
 } from './index.js';
 
-const VERSION = '0.12.0';
+const VERSION = '0.12.1';
 const args = process.argv.slice(2);
 
 function flagValue(name, fallback = null) {
@@ -85,13 +85,15 @@ async function writeSeriesContinuityReports(result, outDir) {
     json: path.join(resolved, 'series-continuity.json'),
     markdown: path.join(resolved, 'series-continuity.md'),
     characters: path.join(resolved, 'series-character-map.csv'),
-    pronunciations: path.join(resolved, 'series-pronunciations.csv')
+    pronunciations: path.join(resolved, 'series-pronunciations.csv'),
+    relationships: path.join(resolved, 'series-relationships.csv')
   };
   await Promise.all([
     writeFile(files.json, JSON.stringify(result.package, null, 2)),
     writeFile(files.markdown, result.markdown),
     writeFile(files.characters, result.characterCsv),
-    writeFile(files.pronunciations, result.pronunciationCsv)
+    writeFile(files.pronunciations, result.pronunciationCsv),
+    writeFile(files.relationships, result.relationshipCsv)
   ]);
   return files;
 }
@@ -124,6 +126,9 @@ async function runSeriesContinuitySeed() {
     sceneLocalExcluded: result.package.sceneLocalExcluded.length,
     pronunciationRules: result.package.pronunciations.explicitRules.length,
     standardReadings: result.package.pronunciations.standardReadings.length,
+    relationshipLocks: result.package.relationshipContinuity.lockedCount,
+    seriesLockStatus: result.package.seriesLock.status,
+    pendingRequiredVoiceAssignments: result.package.seriesLock.pendingRequiredVoiceKeys.length,
     lockedVoiceAssignments: result.package.voiceContinuity.lockedCount,
     pendingVoiceAssignments: result.package.voiceContinuity.pendingSeriesCharacterKeys.length,
     providerCallsPerformed: result.package.providerCallsPerformed,
@@ -152,6 +157,99 @@ async function runSeriesContinuityCompare() {
   }
   console.log(JSON.stringify({ version: VERSION, seriesContinuity: 'compare', ...result, output: out ? path.resolve(out) : null }, null, 2));
   if (result.status === 'BLOCKED') process.exitCode = 3;
+}
+
+
+async function writeSeriesPackageFile(seriesPackage, outPath) {
+  const resolved = path.resolve(outPath);
+  const dir = path.dirname(resolved);
+  await mkdir(dir, { recursive: true });
+  const rendered = new SeriesContinuityService().renderPackage(seriesPackage);
+  const files = {
+    json: resolved,
+    markdown: path.join(dir, 'series-continuity.md'),
+    characters: path.join(dir, 'series-character-map.csv'),
+    pronunciations: path.join(dir, 'series-pronunciations.csv'),
+    relationships: path.join(dir, 'series-relationships.csv')
+  };
+  await Promise.all([
+    writeFile(files.json, JSON.stringify(seriesPackage, null, 2)),
+    writeFile(files.markdown, rendered.markdown),
+    writeFile(files.characters, rendered.characterCsv),
+    writeFile(files.pronunciations, rendered.pronunciationCsv),
+    writeFile(files.relationships, rendered.relationshipCsv)
+  ]);
+  return files;
+}
+
+async function runSeriesRelationshipLock({ group = false } = {}) {
+  const packagePath = args[1];
+  if (!packagePath) {
+    console.error(group
+      ? 'Usage: node src/cli.js series-continuity-lock-group <series-continuity.json> --members key1,key2[,key3] --kind KIND [--label LABEL] [--out FILE] [--override --reason REASON]'
+      : 'Usage: node src/cli.js series-continuity-lock-relationship <series-continuity.json> --from KEY --to KEY --kind KIND [--label LABEL] [--out FILE] [--override --reason REASON]');
+    process.exitCode = 2;
+    return;
+  }
+  const seriesPackage = JSON.parse(await readFile(path.resolve(packagePath), 'utf8'));
+  const service = new SeriesContinuityService();
+  const override = args.includes('--override');
+  const common = {
+    kind: flagValue('--kind', 'partner'),
+    label: flagValue('--label'),
+    notes: flagValue('--notes'),
+    approvedBy: flagValue('--approved-by', 'operator'),
+    override,
+    reason: flagValue('--reason')
+  };
+  const next = group
+    ? service.lockRelationshipGroup(seriesPackage, { ...common, members: String(flagValue('--members', '')).split(',').map((x) => x.trim()).filter(Boolean) })
+    : service.lockRelationship(seriesPackage, { ...common, fromSeriesCharacterKey: flagValue('--from'), toSeriesCharacterKey: flagValue('--to') });
+  const out = flagValue('--out', packagePath);
+  const files = await writeSeriesPackageFile(next, out);
+  console.log(JSON.stringify({
+    version: VERSION,
+    seriesContinuity: group ? 'relationship-group-lock' : 'relationship-lock',
+    status: next.status,
+    relationshipLocks: next.relationshipContinuity.lockedCount,
+    seriesLockStatus: next.seriesLock.status,
+    pendingRequiredVoiceAssignments: next.seriesLock.pendingRequiredVoiceKeys.length,
+    providerCallsPerformed: next.providerCallsPerformed,
+    digest: next.digest,
+    files
+  }, null, 2));
+}
+
+async function runSeriesVoiceLock() {
+  const packagePath = args[1];
+  if (!packagePath) {
+    console.error('Usage: node src/cli.js series-continuity-lock-voice <series-continuity.json> --character KEY --provider PROVIDER --voice-id VOICE_ID [--safety-score N] [--out FILE] [--override --reason REASON]');
+    process.exitCode = 2;
+    return;
+  }
+  const seriesPackage = JSON.parse(await readFile(path.resolve(packagePath), 'utf8'));
+  const next = new SeriesContinuityService().lockVoice(seriesPackage, {
+    seriesCharacterKey: flagValue('--character'),
+    provider: flagValue('--provider'),
+    providerVoiceId: flagValue('--voice-id'),
+    approvedBy: flagValue('--approved-by', 'operator'),
+    safetyScore: flagValue('--safety-score'),
+    override: args.includes('--override'),
+    reason: flagValue('--reason')
+  });
+  const out = flagValue('--out', packagePath);
+  const files = await writeSeriesPackageFile(next, out);
+  console.log(JSON.stringify({
+    version: VERSION,
+    seriesContinuity: 'voice-lock',
+    status: next.status,
+    lockedVoiceAssignments: next.voiceContinuity.lockedCount,
+    seriesLockStatus: next.seriesLock.status,
+    pendingRequiredVoiceAssignments: next.seriesLock.pendingRequiredVoiceKeys.length,
+    providerCallsPerformed: next.providerCallsPerformed,
+    digest: next.digest,
+    files
+  }, null, 2));
 }
 
 async function runSuperman({ fixture = false } = {}) {
@@ -263,6 +361,12 @@ if (args[0] === 'analyze') {
   await runSeriesContinuitySeed();
 } else if (args[0] === 'series-continuity-compare') {
   await runSeriesContinuityCompare();
+} else if (args[0] === 'series-continuity-lock-relationship') {
+  await runSeriesRelationshipLock();
+} else if (args[0] === 'series-continuity-lock-group') {
+  await runSeriesRelationshipLock({ group: true });
+} else if (args[0] === 'series-continuity-lock-voice') {
+  await runSeriesVoiceLock();
 } else {
   const store = new InMemoryStore();
   const projects = new ProjectService(store);
@@ -282,6 +386,8 @@ if (args[0] === 'analyze') {
     bookOneAudioBiblePrepCommand: 'node src/cli.js audio-bible-prep <file> --out <directory>',
     seriesContinuitySeedCommand: 'node src/cli.js series-continuity-seed <book-one-audio-bible-prep.json> --out <directory>',
     seriesContinuityCompareCommand: 'node src/cli.js series-continuity-compare <series-continuity.json> <next-book-audio-bible-prep.json>',
+    seriesRelationshipLockCommand: 'node src/cli.js series-continuity-lock-group <series-continuity.json> --members key1,key2,key3 --kind partner --out <file>',
+    seriesVoiceLockCommand: 'node src/cli.js series-continuity-lock-voice <series-continuity.json> --character <key> --provider <provider> --voice-id <id> --out <file>',
     workflow: {
       manuscriptBrain: 'ready', audioBible: 'ready', castingRoom: 'ready', audiobookDirector: 'ready',
       productionEngine: 'ready', reviewStudio: 'ready', continuityQa: 'ready', masteringLab: 'ready',

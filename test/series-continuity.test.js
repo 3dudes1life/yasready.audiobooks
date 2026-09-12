@@ -10,6 +10,8 @@ import {
   compareBookToSeriesContinuity,
   deriveSeriesTitle,
   verifySeriesContinuityPackage,
+  withSeriesRelationshipGroupLock,
+  withSeriesRelationshipLock,
   withSeriesVoiceLock
 } from '../src/index.js';
 
@@ -91,6 +93,11 @@ test('locked Book One prep promotes permanent roles and excludes scene extras', 
   assert.equal(pkg.characters.find((x) => x.canonicalName === 'Realtor').continuityPolicy, 'reference-only');
   assert.equal(pkg.pronunciations.explicitRules.length, 1);
   assert.equal(pkg.pronunciations.standardReadings.length, 1);
+  assert.equal(pkg.relationships.length, 1);
+  assert.equal(pkg.relationships[0].kind, 'partner');
+  assert.equal(pkg.relationshipContinuity.lockedCount, 1);
+  assert.equal(pkg.seriesLock.status, 'OPEN_FOR_CASTING');
+  assert.equal(pkg.seriesLock.pendingRequiredVoiceKeys.length, 3);
   assert.equal(pkg.providerCallsPerformed, 0);
   assert.equal(verifySeriesContinuityPackage(pkg).valid, true);
 });
@@ -114,6 +121,8 @@ test('series continuity comparison finds recurring and new Book Two characters',
   assert.equal(result.sceneLocalRoleCount, 1);
   assert.equal(result.identityConflicts.length, 0);
   assert.equal(result.pronunciation.inheritedRules, 1);
+  assert.equal(result.relationship.conflicts.length, 0);
+  assert.equal(result.relationship.unobserved.length, 1);
   assert.equal(result.providerCallsPerformed, 0);
 });
 
@@ -155,6 +164,7 @@ test('series package materializes into a series bible and a next book inherits i
   const materialized = continuity.materializeSeriesBible({ projectId: project.id, seriesPackage: built.package });
   assert.equal(materialized.snapshot.characters.length, 5);
   assert.equal(materialized.snapshot.pronunciations.length, 1);
+  assert.equal(materialized.snapshot.relationships.length, 1);
   const child = continuity.createInheritedBookBible({ projectId: project.id, bookId: bookTwo.book.id, seriesBibleId: materialized.bible.id, name: 'Fault Lines — Audio Bible' });
   assert.equal(child.continuity.inheritedCharacters, 5);
   const bible = new AudioBibleService(store);
@@ -170,4 +180,112 @@ test('service renders local operator artifacts without manuscript excerpts or pr
   assert.match(built.pronunciationCsv, /D\.C\.W\./);
   assert.equal(built.package.providerCallsPerformed, 0);
   assert.ok(!built.markdown.includes('Come here'));
+});
+
+
+test('operator-confirmed relationship lock adds durable series truth with a valid digest', () => {
+  const pkg = buildSeriesContinuityPackage(lockedPrep());
+  const locked = withSeriesRelationshipLock(pkg, {
+    fromSeriesCharacterKey: 'michael-rawlins',
+    toSeriesCharacterKey: 'dani',
+    kind: 'friend',
+    label: 'close friend',
+    approvedBy: 'author'
+  });
+  assert.equal(locked.relationships.length, 2);
+  assert.equal(locked.relationshipContinuity.operatorConfirmedCount, 1);
+  assert.equal(locked.relationships.find((row) => row.relationshipKey.includes('dani'))?.locked, true);
+  assert.equal(verifySeriesContinuityPackage(locked).valid, true);
+});
+
+test('locked relationship cannot silently change and explicit override retains audit history', () => {
+  const pkg = buildSeriesContinuityPackage(lockedPrep());
+  assert.throws(() => withSeriesRelationshipLock(pkg, {
+    fromSeriesCharacterKey: 'michael-rawlins',
+    toSeriesCharacterKey: 'juan-delgado',
+    kind: 'ex-partner'
+  }), /explicit override/);
+  const changed = withSeriesRelationshipLock(pkg, {
+    fromSeriesCharacterKey: 'michael-rawlins',
+    toSeriesCharacterKey: 'juan-delgado',
+    kind: 'ex-partner',
+    override: true,
+    reason: 'intentional story change',
+    approvedBy: 'author'
+  });
+  assert.equal(changed.relationships[0].kind, 'ex-partner');
+  assert.equal(changed.relationships[0].revision, 2);
+  assert.equal(changed.relationships[0].history.length, 1);
+  assert.equal(changed.relationships[0].overrideReason, 'intentional story change');
+  assert.equal(verifySeriesContinuityPackage(changed).valid, true);
+});
+
+test('group relationship lock creates every pair once for a three-person relationship', () => {
+  const prep = lockedPrep();
+  prep.characterPlan.push({ canonicalName: 'Christopher Lancaster', aliases: ['Christopher'], role: 'primary', seriesCharacterKey: 'christopher-lancaster', continuityScope: 'book', mentions: 300, averageConfidence: 0.98, source: 'book-one-superman' });
+  prep.snapshot.characters.push({ id: 'c', canonicalName: 'Christopher Lancaster', aliases: ['Christopher'], role: 'primary', seriesCharacterKey: 'christopher-lancaster', performanceProfile: {} });
+  let pkg = buildSeriesContinuityPackage(prep);
+  pkg = withSeriesRelationshipGroupLock(pkg, {
+    members: ['michael-rawlins', 'juan-delgado', 'christopher-lancaster'],
+    kind: 'partner',
+    label: 'romantic partner',
+    approvedBy: 'author'
+  });
+  assert.equal(pkg.relationships.length, 3);
+  assert.equal(new Set(pkg.relationships.map((row) => row.relationshipKey)).size, 3);
+  assert.equal(pkg.relationships.every((row) => row.kind === 'partner'), true);
+});
+
+test('explicit next-book relationship drift blocks continuity', () => {
+  const pkg = buildSeriesContinuityPackage(lockedPrep());
+  const next = nextBookPrep();
+  next.snapshot.characters = [
+    { id: 'm2', canonicalName: 'Michael Rawlins', aliases: ['Michael'], seriesCharacterKey: 'michael-rawlins' },
+    { id: 'j2', canonicalName: 'Juan Delgado', aliases: ['Juan'], seriesCharacterKey: 'juan-delgado' }
+  ];
+  next.snapshot.relationships = [
+    { fromCharacterId: 'm2', toCharacterId: 'j2', kind: 'ex-partner', label: 'former partner' }
+  ];
+  const result = compareBookToSeriesContinuity(pkg, next);
+  assert.equal(result.status, 'BLOCKED');
+  assert.equal(result.relationship.conflicts.length, 1);
+  assert.equal(result.gates.relationshipSafe, false);
+});
+
+test('absence of a locked relationship in a future book is not treated as a contradiction', () => {
+  const pkg = buildSeriesContinuityPackage(lockedPrep());
+  const next = nextBookPrep();
+  next.snapshot.relationships = [];
+  const result = compareBookToSeriesContinuity(pkg, next);
+  assert.equal(result.status, 'PASS');
+  assert.equal(result.relationship.conflicts.length, 0);
+  assert.equal(result.relationship.unobserved.length, 1);
+});
+
+test('series core lock closes only after narrator and every primary voice are locked', () => {
+  let pkg = buildSeriesContinuityPackage(lockedPrep());
+  assert.equal(pkg.seriesLock.status, 'OPEN_FOR_CASTING');
+  pkg = withSeriesVoiceLock(pkg, { seriesCharacterKey: 'narrator', provider: 'elevenlabs', providerVoiceId: 'narrator-a', safetyScore: 95 });
+  pkg = withSeriesVoiceLock(pkg, { seriesCharacterKey: 'michael-rawlins', provider: 'elevenlabs', providerVoiceId: 'michael-a', safetyScore: 96 });
+  assert.equal(pkg.seriesLock.status, 'OPEN_FOR_CASTING');
+  pkg = withSeriesVoiceLock(pkg, { seriesCharacterKey: 'juan-delgado', provider: 'elevenlabs', providerVoiceId: 'juan-a', safetyScore: 97 });
+  assert.equal(pkg.seriesLock.status, 'SERIES_CORE_LOCKED');
+  assert.equal(pkg.seriesLock.pendingRequiredVoiceKeys.length, 0);
+  assert.equal(pkg.gates.coreVoicesLocked, true);
+});
+
+test('voice recast override preserves prior assignment in audit history', () => {
+  let pkg = buildSeriesContinuityPackage(lockedPrep());
+  pkg = withSeriesVoiceLock(pkg, { seriesCharacterKey: 'michael-rawlins', provider: 'elevenlabs', providerVoiceId: 'voice-a', safetyScore: 92 });
+  pkg = withSeriesVoiceLock(pkg, { seriesCharacterKey: 'michael-rawlins', provider: 'elevenlabs', providerVoiceId: 'voice-b', safetyScore: 94, override: true, reason: 'author-approved recast' });
+  const lock = pkg.voiceContinuity.assignments.find((row) => row.seriesCharacterKey === 'michael-rawlins');
+  assert.equal(lock.revision, 2);
+  assert.equal(lock.history.length, 1);
+  assert.equal(lock.history[0].providerVoiceId, 'voice-a');
+  assert.equal(lock.overrideReason, 'author-approved recast');
+});
+
+test('voice safety score outside 0-100 is rejected', () => {
+  const pkg = buildSeriesContinuityPackage(lockedPrep());
+  assert.throws(() => withSeriesVoiceLock(pkg, { seriesCharacterKey: 'michael-rawlins', provider: 'elevenlabs', providerVoiceId: 'voice-a', safetyScore: 101 }), /between 0 and 100/);
 });

@@ -5,7 +5,10 @@ import {
   renderSeriesCharacterCsv,
   renderSeriesContinuityMarkdown,
   renderSeriesPronunciationCsv,
+  renderSeriesRelationshipCsv,
   verifySeriesContinuityPackage,
+  withSeriesRelationshipGroupLock,
+  withSeriesRelationshipLock,
   withSeriesVoiceLock
 } from '../continuity/series-continuity.js';
 
@@ -23,7 +26,8 @@ export class SeriesContinuityService {
       package: seriesPackage,
       markdown: renderSeriesContinuityMarkdown(seriesPackage),
       characterCsv: renderSeriesCharacterCsv(seriesPackage),
-      pronunciationCsv: renderSeriesPronunciationCsv(seriesPackage)
+      pronunciationCsv: renderSeriesPronunciationCsv(seriesPackage),
+      relationshipCsv: renderSeriesRelationshipCsv(seriesPackage)
     });
   }
 
@@ -33,6 +37,26 @@ export class SeriesContinuityService {
 
   lockVoice(seriesPackage, options) {
     return withSeriesVoiceLock(seriesPackage, options);
+  }
+
+  lockRelationship(seriesPackage, options) {
+    return withSeriesRelationshipLock(seriesPackage, options);
+  }
+
+  lockRelationshipGroup(seriesPackage, options) {
+    return withSeriesRelationshipGroupLock(seriesPackage, options);
+  }
+
+  renderPackage(seriesPackage) {
+    const check = verifySeriesContinuityPackage(seriesPackage);
+    if (!check.valid) throw new Error(`invalid Series Continuity package: ${check.reason}`);
+    return freeze({
+      package: seriesPackage,
+      markdown: renderSeriesContinuityMarkdown(seriesPackage),
+      characterCsv: renderSeriesCharacterCsv(seriesPackage),
+      pronunciationCsv: renderSeriesPronunciationCsv(seriesPackage),
+      relationshipCsv: renderSeriesRelationshipCsv(seriesPackage)
+    });
   }
 
   materializeSeriesBible({ projectId, seriesPackage }) {
