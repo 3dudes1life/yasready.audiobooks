@@ -37,3 +37,5 @@ export * from './services/book-one-superman-service.js';
 export * from './audio-bible/book-one-prep.js';
 export * from './audio-bible/book-one-intelligence.js';
 export * from './services/book-one-audio-bible-prep-service.js';
+export * from './continuity/series-continuity.js';
+export * from './services/series-continuity-service.js';

@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
   BookOneAudioBiblePrepService,
@@ -7,10 +7,11 @@ import {
   GenerationRegistry,
   InMemoryStore,
   ManuscriptService,
-  ProjectService
+  ProjectService,
+  SeriesContinuityService
 } from './index.js';
 
-const VERSION = '0.11.8';
+const VERSION = '0.12.0';
 const args = process.argv.slice(2);
 
 function flagValue(name, fallback = null) {
@@ -74,6 +75,83 @@ async function writeAudioBiblePrepReports(result, outDir) {
     writeFile(files.snapshot, JSON.stringify(result.prep.snapshot, null, 2))
   ]);
   return files;
+}
+
+
+async function writeSeriesContinuityReports(result, outDir) {
+  const resolved = path.resolve(outDir);
+  await mkdir(resolved, { recursive: true });
+  const files = {
+    json: path.join(resolved, 'series-continuity.json'),
+    markdown: path.join(resolved, 'series-continuity.md'),
+    characters: path.join(resolved, 'series-character-map.csv'),
+    pronunciations: path.join(resolved, 'series-pronunciations.csv')
+  };
+  await Promise.all([
+    writeFile(files.json, JSON.stringify(result.package, null, 2)),
+    writeFile(files.markdown, result.markdown),
+    writeFile(files.characters, result.characterCsv),
+    writeFile(files.pronunciations, result.pronunciationCsv)
+  ]);
+  return files;
+}
+
+async function runSeriesContinuitySeed() {
+  const prepPath = args[1];
+  if (!prepPath) {
+    console.error('Usage: node src/cli.js series-continuity-seed <book-one-audio-bible-prep.json> [--out DIR] [--series-title TITLE] [--series-author AUTHOR]');
+    process.exitCode = 2;
+    return;
+  }
+  const prep = JSON.parse(await readFile(path.resolve(prepPath), 'utf8'));
+  const service = new SeriesContinuityService();
+  const result = service.buildPackage(prep, {
+    seriesTitle: flagValue('--series-title'),
+    seriesAuthor: flagValue('--series-author')
+  });
+  const out = flagValue('--out');
+  const files = out ? await writeSeriesContinuityReports(result, out) : null;
+  console.log(JSON.stringify({
+    version: VERSION,
+    seriesContinuity: 'seed',
+    status: result.package.status,
+    seriesTitle: result.package.series.title,
+    sourceBook: result.package.sourceBook.title,
+    permanentCharacters: result.package.characters.length,
+    requiredCharacters: result.package.characters.filter((x) => x.continuityPolicy === 'required').length,
+    carryForwardCharacters: result.package.characters.filter((x) => x.continuityPolicy === 'carry-forward').length,
+    referenceOnlyCharacters: result.package.characters.filter((x) => x.continuityPolicy === 'reference-only').length,
+    sceneLocalExcluded: result.package.sceneLocalExcluded.length,
+    pronunciationRules: result.package.pronunciations.explicitRules.length,
+    standardReadings: result.package.pronunciations.standardReadings.length,
+    lockedVoiceAssignments: result.package.voiceContinuity.lockedCount,
+    pendingVoiceAssignments: result.package.voiceContinuity.pendingSeriesCharacterKeys.length,
+    providerCallsPerformed: result.package.providerCallsPerformed,
+    digest: result.package.digest,
+    files
+  }, null, 2));
+}
+
+async function runSeriesContinuityCompare() {
+  const packagePath = args[1];
+  const nextPrepPath = args[2];
+  if (!packagePath || !nextPrepPath) {
+    console.error('Usage: node src/cli.js series-continuity-compare <series-continuity.json> <next-book-audio-bible-prep.json> [--out FILE]');
+    process.exitCode = 2;
+    return;
+  }
+  const [seriesPackage, nextPrep] = await Promise.all([
+    readFile(path.resolve(packagePath), 'utf8').then(JSON.parse),
+    readFile(path.resolve(nextPrepPath), 'utf8').then(JSON.parse)
+  ]);
+  const result = new SeriesContinuityService().compare(seriesPackage, nextPrep);
+  const out = flagValue('--out');
+  if (out) {
+    await mkdir(path.dirname(path.resolve(out)), { recursive: true });
+    await writeFile(path.resolve(out), JSON.stringify(result, null, 2));
+  }
+  console.log(JSON.stringify({ version: VERSION, seriesContinuity: 'compare', ...result, output: out ? path.resolve(out) : null }, null, 2));
+  if (result.status === 'BLOCKED') process.exitCode = 3;
 }
 
 async function runSuperman({ fixture = false } = {}) {
@@ -181,6 +259,10 @@ if (args[0] === 'analyze') {
   await runSuperman({ fixture: true });
 } else if (args[0] === 'audio-bible-prep') {
   await runAudioBiblePrep();
+} else if (args[0] === 'series-continuity-seed') {
+  await runSeriesContinuitySeed();
+} else if (args[0] === 'series-continuity-compare') {
+  await runSeriesContinuityCompare();
 } else {
   const store = new InMemoryStore();
   const projects = new ProjectService(store);
@@ -198,11 +280,13 @@ if (args[0] === 'analyze') {
     manuscriptCommand: 'node src/cli.js analyze <file>',
     bookOneSupermanCommand: 'node src/cli.js superman <file> --out <directory>',
     bookOneAudioBiblePrepCommand: 'node src/cli.js audio-bible-prep <file> --out <directory>',
+    seriesContinuitySeedCommand: 'node src/cli.js series-continuity-seed <book-one-audio-bible-prep.json> --out <directory>',
+    seriesContinuityCompareCommand: 'node src/cli.js series-continuity-compare <series-continuity.json> <next-book-audio-bible-prep.json>',
     workflow: {
       manuscriptBrain: 'ready', audioBible: 'ready', castingRoom: 'ready', audiobookDirector: 'ready',
       productionEngine: 'ready', reviewStudio: 'ready', continuityQa: 'ready', masteringLab: 'ready',
       distributionBrain: 'ready', operatorFlowAudit: 'ready', bookOneSuperman: 'ready',
-      bookOneAudioBiblePrep: 'ready'
+      bookOneAudioBiblePrep: 'ready', seriesContinuity: 'ready'
     },
     distributionProfiles: ['acx-2026', 'spotify-direct-2026', 'apple-partner-2026', 'w3c-audiobook-2020'],
     duplicateProtection: generation.request.fingerprint,

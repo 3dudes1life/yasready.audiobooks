@@ -19,7 +19,7 @@
 - ✅ 0.11.6 Residual Review Finalizer
 - ✅ 0.11.7 Speaker Truth Closure
 - ✅ 0.11.8 Audio Bible Lock & Pronunciation Closure
-- ⏭️ 0.12.0 Series Continuity
-- 0.13.0 SaaS Money Guard
+- ✅ 0.12.0 Series Continuity
+- ⏭️ 0.13.0 SaaS Money Guard
 - 0.14.0 External Book Superman
 - 1.0.0 YasReady Audiobooks

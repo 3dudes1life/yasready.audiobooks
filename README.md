@@ -2,7 +2,7 @@
 
 Professional audiobook production infrastructure for YasReady Publishing.
 
-**Current build: 0.11.8 — Audio Bible Lock & Pronunciation Closure**
+**Current build: 0.12.0 — Series Continuity**
 
 YasReady Audiobooks is being developed as a standalone service first so audiobook experimentation cannot destabilize YasReady Publishing. The product goal is professional long-form audiobook production with strong continuity, human approval gates, cost protection, quality control, mastering and retailer-ready packaging.
 
@@ -27,6 +27,7 @@ YasReady Audiobooks is being developed as a standalone service first so audioboo
 - 0.11.6 Residual Review Finalizer — closes the residual Book One review cases, separates scene-local extras from permanent continuity, and supports explicit multi-speaker dialogue
 - 0.11.7 Speaker Truth Closure — adds a high-authority speaker-truth verifier, protects anonymous self-identification and narrator/media classifications, prunes false one-mention roster noise, and closes Book One speaker review with zero paid calls
 - 0.11.8 Audio Bible Lock & Pronunciation Closure — reconciles scene-local/collective dialogue out of false unresolved continuity counts, applies bounded production pronunciation defaults, fixes `DJing` classification, persists explicit pronunciation rules, and emits a locked production-ready Audio Bible when all gates are closed
+- 0.12 Series Continuity — promotes locked book-level Audio Bible truth into stable series identities, excludes scene-only extras, preserves pronunciation decisions, blocks silent voice recasting, and provides next-book continuity comparison
 
 ## Book One Superman
 
@@ -53,6 +54,16 @@ node src/cli.js audio-bible-prep "/path/to/book_1.docx" --out "$HOME/Desktop/Boo
 ```
 
 The prep pack creates canonical character tiers, safely resolves dialogue, preserves the `book` vs `scene` continuity boundary, and writes local dialogue/pronunciation artifacts. 0.11.8 closes the Audio Bible gate: scene-local and collective dialogue count as resolved without becoming permanent cast entries; deterministic pronunciation defaults are persisted only where an explicit rule is useful; standard names/places remain standard-reading rows with no unnecessary override. When speaker review, pronunciation blockers, and continuity unresolved counts are all zero, the pack emits `AUDIO_BIBLE_LOCKED` and `productionReady: true`. The prep run still performs zero provider calls.
+
+## Series Continuity
+
+After a book Audio Bible is locked, promote it into series truth:
+
+```bash
+node src/cli.js series-continuity-seed "/path/to/book-one-audio-bible-prep.json" --out "$HOME/Desktop/Series-Continuity"
+```
+
+0.12.0 keeps Narrator and primary identities required, carries recurring supporting/named minor roles forward, keeps generic provisional roles reference-only, and excludes scene-local extras entirely. Future books can be compared against the package before production; identity/pronunciation conflicts fail closed, and series voice locks cannot be silently replaced. The Series Continuity workflow performs zero provider calls.
 
 ## Current distribution targets
 
@@ -85,4 +96,4 @@ node src/cli.js audio-bible-prep <file> --out <directory>
 
 ## Roadmap
 
-Next: **0.12.0 — Series Continuity**. Promote approved Book One Audio Bible decisions into series-level continuity so Book Two can inherit cast, pronunciations and performance identity without accidental recasting or drift.
+Next: **0.13.0 — SaaS Money Guard**. Harden spend authorization, projected-vs-actual cost visibility, provider-budget ceilings and fail-closed paid-generation controls before broader external-book testing.
