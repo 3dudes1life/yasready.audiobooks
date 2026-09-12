@@ -183,3 +183,110 @@ test('0.11.3 focused pronunciation review makes no guesses and avoids broad obvi
   assert.equal(pronunciation.noGuessesMade, true);
   assert.equal(pronunciation.candidates.every((x) => x.spokenAs === ''), true);
 });
+
+test('0.11.4 closes remaining quoted sign, news, message, hypothetical, and performance-title false dialogue', () => {
+  const cases = [
+    classifyQuotedNarration('Tacos & Truth.', 'Their booth was tucked in the back, under a sign that read', 'Chips were flowing.'),
+    classifyQuotedNarration('atmospheric river.', 'the kind the news called an', 'Towering waves followed.'),
+    classifyQuotedNarration('nightclub hooligan.', '[Leo]: Mom wants to know if you are still a', 'haha'),
+    classifyQuotedNarration('Can we talk?', 'Not', 'Not'),
+    classifyQuotedNarration('Toxic.', 'A drag queen emerged, performing', 'Juan shot out of his seat.')
+  ];
+  assert.equal(cases.every(Boolean), true);
+  assert.equal(cases[2].classification, 'displayed-text');
+  assert.equal(cases[3].evidence, 'hypothetical-quote-not-spoken');
+  assert.equal(cases[4].evidence, 'performance-title-not-dialogue');
+});
+
+test('0.11.4 direct-address exclusion can override a confidently wrong addressee candidate in a stable two-person scene', () => {
+  const ingest = JSON.parse(JSON.stringify(ingestShape([
+    'Chapter 1', '',
+    'Michael said, “One.”', '',
+    'Juan said, “Two.”', '',
+    'Michael said, “Three.”', '',
+    'Juan said, “Four.”', '',
+    'He hesitated, then exhaled.', '',
+    '“Te amo, Michael.”', '',
+    'Michael froze.'
+  ].join('\n'))));
+  let target = null;
+  for (const chapter of ingest.analysis.chapters) for (const scene of chapter.scenes) for (const segment of scene.segments) {
+    if (segment.text === 'Te amo, Michael.') target = segment;
+  }
+  assert.ok(target);
+  target.speakerCandidate = { name: 'Michael', confidence: 0.77, evidence: 'context-before-action' };
+  const intelligence = buildDialogueIntelligence(ingest);
+  const review = buildDialogueReviewQueue(ingest, { intelligence });
+  const binding = review.autoBindings.find((x) => x.segmentId && x.evidence.includes('direct-address-exclusion'));
+  assert.ok(binding);
+  assert.equal(binding.speaker, 'Juan Delgado');
+  assert.equal(review.queue.some((x) => x.dialogue === 'Te amo, Michael.'), false);
+  assert.ok(review.correctedSafeBindings >= 1);
+});
+
+test('0.11.4 relational speaker evidence wins before direct-address guessing', () => {
+  const ingest = JSON.parse(JSON.stringify(ingestShape([
+    'Chapter 25 – The Weight of Goodbye', '',
+    'Michael turned just in time to see his brother in the doorway.', '',
+    '“You’ve gotta be kidding me, Michael!”', '',
+    'his brother said, stepping outside.'
+  ].join('\n'))));
+  ingest.analysis.chapters[0].order = 25;
+  const intelligence = buildDialogueIntelligence(ingest);
+  const review = buildDialogueReviewQueue(ingest, { intelligence });
+  assert.ok(intelligence.provisionalRoles.some((x) => x.canonicalName === "Michael's Brother"));
+  assert.ok(review.autoBindings.some((x) => x.speaker === "Michael's Brother" && x.evidence === 'relational-role-context'));
+});
+
+test('0.11.4 does not let two-speaker reaction logic swallow an explicitly anonymous third speaker', () => {
+  const ingest = JSON.parse(JSON.stringify(ingestShape([
+    'Chapter 1', '',
+    'Michael said, “One.”', '',
+    'Juan said, “Two.”', '',
+    'Michael said, “Three.”', '',
+    'Juan said, “Four.”', '',
+    'Before Michael could answer, someone nearby called out.', '',
+    '“Yo, are you two coming?”', '',
+    'Juan turned eagerly.'
+  ].join('\n'))));
+  let target = null;
+  for (const chapter of ingest.analysis.chapters) for (const scene of chapter.scenes) for (const segment of scene.segments) {
+    if (segment.text === 'Yo, are you two coming?') target = segment;
+  }
+  assert.ok(target);
+  target.speakerCandidate = { name: 'Michael', confidence: 0.68, evidence: 'context-alternating-pair' };
+  const intelligence = buildDialogueIntelligence(ingest);
+  const review = buildDialogueReviewQueue(ingest, { intelligence });
+  assert.equal(review.autoBindings.some((x) => x.segmentId && x.evidence.includes('reaction-exclusion')), false);
+  assert.ok(review.queue.some((x) => x.dialogue === 'Yo, are you two coming?'));
+});
+
+test('0.11.4 alternating-pair guesses are never labeled quick-confirm', () => {
+  const ingest = JSON.parse(JSON.stringify(ingestShape('Chapter 1\n\nMichael said, “First.”\n\n“Maybe.”\n\nMichael said, “Third.”')));
+  let target = null;
+  for (const chapter of ingest.analysis.chapters) for (const scene of chapter.scenes) for (const segment of scene.segments) {
+    if (segment.text === 'Maybe.') target = segment;
+  }
+  assert.ok(target);
+  target.speakerCandidate = { name: 'Michael', confidence: 0.68, evidence: 'context-alternating-pair' };
+  const review = buildDialogueReviewQueue(ingest, { intelligence: { resolutions: new Map(), provisionalRoles: [], counts: {} } });
+  const row = review.queue.find((x) => x.dialogue === 'Maybe.');
+  assert.ok(row);
+  assert.equal(row.priority, 'context-review');
+});
+
+test('0.11.4 prep accounting uses applied narrator routing as the single quoted-text source of truth', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'yasready-prep-0114-accounting-'));
+  const file = path.join(dir, 'book.txt');
+  try {
+    await writeFile(file, 'Chapter 1\n\nThe booth sat under a sign that read “Tacos & Truth.”\n\nMichael said, “Hello.”');
+    const store = new InMemoryStore();
+    const service = new BookOneAudioBiblePrepService(store);
+    const result = await service.runFile(file);
+    assert.equal(result.prep.release, '0.11.4');
+    assert.equal(result.prep.intelligence.resolutionCounts.narratorRouted, result.prep.dialogueReview.quotedNarrationSegments);
+    assert.equal(result.prep.providerCallsPerformed, 0);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

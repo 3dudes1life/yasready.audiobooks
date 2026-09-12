@@ -1,6 +1,6 @@
 import { sha256 } from '../core/hash.js';
 import { BOOK_ONE_PROFILE, canonicalizeSpeakerCandidate } from '../superman/book-one-superman.js';
-import { buildDialogueIntelligence, intelligenceResolutionFor } from './book-one-intelligence.js';
+import { addressedCanonicalName, buildDialogueIntelligence, intelligenceResolutionFor } from './book-one-intelligence.js';
 
 const freeze = (value) => Object.freeze(value);
 const PRIMARY = new Set(['Michael Rawlins', 'Juan Delgado', 'Christopher Lancaster']);
@@ -128,20 +128,26 @@ function analysisRows(ingestResult) {
   return output;
 }
 
-function nearbySpeakerSuggestions(rows, currentIndex, aliases, radius = 5) {
+function nearbySpeakerSuggestions(rows, currentIndex, aliases, radius = 5, intelligence = null) {
   const current = rows[currentIndex];
   const suggestions = new Map();
   for (let offset = 1; offset <= radius; offset += 1) {
     for (const index of [currentIndex - offset, currentIndex + offset]) {
       const row = rows[index];
-      if (!row || row.chapter.order !== current.chapter.order || row.scene.order !== current.scene.order) continue;
-      const candidate = row.segment.kind === 'dialogue' ? row.segment.speakerCandidate : null;
-      const canonical = canonicalizeSpeakerCandidate(candidate?.name, { aliases });
-      if (!canonical) continue;
+      if (!row || row.chapter.order !== current.chapter.order || row.scene.order !== current.scene.order || row.segment.kind !== 'dialogue') continue;
+      const segmentId = row.record?.id ?? `${row.chapter.order}:${row.scene.order}:${row.segment.order}`;
+      const resolved = intelligenceResolutionFor(intelligence, segmentId);
+      const candidate = row.segment.speakerCandidate;
+      const canonical = resolved?.speaker && resolved.speaker !== 'Narrator'
+        ? resolved.speaker
+        : canonicalizeSpeakerCandidate(candidate?.name, { aliases });
+      if (!canonical || canonical === 'Narrator') continue;
+      const confidence = Number(resolved?.confidence ?? candidate?.confidence ?? 0.5);
       const prior = suggestions.get(canonical) ?? { name: canonical, score: 0, nearestDistance: offset, evidence: new Set() };
-      prior.score += Math.max(1, (radius + 1) - offset) * Math.max(0.2, Number(candidate?.confidence ?? 0.5));
+      prior.score += Math.max(1, (radius + 1) - offset) * Math.max(0.2, confidence);
       prior.nearestDistance = Math.min(prior.nearestDistance, offset);
-      if (candidate?.evidence) prior.evidence.add(candidate.evidence);
+      if (resolved?.evidence) prior.evidence.add(resolved.evidence);
+      else if (candidate?.evidence) prior.evidence.add(candidate.evidence);
       suggestions.set(canonical, prior);
     }
   }
@@ -149,6 +155,38 @@ function nearbySpeakerSuggestions(rows, currentIndex, aliases, radius = 5) {
     .map((x) => freeze({ name: x.name, score: round(x.score, 2), nearestDistance: x.nearestDistance, evidence: freeze([...x.evidence]) }))
     .sort((a, b) => b.score - a.score || a.nearestDistance - b.nearestDistance || a.name.localeCompare(b.name))
     .slice(0, 4));
+}
+
+function safeReviewPriority({ status, canonical, confidence, dialogue, evidence, suggestions, aliases }) {
+  if (status === 'unresolved') {
+    return suggestions.length === 1 ? 'single-nearby-speaker' : suggestions.length > 1 ? 'context-review' : 'manual-identify';
+  }
+  const addressed = addressedCanonicalName(dialogue, aliases);
+  if (addressed && addressed === canonical) return 'context-review';
+  const top = suggestions[0] ?? null;
+  const current = suggestions.find((x) => x.name === canonical) ?? null;
+  const runnerUp = suggestions.find((x) => x.name !== canonical) ?? null;
+  const evidenceText = String(evidence ?? '');
+  if (/context-alternating-pair/i.test(evidenceText)) return 'context-review';
+  const evidenceSupportsContinuation = /context-continuation|dialogue-tag|speaker-before-dialogue|preceding-speaker-lead|pronoun-|two-speaker-/i.test(evidenceText);
+  if (!top) return confidence >= 0.72 && evidenceSupportsContinuation ? 'quick-confirm' : 'context-review';
+  if (top.name !== canonical) return 'context-review';
+  if (runnerUp && top.score < runnerUp.score * 1.15) return 'context-review';
+  if (!current) return 'context-review';
+  return 'quick-confirm';
+}
+
+function incrementAppliedIntelligence(counts, resolution) {
+  if (!resolution) return;
+  const evidence = String(resolution.evidence ?? '');
+  if (resolution.speaker === 'Narrator') counts.narratorRouted += 1;
+  if (/self-identification/.test(evidence)) counts.selfIdentified += 1;
+  else if (/direct-address|vocative-exclusion/.test(evidence)) counts.directAddress += 1;
+  else if (/relational-role/.test(evidence)) counts.relationalRole += 1;
+  else if (/pronoun-/.test(evidence)) counts.pronounContext += 1;
+  else if (/two-speaker-reaction/.test(evidence)) counts.reactionExclusion += 1;
+  else if (/two-speaker-/.test(evidence)) counts.twoSpeakerTurn += 1;
+  else if (/speaker-lead|speech-tag/.test(evidence)) counts.explicitContext += 1;
 }
 
 export function buildDialogueReviewQueue(ingestResult, {
@@ -167,6 +205,11 @@ export function buildDialogueReviewQueue(ingestResult, {
   let reviewCandidatesBeforeIntelligence = 0;
   let intelligenceResolved = 0;
   let quotedNarration = 0;
+  let correctedSafeBindings = 0;
+  const appliedIntelligence = {
+    narratorRouted: 0, selfIdentified: 0, explicitContext: 0, pronounContext: 0,
+    directAddress: 0, relationalRole: 0, twoSpeakerTurn: 0, reactionExclusion: 0
+  };
 
   for (let i = 0; i < rows.length; i += 1) {
     const row = rows[i];
@@ -175,8 +218,34 @@ export function buildDialogueReviewQueue(ingestResult, {
     const canonical = canonicalizeSpeakerCandidate(candidate?.name, { aliases });
     const confidence = Number(candidate?.confidence ?? 0);
     const segmentId = row.record?.id ?? `${row.chapter.order}:${row.scene.order}:${row.segment.order}`;
+    const resolution = intelligenceResolutionFor(smart, segmentId);
+    const originalSafe = Boolean(canonical && confidence >= minAutoBindConfidence);
+    const contradictionOverride = resolution?.authority === 'contradiction-override'
+      && (!canonical || canonical === resolution.addressed || confidence < minAutoBindConfidence);
+    const authoritative = Boolean(resolution && Number(resolution.confidence) >= 0.85
+      && (resolution.authority === 'override' || contradictionOverride));
 
-    if (canonical && confidence >= minAutoBindConfidence) {
+    if (authoritative) {
+      autoBindable += 1;
+      if (originalSafe) correctedSafeBindings += 1;
+      else {
+        reviewCandidatesBeforeIntelligence += 1;
+        intelligenceResolved += 1;
+      }
+      if (resolution.speaker === 'Narrator') quotedNarration += 1;
+      incrementAppliedIntelligence(appliedIntelligence, resolution);
+      autoBindings.push(freeze({
+        segmentId: row.record?.id ?? null,
+        speaker: resolution.speaker,
+        confidence: round(resolution.confidence, 3),
+        evidence: resolution.evidence,
+        classification: resolution.classification ?? 'spoken-dialogue',
+        source: 'book-one-intelligence'
+      }));
+      continue;
+    }
+
+    if (originalSafe) {
       autoBindable += 1;
       autoBindings.push(freeze({
         segmentId: row.record?.id ?? null,
@@ -190,11 +259,11 @@ export function buildDialogueReviewQueue(ingestResult, {
     }
 
     reviewCandidatesBeforeIntelligence += 1;
-    const resolution = intelligenceResolutionFor(smart, segmentId);
     if (resolution && Number(resolution.confidence) >= 0.85) {
       autoBindable += 1;
       intelligenceResolved += 1;
       if (resolution.speaker === 'Narrator') quotedNarration += 1;
+      incrementAppliedIntelligence(appliedIntelligence, resolution);
       autoBindings.push(freeze({
         segmentId: row.record?.id ?? null,
         speaker: resolution.speaker,
@@ -209,16 +278,19 @@ export function buildDialogueReviewQueue(ingestResult, {
     const status = canonical ? 'inferred-review' : 'unresolved';
     if (status === 'unresolved') unresolved += 1;
     else inferredReview += 1;
-    const suggestions = nearbySpeakerSuggestions(rows, i, aliases);
+    const suggestions = nearbySpeakerSuggestions(rows, i, aliases, 5, smart);
     const before = rows[i - 1] && rows[i - 1].chapter.order === row.chapter.order && rows[i - 1].scene.order === row.scene.order
       ? excerpt(rows[i - 1].segment.text, contextChars) : '';
     const after = rows[i + 1] && rows[i + 1].chapter.order === row.chapter.order && rows[i + 1].scene.order === row.scene.order
       ? excerpt(rows[i + 1].segment.text, contextChars) : '';
     const position = `${row.chapter.order}:${row.scene.order}:${row.segment.order}`;
+    const priority = safeReviewPriority({
+      status, canonical, confidence, dialogue: row.segment.text, evidence: candidate?.evidence, suggestions, aliases
+    });
     queue.push(freeze({
       reviewKey: sha256(`${ingestResult.analysis.source.sourceHash}:${position}`).slice(0, 16),
       status,
-      priority: status === 'inferred-review' ? 'quick-confirm' : suggestions.length === 1 ? 'single-nearby-speaker' : suggestions.length > 1 ? 'context-review' : 'manual-identify',
+      priority,
       chapterOrder: row.chapter.order,
       chapterTitle: row.chapter.title,
       sceneOrder: row.scene.order,
@@ -253,13 +325,15 @@ export function buildDialogueReviewQueue(ingestResult, {
     quotedNarrationSegments: quotedNarration,
     autoBindable,
     intelligenceResolved,
+    correctedSafeBindings,
     reviewCandidatesBeforeIntelligence,
     reviewReduction: Math.max(0, reviewCandidatesBeforeIntelligence - queue.length),
     needsReview: queue.length,
     inferredReview,
     unresolved,
     priorityCounts: freeze(priorityCounts),
-    intelligence: freeze({ ...smart.counts, provisionalRoleCount: smart.provisionalRoles.length }),
+    intelligenceDetected: freeze({ ...smart.counts, provisionalRoleCount: smart.provisionalRoles.length }),
+    intelligenceApplied: freeze({ ...appliedIntelligence, provisionalRoleCount: smart.provisionalRoles.length }),
     autoBindings: freeze(autoBindings),
     queue: freeze(queue)
   });
@@ -423,7 +497,7 @@ export function renderAudioBiblePrepMarkdown(prep) {
     '## What YasReady prepared', '',
     `- ${prep.characterPlan.length} Audio Bible roles including Narrator`,
     `- ${prep.dialogueReview.autoBound.toLocaleString()} dialogue/displayed-text segment(s) safely resolved and bound`,
-    `- ${prep.intelligence?.reviewReduction?.toLocaleString?.() ?? 0} avoidable review chore(s) removed by 0.11.3 intelligence`,
+    `- ${prep.intelligence?.reviewReduction?.toLocaleString?.() ?? 0} avoidable review chore(s) removed by 0.11.4 review-closure intelligence`,
     `- ${prep.intelligence?.quotedNarrationSegments?.toLocaleString?.() ?? 0} quoted/displayed-text segment(s) routed to Narrator instead of fake speakers`,
     `- ${(prep.intelligence?.provisionalRoles ?? []).length} provisional unnamed/relational speaking role(s) created from explicit context`,
     `- ${prep.dialogueReview.needsReview.toLocaleString()} genuinely ambiguous dialogue line(s) placed in the review CSV`,

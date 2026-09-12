@@ -1,9 +1,9 @@
 {
   "name": "@yasready/audiobooks",
-  "version": "0.11.3",
+  "version": "0.11.4",
   "private": true,
   "type": "module",
-  "description": "YasReady Audiobooks Audio Bible Intelligence Cleanup, Book One Audio Bible Prep, Superman, Distribution Brain, Mastering Lab, Continuity + QA Brain, Review Studio, Production Engine, Director, Casting Room and manuscript intelligence",
+  "description": "YasReady Audiobooks Review Queue Closure, Book One Audio Bible Prep, Superman, Distribution Brain, Mastering Lab, Continuity + QA Brain, Review Studio, Production Engine, Director, Casting Room and manuscript intelligence",
   "engines": {
     "node": ">=20"
   },

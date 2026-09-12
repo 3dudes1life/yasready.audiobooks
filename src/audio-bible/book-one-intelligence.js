@@ -1,8 +1,8 @@
 import { BOOK_ONE_PROFILE, canonicalizeSpeakerCandidate } from '../superman/book-one-superman.js';
 
 const freeze = (value) => Object.freeze(value);
-const SPEECH_VERBS = 'said|asked|replied|answered|whispered|murmured|shouted|yelled|called|added|continued|laughed|snapped|sighed|offered|admitted|insisted|promised|teased|joked|warned|cried|blurted|exclaimed|breathed|mumbled|muttered|shot back|continued';
-const LEAD_ACTIONS = `${SPEECH_VERBS}|leaned|turned|paused|nodded|smirked|grinned|exhaled|tossed|looked|glanced|sat|stood|pushed|nudged|elbowed|flopped|checked|stretched|reached|picked|held|gestured|winked|froze|blinked|sighed`;
+const SPEECH_VERBS = 'said|asked|replied|answered|whispered|murmured|shouted|yelled|called|added|continued|laughed|snapped|sighed|offered|admitted|insisted|promised|teased|joked|warned|cried|blurted|exclaimed|breathed|mumbled|muttered|shot back';
+const LEAD_ACTIONS = `${SPEECH_VERBS}|leaned|turned|paused|nodded|smirked|grinned|exhaled|tossed|looked|glanced|sat|stood|pushed|nudged|elbowed|flopped|checked|stretched|reached|picked|held|gestured|winked|froze|blinked|sighed|tapped|rested|collapsed|perked|pointed|raised|gave|crossed|dropped|opened|stared|walked|stepped|grabbed|pulled|rubbed|smiled|laughed|cheered|shrugged|feigned|studied|listened|reacted`;
 const PRIMARY = ['Michael Rawlins', 'Juan Delgado', 'Christopher Lancaster'];
 const CANONICAL_ALIASES = Object.freeze({
   'Michael Rawlins': ['Michael', 'Rawlins', 'Micheal'],
@@ -11,26 +11,35 @@ const CANONICAL_ALIASES = Object.freeze({
   Dani: ['Dani'], Evan: ['Evan'], Drew: ['Drew'], Alex: ['Alex'], Nick: ['Nick'], Derek: ['Derek'], Kayla: ['Kayla'], Noah: ['Noah'], Paris: ['Paris']
 });
 
+const MALE_SPEAKERS = new Set([
+  'Michael Rawlins', 'Juan Delgado', 'Christopher Lancaster', 'Evan', 'Drew', 'Alex', 'Nick', 'Derek', 'Noah', "Michael's Brother"
+]);
+const FEMALE_SPEAKERS = new Set(['Dani', 'Kayla', "Michael's Mother", 'Realtor', 'Landlord']);
+
 const RELATIONAL_ROLES = Object.freeze([
   Object.freeze({
     canonicalName: "Michael's Mother", role: 'supporting', aliases: ['Michael’s mother', "Michael's mother", 'his mother', 'his mom', 'Mama'],
     seriesCharacterKey: 'michael-mother', chapterMin: 24, chapterMax: 26,
-    pattern: /\b(?:his|Michael[’']s)\s+(?:mother|mom)\b|\bMama\b/i
+    pattern: /\b(?:his|Michael[’']s)\s+(?:mother|mom)\b|\bMama\b/i,
+    pronoun: 'she'
   }),
   Object.freeze({
     canonicalName: "Michael's Brother", role: 'supporting', aliases: ['Michael’s brother', "Michael's brother", 'his brother'],
     seriesCharacterKey: 'michael-brother', chapterMin: 24, chapterMax: 26,
-    pattern: /\b(?:his|Michael[’']s)\s+brother\b/i
+    pattern: /\b(?:his|Michael[’']s)\s+brother\b/i,
+    pronoun: 'he'
   }),
   Object.freeze({
     canonicalName: 'Realtor', role: 'minor', aliases: ['the realtor', 'their realtor'],
-    seriesCharacterKey: 'realtor', chapterMin: 42, chapterMax: 42,
-    pattern: /\b(?:the|their)\s+realtor\b/i
+    seriesCharacterKey: 'realtor', chapterMin: 42, chapterMax: 43,
+    pattern: /\b(?:the|their)\s+realtor\b/i,
+    pronoun: 'she'
   }),
   Object.freeze({
     canonicalName: 'Landlord', role: 'minor', aliases: ['the landlord', 'their landlord'],
     seriesCharacterKey: 'landlord', chapterMin: 33, chapterMax: 33,
-    pattern: /\b(?:the|their)\s+landlord\b/i
+    pattern: /\b(?:the|their)\s+landlord\b/i,
+    pronoun: 'she'
   })
 ]);
 
@@ -38,6 +47,8 @@ function clean(value) { return String(value ?? '').replace(/\s+/g, ' ').trim(); 
 function wordCount(value) { return clean(value).split(/\s+/).filter(Boolean).length; }
 function canon(name, aliases = BOOK_ONE_PROFILE.aliases) { return canonicalizeSpeakerCandidate(name, { aliases }); }
 function sameScene(a, b) { return a && b && a.chapter.order === b.chapter.order && a.scene.order === b.scene.order; }
+function escaped(value) { return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+function sceneKey(row) { return `${row?.chapter?.order ?? '?'}:${row?.scene?.order ?? '?'}`; }
 
 export function analysisRowsForIntelligence(ingestResult) {
   const output = [];
@@ -58,7 +69,7 @@ function aliasesInText(text) {
   const hits = [];
   for (const [canonical, aliases] of Object.entries(CANONICAL_ALIASES)) {
     for (const alias of aliases) {
-      const rx = new RegExp(`\\b${alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+      const rx = new RegExp(`\\b${escaped(alias)}\\b`, 'i');
       if (rx.test(source)) { hits.push(canonical); break; }
     }
   }
@@ -73,28 +84,49 @@ function lastClause(text) {
 
 function canonicalLeadSpeaker(before) {
   const clause = lastClause(before);
-  const hits = aliasesInText(clause);
-  if (!hits.length) return null;
-  const action = new RegExp(`\\b(?:${LEAD_ACTIONS})\\b`, 'i').test(clause);
-  if (!action) return null;
-  // Prefer a named subject appearing before the lead/action verb.
-  for (const canonical of hits) {
-    const aliases = CANONICAL_ALIASES[canonical] ?? [canonical];
-    for (const alias of aliases) {
-      const rx = new RegExp(`\\b${alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b[^.!?]{0,100}\\b(?:${LEAD_ACTIONS})\\b`, 'i');
-      if (rx.test(clause)) return canonical;
-    }
-  }
-  return hits.length === 1 ? hits[0] : null;
-}
-
-function explicitAfterSpeechSpeaker(after) {
-  const clause = clean(after).split(/(?<=[.!?])\s+/)[0] ?? '';
+  if (!clause || /^\[[^\]]+\]:/.test(clause)) return null;
+  const subjects = [];
   for (const [canonical, aliases] of Object.entries(CANONICAL_ALIASES)) {
     for (const alias of aliases) {
-      const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const rx1 = new RegExp(`^${escaped}\\s+(?:${SPEECH_VERBS})\\b`, 'i');
-      const rx2 = new RegExp(`^(?:${SPEECH_VERBS})\\s+${escaped}\\b`, 'i');
+      // Require the name to behave like the local grammatical subject of the action.
+      // This prevents object names earlier in a sentence from stealing a later speaker lead.
+      const rx = new RegExp(`\\b${escaped(alias)}\\b(?:[’']s)?(?:\\s+[A-Za-z’'\\-]+){0,3}\\s+(?:${LEAD_ACTIONS})\\b`, 'ig');
+      for (const match of clause.matchAll(rx)) subjects.push({ canonical, index: match.index ?? 0, end: (match.index ?? 0) + match[0].length });
+    }
+  }
+  const unique = [...new Set(subjects.map((x) => x.canonical))];
+  if (unique.length === 1) return unique[0];
+  if (unique.length > 1) {
+    // Multiple named actors in one clause are not safe enough for automatic speaker assignment.
+    return null;
+  }
+  return null;
+}
+
+function relationalSubject(text, chapterNumber) {
+  const source = clean(text);
+  if (!source || /^\[[^\]]+\]:/.test(source)) return null;
+  for (const role of RELATIONAL_ROLES) {
+    if (chapterNumber < role.chapterMin || chapterNumber > role.chapterMax) continue;
+    if (!role.pattern.test(source)) continue;
+    if (new RegExp(`\\b(?:${LEAD_ACTIONS}|voice|came|returned|watched)\\b`, 'i').test(source)) return role.canonicalName;
+  }
+  return null;
+}
+
+function explicitAfterSpeechSpeaker(after, followingRow = null) {
+  const clause = clean(after).split(/(?<=[.!?])\s+/)[0] ?? '';
+  if (!clause) return null;
+  // A standalone "Juan joked." immediately before another dialogue line is usually a lead into that next line,
+  // not a tag for the dialogue that came before it. Fail closed rather than stealing the next speaker.
+  if (followingRow?.segment?.kind === 'dialogue' && new RegExp(`^(?:${Object.values(CANONICAL_ALIASES).flat().map(escaped).join('|')})\\s+(?:${SPEECH_VERBS})[.!]?$`, 'i').test(clause)) {
+    return null;
+  }
+  for (const [canonical, aliases] of Object.entries(CANONICAL_ALIASES)) {
+    for (const alias of aliases) {
+      const token = escaped(alias);
+      const rx1 = new RegExp(`^${token}\\s+(?:${SPEECH_VERBS})\\b`, 'i');
+      const rx2 = new RegExp(`^(?:${SPEECH_VERBS})\\s+${token}\\b`, 'i');
       if (rx1.test(clause) || rx2.test(clause)) return canonical;
     }
   }
@@ -116,13 +148,16 @@ function selfIdentifiedSpeaker(dialogue, aliases) {
   return null;
 }
 
-function addressedCanonical(dialogue, aliases) {
+export function addressedCanonicalName(dialogue, aliases = BOOK_ONE_PROFILE.aliases) {
   const text = clean(dialogue);
-  // Direct-address form only: comma/colon + known first name near the end, or opening name + comma.
   const match = /(?:^|[,;:]\s*)(Michael|Juan|Christopher|Chris)\s*[.!?]*$/i.exec(text)
-    ?? /^(Michael|Juan|Christopher|Chris)\s*[,;:]/i.exec(text);
-  if (!match) return null;
-  return canon(match[1], aliases);
+    ?? /^(Michael|Juan|Christopher|Chris)\s*[,;:]/i.exec(text)
+    ?? /\b(?:te amo|love you),?\s+(Michael|Juan|Christopher|Chris)(?:ito)?[.!?]*$/i.exec(text);
+  if (match) return canon(match[1], aliases);
+  if (/(?:^|[,;:]\s*)Cowboy\s*[.!?]*$/i.test(text)) return 'Michael Rawlins';
+  if (/(?:^|[,;:]\s*)Juanito\s*[.!?]*$/i.test(text)) return 'Juan Delgado';
+  if (/(?:^|[,;:]\s*)Bay Area\s*[.!?]*$/i.test(text)) return 'Christopher Lancaster';
+  return null;
 }
 
 function relationalRoleFromContext(row, before, after) {
@@ -138,70 +173,265 @@ function relationalRoleFromContext(row, before, after) {
 function relationalSpeechCue(role, before, after) {
   const source = `${before} ${after}`;
   if (!role.pattern.test(source)) return false;
-  // Role mention plus a speech/interaction cue around the quote.
   return new RegExp(`\\b(?:${SPEECH_VERBS}|voice|asked|whispered|murmured|added)\\b`, 'i').test(source)
-    || /\b(?:looked at|stood beside|came out|stepped between|continued|chuckled)\b/i.test(source);
+    || /\b(?:looked at|stood beside|came out|stepped between|continued|chuckled|nodded|smiled|hugged)\b/i.test(source);
 }
 
-export function classifyQuotedNarration(dialogue, before, after) {
+export function classifyQuotedNarration(dialogue, before, after, { extendedBefore = '' } = {}) {
   const text = clean(dialogue);
   const prev = clean(before);
   const next = clean(after);
+  const trail = clean(extendedBefore || prev);
   const wc = wordCount(text);
-  if (!text || wc > 10) return null;
+  if (!text || wc > 14) return null;
   if (selfIdentifiedSpeaker(text, BOOK_ONE_PROFILE.aliases)) return null;
   if (new RegExp(`^(?:he|she|they|[A-Z][A-Za-z’'\-]+)\\s+(?:${SPEECH_VERBS})\\b`, 'i').test(next)) return null;
 
-  const listOrLabelLead = /(?:subject lines?|emails?|cocktails?|drinks?|names?|words?|phrases?|terms?|called|named|titled|labeled|screamed|felt|being|how)(?:\s+like)?\s*$/i.test(prev)
-    || /\b(?:subject lines?|names?|cocktails?|drinks?)\s+(?:such as|like)\s*$/i.test(prev);
+  const displayLead = /(?:subject lines?|emails?|cocktails?|drinks?|names?|words?|phrases?|terms?|headline|caption|sign|label|menu|screen|news|article|song|track|title)(?:\s+[^.!?]{0,45})?\s+(?:read|reads|said|says|called|calls|named|titled|labeled|showed|showing|displayed|performing|sing|sang)(?:\s+(?:an?|the|this|that))?\s*$/i.test(prev)
+    || /\b(?:subject lines?|names?|cocktails?|drinks?)\s+(?:such as|like)\s*$/i.test(prev)
+    || /\b(?:sign that read|news called an?|began to sing|performing)\s*$/i.test(prev);
+  const chainLead = /\b(?:cocktails?|drinks?|names?|subject lines?)\s+(?:such as|like)\b/i.test(trail)
+    && /(?:\band\b\s*)$/i.test(prev);
   const grammaticalContinuation = /^[a-z][a-z’'\-]*\b/.test(next)
     || /^(?:and|or|had|was|were|is|are|aesthetic|That changed|There were)\b/.test(next);
-  const lowerEmphasis = wc <= 4 && text === text.toLowerCase() && !/[.!?]$/.test(text) && Boolean(next);
-  const titleLabel = wc <= 6 && /^(?:[A-Z][\w’'&.-]*)(?:\s+[A-Z][\w’'&.-]*)*$/.test(text)
-    && (listOrLabelLead || grammaticalContinuation);
+  const lowerEmphasis = wc <= 5 && text === text.toLowerCase() && Boolean(next);
+  const titleLabel = wc <= 7 && /^(?:[A-Z][\w’'&.-]*)(?:\s+[A-Z][\w’'&.-]*)*[.!]?$/.test(text)
+    && (displayLead || chainLead || grammaticalContinuation);
   const emailLike = /\b(?:Docs|Timeline|Update|Attached|Approval|Notice|Confirmation)\b/.test(text)
-    && /\b(?:email|subject|browser|tabs?|documents?)\b/i.test(prev);
+    && /\b(?:email|subject|browser|tabs?|documents?)\b/i.test(trail);
+  const bracketMessageFragment = /^\[[^\]]+\]:/.test(prev) && wc <= 12;
+  const hypotheticalInline = /^Not[.!]?$/.test(prev) && (/^Not[.!]?$/.test(next) || /^Just a\b/i.test(next) || /^Rather than\b/i.test(next));
+  const performanceTitle = /\b(?:performing|began to sing|started to sing|song called|track called)\s*$/i.test(prev) && wc <= 8;
+  const collectiveLead = /\b(?:everyone|everybody|they all|the group|the room)\b[^.!?]{0,80}\b(?:chimed|shouted|said|called|sang|began to sing)\b[^.!?]*:?\s*$/i.test(prev);
+  const collectiveAfter = /^(?:they|everyone|everybody)\s+(?:said|shouted|called|sang)\s+(?:it\s+)?together\b/i.test(next);
+  const narrativeBridge = wc <= 5 && text === text.toLowerCase()
+    && /\b(?:how|being|called|felt|seemed|looked|was|were)\s*$/i.test(prev)
+    && (/^[A-Z][A-Za-z’'\-]+\s+(?:was|were|is|are)\b/.test(next) || grammaticalContinuation);
 
   if (emailLike) return freeze({ classification: 'displayed-text', confidence: 0.99, evidence: 'quoted-display-label' });
-  if (listOrLabelLead && (wc <= 8 || grammaticalContinuation)) return freeze({ classification: 'quoted-narration', confidence: 0.98, evidence: 'inline-quoted-label' });
+  if (bracketMessageFragment) return freeze({ classification: 'displayed-text', confidence: 0.99, evidence: 'message-quoted-fragment' });
+  if (hypotheticalInline) return freeze({ classification: 'quoted-narration', confidence: 0.99, evidence: 'hypothetical-quote-not-spoken' });
+  if (performanceTitle) return freeze({ classification: 'quoted-narration', confidence: 0.99, evidence: 'performance-title-not-dialogue' });
+  if (collectiveLead || collectiveAfter) return freeze({ classification: 'collective-speech-narrated', confidence: 0.97, evidence: 'collective-speech-no-single-speaker' });
+  if (displayLead || chainLead) return freeze({ classification: 'quoted-narration', confidence: 0.98, evidence: 'inline-quoted-label' });
+  if (narrativeBridge) return freeze({ classification: 'quoted-narration', confidence: 0.98, evidence: 'narrative-quoted-fragment' });
   if ((lowerEmphasis || titleLabel) && grammaticalContinuation) return freeze({ classification: 'quoted-narration', confidence: 0.97, evidence: 'inline-emphasis-not-dialogue' });
   return null;
 }
 
-function nearbyCanonicalSpeakers(rows, index, aliases, radius = 5) {
+function speakerMatchesPronoun(speaker, pronoun) {
+  if (!speaker) return false;
+  if (pronoun === 'he') return MALE_SPEAKERS.has(speaker);
+  if (pronoun === 'she') return FEMALE_SPEAKERS.has(speaker);
+  return true;
+}
+
+function recentActorBefore(rows, index, pronoun, aliases, maxLookback = 12) {
+  const current = rows[index];
+  for (let offset = 1; offset <= maxLookback; offset += 1) {
+    const row = rows[index - offset];
+    if (!sameScene(current, row)) break;
+    if (row.segment.kind !== 'narration') continue;
+    const text = clean(row.segment.text);
+    if (!text || /^\[[^\]]+\]:/.test(text)) continue;
+    const named = canonicalLeadSpeaker(text) ?? relationalSubject(text, Number(row.chapter.order));
+    if (named && speakerMatchesPronoun(named, pronoun)) return named;
+  }
+  return null;
+}
+
+function pronounContextResolution(rows, index, aliases, resolutions) {
+  const row = rows[index];
+  const before = sameScene(row, rows[index - 1]) ? clean(rows[index - 1].segment.text) : '';
+  const beforeTag = new RegExp(`^(he|she)\\s+(?:${SPEECH_VERBS})\\b`, 'i').exec(before);
+  const beforeAction = new RegExp(`^(he|she)\\s+(?:${LEAD_ACTIONS})\\b`, 'i').exec(before);
+  const pronoun = (beforeTag ?? beforeAction)?.[1]?.toLowerCase() ?? null;
+  if (!pronoun) return null;
+  // A pronoun lead is only auto-closed when it cleanly continues the immediately preceding known dialogue turn.
+  // This avoids guessing antecedents across narration, text messages or multi-person blocking.
+  const previousSpeaker = immediatePriorDialogueSpeaker(rows, index - 1, aliases, resolutions, 5);
+  if (!previousSpeaker || !speakerMatchesPronoun(previousSpeaker, pronoun)) return null;
+  return freeze({
+    speaker: previousSpeaker,
+    confidence: beforeTag ? 0.93 : 0.9,
+    evidence: beforeTag ? `pronoun-speech-continuation:${pronoun}` : `pronoun-action-continuation:${pronoun}`
+  });
+}
+
+function nearbyCanonicalSpeakers(rows, index, aliases, radius = 5, resolutions = null) {
   const current = rows[index];
   const weighted = new Map();
   for (let offset = 1; offset <= radius; offset += 1) {
     for (const j of [index - offset, index + offset]) {
       const row = rows[j];
       if (!sameScene(current, row) || row.segment.kind !== 'dialogue') continue;
-      const canonical = canon(row.segment.speakerCandidate?.name, aliases);
-      if (!canonical) continue;
-      weighted.set(canonical, (weighted.get(canonical) ?? 0) + (radius + 1 - offset) * Math.max(0.2, Number(row.segment.speakerCandidate?.confidence ?? 0.5)));
+      const id = row.record?.id ?? `${row.chapter.order}:${row.scene.order}:${row.segment.order}`;
+      const resolved = resolutions?.get(id);
+      const canonical = resolved?.speaker && resolved.speaker !== 'Narrator'
+        ? resolved.speaker
+        : canon(row.segment.speakerCandidate?.name, aliases);
+      if (!canonical || canonical === 'Narrator') continue;
+      const confidence = Number(resolved?.confidence ?? row.segment.speakerCandidate?.confidence ?? 0.5);
+      weighted.set(canonical, (weighted.get(canonical) ?? 0) + (radius + 1 - offset) * Math.max(0.2, confidence));
     }
   }
   return [...weighted.entries()].sort((a, b) => b[1] - a[1]).map(([name]) => name);
 }
 
-function directAddressExclusion(dialogue, rows, index, aliases) {
-  const addressed = addressedCanonical(dialogue, aliases);
+function directAddressExclusion(dialogue, rows, index, aliases, resolutions = null, sceneStats = null) {
+  const addressed = addressedCanonicalName(dialogue, aliases);
   if (!addressed) return null;
-  const nearby = nearbyCanonicalSpeakers(rows, index, aliases).filter((name) => PRIMARY.includes(name));
-  const others = nearby.filter((name) => name !== addressed);
-  if (others.length === 1) return freeze({ speaker: others[0], confidence: 0.86, evidence: `direct-address-exclusion:${addressed}` });
+  const before = sameScene(rows[index], rows[index - 1]) ? clean(rows[index - 1].segment.text) : '';
+  const lead = canonicalLeadSpeaker(before);
+  if (lead && lead !== addressed) return freeze({ speaker: lead, confidence: 0.97, evidence: `vocative-exclusion+preceding-lead:${addressed}` });
+  if (/\b(?:someone|somebody|a guy|the guy|a woman|the woman|one of\s+\w+)\b[^.!?]{0,100}\b(?:said|asked|called|shouted|yelled|blurted|demanded)\b/i.test(before)) return null;
+  const pair = sceneStats ? stableTwoSpeakerPair(sceneStats, rows[index]) : null;
+  if (!pair || !pair.includes(addressed)) return null;
+  const others = pair.filter((name) => name !== addressed);
+  if (others.length === 1) return freeze({ speaker: others[0], confidence: 0.9, evidence: `direct-address-exclusion:${addressed}` });
   return null;
+}
+
+function buildSceneSpeakerStats(rows, aliases) {
+  const scenes = new Map();
+  for (const row of rows) {
+    if (row.segment.kind !== 'dialogue') continue;
+    const canonical = canon(row.segment.speakerCandidate?.name, aliases);
+    const confidence = Number(row.segment.speakerCandidate?.confidence ?? 0);
+    if (!canonical || confidence < 0.75) continue;
+    const key = sceneKey(row);
+    const map = scenes.get(key) ?? new Map();
+    map.set(canonical, (map.get(canonical) ?? 0) + 1);
+    scenes.set(key, map);
+  }
+  return scenes;
+}
+
+function stableTwoSpeakerPair(sceneStats, row) {
+  const counts = sceneStats.get(sceneKey(row));
+  if (!counts) return null;
+  const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  const strong = ranked.filter(([, count]) => count >= 2);
+  if (strong.length !== 2) return null;
+  const total = ranked.reduce((sum, [, count]) => sum + count, 0);
+  const covered = strong[0][1] + strong[1][1];
+  if (total < 4 || covered / total < 0.9) return null;
+  return strong.map(([name]) => name);
+}
+
+function knownDialogueSpeaker(row, aliases, resolutions) {
+  if (!row || row.segment.kind !== 'dialogue') return null;
+  const id = row.record?.id ?? `${row.chapter.order}:${row.scene.order}:${row.segment.order}`;
+  const resolved = resolutions.get(id);
+  if (resolved?.speaker && resolved.speaker !== 'Narrator') return resolved.speaker;
+  const candidate = canon(row.segment.speakerCandidate?.name, aliases);
+  if (candidate && Number(row.segment.speakerCandidate?.confidence ?? 0) >= 0.75) return candidate;
+  return null;
+}
+
+function immediatePriorDialogueSpeaker(rows, index, aliases, resolutions, maxDistance = 5) {
+  const current = rows[index];
+  for (let offset = 1; offset <= maxDistance; offset += 1) {
+    const row = rows[index - offset];
+    if (!sameScene(current, row)) break;
+    if (row.segment.kind !== 'dialogue') continue;
+    return knownDialogueSpeaker(row, aliases, resolutions);
+  }
+  return null;
+}
+
+function immediateNextDialogueSpeaker(rows, index, aliases, resolutions, maxDistance = 5) {
+  const current = rows[index];
+  for (let offset = 1; offset <= maxDistance; offset += 1) {
+    const row = rows[index + offset];
+    if (!sameScene(current, row)) break;
+    if (row.segment.kind !== 'dialogue') continue;
+    return knownDialogueSpeaker(row, aliases, resolutions);
+  }
+  return null;
+}
+
+function nearestPriorDialogueSpeaker(rows, index, aliases, resolutions, maxDistance = 4) {
+  const current = rows[index];
+  for (let offset = 1; offset <= maxDistance; offset += 1) {
+    const row = rows[index - offset];
+    if (!sameScene(current, row)) break;
+    const speaker = knownDialogueSpeaker(row, aliases, resolutions);
+    if (speaker) return speaker;
+  }
+  return null;
+}
+
+function nearestNextDialogueSpeaker(rows, index, aliases, resolutions, maxDistance = 4) {
+  const current = rows[index];
+  for (let offset = 1; offset <= maxDistance; offset += 1) {
+    const row = rows[index + offset];
+    if (!sameScene(current, row)) break;
+    const speaker = knownDialogueSpeaker(row, aliases, resolutions);
+    if (speaker) return speaker;
+  }
+  return null;
+}
+
+function twoSpeakerTurnResolution(rows, index, aliases, resolutions, sceneStats) {
+  const row = rows[index];
+  const pair = stableTwoSpeakerPair(sceneStats, row);
+  if (!pair) return null;
+  const candidate = canon(row.segment.speakerCandidate?.name, aliases);
+  const confidence = Number(row.segment.speakerCandidate?.confidence ?? 0);
+  const previous = immediatePriorDialogueSpeaker(rows, index, aliases, resolutions);
+  const next = immediateNextDialogueSpeaker(rows, index, aliases, resolutions);
+  if (!previous || !next || previous !== next || !pair.includes(previous)) return null;
+  const other = pair.find((name) => name !== previous);
+  if (!other) return null;
+  if (candidate && confidence < 0.75 && candidate === other) {
+    return freeze({ speaker: candidate, confidence: 0.88, evidence: 'two-speaker-sandwich+candidate' });
+  }
+  if (!candidate) return freeze({ speaker: other, confidence: 0.86, evidence: 'two-speaker-sandwich-turn' });
+  return null;
+}
+
+function reactionExclusionResolution(rows, index, aliases, sceneStats) {
+  const row = rows[index];
+  const pair = stableTwoSpeakerPair(sceneStats, row);
+  if (!pair) return null;
+  const candidate = canon(row.segment.speakerCandidate?.name, aliases);
+  const confidence = Number(row.segment.speakerCandidate?.confidence ?? 0);
+  if (!candidate || confidence >= 0.75 || !pair.includes(candidate)) return null;
+  const before = sameScene(row, rows[index - 1]) ? clean(rows[index - 1].segment.text) : '';
+  if (/\b(?:someone|somebody|a guy|the guy|a woman|the woman|one of\s+\w+)\b[^.!?]{0,100}\b(?:said|asked|called|shouted|yelled|blurted)\b/i.test(before)) return null;
+  const after = sameScene(row, rows[index + 1]) ? rows[index + 1].segment.text : '';
+  const reactor = canonicalLeadSpeaker(after);
+  const previous = immediatePriorDialogueSpeaker(rows, index, aliases, new Map());
+  if (!reactor || !pair.includes(reactor) || reactor === candidate || previous !== reactor) return null;
+  return freeze({ speaker: candidate, confidence: 0.9, evidence: `two-speaker-reaction-exclusion:${reactor}` });
+}
+
+function extendedBefore(rows, index, count = 4) {
+  const current = rows[index];
+  const parts = [];
+  for (let j = Math.max(0, index - count); j < index; j += 1) {
+    if (!sameScene(current, rows[j])) continue;
+    parts.push(clean(rows[j].segment.text));
+  }
+  return parts.join(' ');
 }
 
 export function buildDialogueIntelligence(ingestResult, { aliases = BOOK_ONE_PROFILE.aliases } = {}) {
   const rows = analysisRowsForIntelligence(ingestResult);
   const resolutions = new Map();
   const provisionalMentions = new Map();
+  const sceneStats = buildSceneSpeakerStats(rows, aliases);
   const counts = {
     quotedNarration: 0,
+    collectiveSpeech: 0,
     selfIdentified: 0,
     explicitContext: 0,
+    pronounContext: 0,
     directAddress: 0,
-    relationalRole: 0
+    relationalRole: 0,
+    twoSpeakerTurn: 0,
+    reactionExclusion: 0
   };
 
   for (let i = 0; i < rows.length; i += 1) {
@@ -211,46 +441,68 @@ export function buildDialogueIntelligence(ingestResult, { aliases = BOOK_ONE_PRO
     const after = sameScene(row, rows[i + 1]) ? clean(rows[i + 1].segment.text) : '';
     const segmentId = row.record?.id ?? `${row.chapter.order}:${row.scene.order}:${row.segment.order}`;
 
-    const narrated = classifyQuotedNarration(row.segment.text, before, after);
+    const narrated = classifyQuotedNarration(row.segment.text, before, after, { extendedBefore: extendedBefore(rows, i) });
     if (narrated) {
-      resolutions.set(segmentId, freeze({ speaker: 'Narrator', confidence: narrated.confidence, evidence: narrated.evidence, classification: narrated.classification }));
-      counts.quotedNarration += 1;
+      resolutions.set(segmentId, freeze({ speaker: 'Narrator', confidence: narrated.confidence, evidence: narrated.evidence, classification: narrated.classification, authority: 'override' }));
+      if (narrated.classification === 'collective-speech-narrated') counts.collectiveSpeech += 1;
+      else counts.quotedNarration += 1;
       continue;
     }
 
     const self = selfIdentifiedSpeaker(row.segment.text, aliases);
     if (self) {
-      resolutions.set(segmentId, freeze({ speaker: self, confidence: 0.995, evidence: 'self-identification', classification: 'spoken-dialogue' }));
+      resolutions.set(segmentId, freeze({ speaker: self, confidence: 0.995, evidence: 'self-identification', classification: 'spoken-dialogue', authority: 'override' }));
       counts.selfIdentified += 1;
       continue;
     }
 
-    const afterSpeaker = explicitAfterSpeechSpeaker(after);
+    const relational = relationalRoleFromContext(row, before, after);
+    if (relational && relationalSpeechCue(relational, before, after)) {
+      resolutions.set(segmentId, freeze({ speaker: relational.canonicalName, confidence: 0.92, evidence: 'relational-role-context', classification: 'spoken-dialogue', provisional: true, authority: 'review-only' }));
+      provisionalMentions.set(relational.canonicalName, (provisionalMentions.get(relational.canonicalName) ?? 0) + 1);
+      counts.relationalRole += 1;
+      continue;
+    }
+
+    const direct = directAddressExclusion(row.segment.text, rows, i, aliases, resolutions, sceneStats);
+    if (direct) {
+      resolutions.set(segmentId, freeze({ ...direct, classification: 'spoken-dialogue', authority: 'contradiction-override', addressed: addressedCanonicalName(row.segment.text, aliases) }));
+      counts.directAddress += 1;
+      continue;
+    }
+
+    const afterSpeaker = explicitAfterSpeechSpeaker(after, sameScene(row, rows[i + 2]) ? rows[i + 2] : null);
     if (afterSpeaker) {
-      resolutions.set(segmentId, freeze({ speaker: afterSpeaker, confidence: 0.96, evidence: 'explicit-after-speech-tag', classification: 'spoken-dialogue' }));
+      resolutions.set(segmentId, freeze({ speaker: afterSpeaker, confidence: 0.96, evidence: 'explicit-after-speech-tag', classification: 'spoken-dialogue', authority: 'review-only' }));
       counts.explicitContext += 1;
       continue;
     }
 
     const lead = canonicalLeadSpeaker(before);
     if (lead) {
-      resolutions.set(segmentId, freeze({ speaker: lead, confidence: 0.9, evidence: 'preceding-speaker-lead', classification: 'spoken-dialogue' }));
+      resolutions.set(segmentId, freeze({ speaker: lead, confidence: 0.93, evidence: 'preceding-speaker-lead', classification: 'spoken-dialogue', authority: 'review-only' }));
       counts.explicitContext += 1;
       continue;
     }
 
-    const relational = relationalRoleFromContext(row, before, after);
-    if (relational && relationalSpeechCue(relational, before, after)) {
-      resolutions.set(segmentId, freeze({ speaker: relational.canonicalName, confidence: 0.92, evidence: 'relational-role-context', classification: 'spoken-dialogue', provisional: true }));
-      provisionalMentions.set(relational.canonicalName, (provisionalMentions.get(relational.canonicalName) ?? 0) + 1);
-      counts.relationalRole += 1;
+    const pronoun = pronounContextResolution(rows, i, aliases, resolutions);
+    if (pronoun) {
+      resolutions.set(segmentId, freeze({ ...pronoun, classification: 'spoken-dialogue', authority: 'review-only' }));
+      counts.pronounContext += 1;
       continue;
     }
 
-    const direct = directAddressExclusion(row.segment.text, rows, i, aliases);
-    if (direct) {
-      resolutions.set(segmentId, freeze({ ...direct, classification: 'spoken-dialogue' }));
-      counts.directAddress += 1;
+    const reaction = reactionExclusionResolution(rows, i, aliases, sceneStats);
+    if (reaction) {
+      resolutions.set(segmentId, freeze({ ...reaction, classification: 'spoken-dialogue', authority: 'review-only' }));
+      counts.reactionExclusion += 1;
+      continue;
+    }
+
+    const turn = twoSpeakerTurnResolution(rows, i, aliases, resolutions, sceneStats);
+    if (turn) {
+      resolutions.set(segmentId, freeze({ ...turn, classification: 'spoken-dialogue', authority: 'review-only' }));
+      counts.twoSpeakerTurn += 1;
     }
   }
 

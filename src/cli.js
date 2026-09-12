@@ -10,7 +10,7 @@ import {
   ProjectService
 } from './index.js';
 
-const VERSION = '0.11.3';
+const VERSION = '0.11.4';
 const args = process.argv.slice(2);
 
 function flagValue(name, fallback = null) {
