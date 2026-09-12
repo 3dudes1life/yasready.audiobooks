@@ -12,6 +12,7 @@ function seedApproved(store) {
   const region = store.put(Object.freeze({ id: 'r1', type: 'review_region', sessionId: 's1', chapterReviewId: 'cr1', chapterId: 'c1', order: 0, canonicalTextHash: 'hash', status: 'approved', selectedTakeId: 't1', locked: true }));
   store.put(Object.freeze({ id: 'rt1', type: 'review_timing', sessionId: 's1', chapterReviewId: 'cr1', chapterId: 'c1', takeId: 't1', regionId: 'r1', startMs: 100, endMs: 2100 }));
   store.put(Object.freeze({ id: 'q1', type: 'qa_run', projectId: 'p1', bookId: 'b1', reviewSessionId: 's1', status: 'approved', locked: true }));
+  store.put(Object.freeze({ id: 'qr1', type: 'qa_report', runId: 'q1', takeId: 't1', jobId: 'j1', chapterReviewId: 'cr1', status: 'pass' }));
   return { session, chapter, take, region };
 }
 

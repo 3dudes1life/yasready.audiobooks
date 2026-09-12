@@ -39,9 +39,32 @@ export class CastingRoomService {
     this.minimumSeriesSafety = minimumSeriesSafety;
   }
 
+  #assertCharacterOwnership({ projectId, characterId, seriesId = null, bookId = null }) {
+    const project = this.store.get('project', projectId);
+    const character = this.store.get('character', characterId);
+    if (project && !character) throw new Error('Casting Room character was not found in this project');
+    if (character && character.projectId !== projectId) throw new Error('Casting Room character belongs to another project');
+    if (character?.bibleId) {
+      const bible = this.store.get('audio_bible', character.bibleId);
+      if (bible && bible.projectId !== projectId) throw new Error('Casting Room character Audio Bible belongs to another project');
+    }
+    if (seriesId) {
+      const series = this.store.get('series', seriesId);
+      if (project && !series) throw new Error('Casting Room series was not found in this project');
+      if (series && series.projectId !== projectId) throw new Error('Casting Room series belongs to another project');
+    }
+    if (bookId) {
+      const book = this.store.get('book', bookId);
+      if (project && !book) throw new Error('Casting Room book was not found in this project');
+      if (book && book.projectId !== projectId) throw new Error('Casting Room book belongs to another project');
+    }
+    return character;
+  }
+
   stageCandidate({ projectId, seriesId = null, bookId = null, characterId, voice, provider = voice?.provider ?? 'unknown', desiredLanguage = 'en', notes = null }) {
     requireValue(projectId, 'projectId');
     requireValue(characterId, 'characterId');
+    this.#assertCharacterOwnership({ projectId, characterId, seriesId, bookId });
     const normalized = voice?.providerVoiceId ? voice : normalizeVoiceProfile(voice, { provider });
     requireValue(normalized.providerVoiceId, 'providerVoiceId');
     const safety = scoreSeriesSafety(normalized, { desiredLanguage });
@@ -64,6 +87,7 @@ export class CastingRoomService {
   createAuditionPlan({ projectId, characterId, candidateIds, scripts, model = 'eleven_multilingual_v2', maxSpendUsd = 2 }) {
     requireValue(projectId, 'projectId');
     requireValue(characterId, 'characterId');
+    this.#assertCharacterOwnership({ projectId, characterId });
     if (!Array.isArray(candidateIds) || candidateIds.length < 1) throw new Error('audition plan requires at least one candidate');
     if (!Array.isArray(scripts) || scripts.length < 1) throw new Error('audition plan requires at least one script');
     const normalizedScripts = scripts.map((script, index) => ({
@@ -205,6 +229,7 @@ export class CastingRoomService {
   }
 
   lockCast({ projectId, seriesId = null, bookId = null, characterId, candidateId, scope = seriesId ? 'series' : 'book', approvedBy = 'operator', overrideRisk = false, reason = null }) {
+    this.#assertCharacterOwnership({ projectId, characterId, seriesId, bookId });
     const candidate = this.store.get('voice_candidate', candidateId);
     if (!candidate || candidate.projectId !== projectId || candidate.characterId !== characterId) throw new Error('candidate does not belong to this project/character');
     if (scope === 'series' && !seriesId) throw new Error('series cast lock requires seriesId');
@@ -234,6 +259,7 @@ export class CastingRoomService {
     requireValue(projectId, 'projectId');
     requireValue(seriesId, 'seriesId');
     requireValue(characterId, 'characterId');
+    this.#assertCharacterOwnership({ projectId, characterId, seriesId });
     requireValue(provider, 'provider');
     requireValue(providerVoiceId, 'providerVoiceId');
     const score = Number(safetyScore);

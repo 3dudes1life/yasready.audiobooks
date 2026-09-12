@@ -12,7 +12,7 @@ import {
   MoneyGuardService
 } from './index.js';
 
-const VERSION = '0.13.1';
+const VERSION = '0.13.2';
 const args = process.argv.slice(2);
 
 function flagValue(name, fallback = null) {
@@ -232,7 +232,13 @@ async function runSeriesRelationshipLock({ group = false } = {}) {
 async function runSeriesVoiceLock() {
   const packagePath = args[1];
   if (!packagePath) {
-    console.error('Usage: node src/cli.js series-continuity-lock-voice <series-continuity.json> --character KEY --provider PROVIDER --voice-id VOICE_ID [--safety-score N] [--out FILE] [--override --reason REASON]');
+    console.error('Usage: node src/cli.js series-continuity-lock-voice <series-continuity.json> --character KEY --provider PROVIDER --voice-id VOICE_ID --safety-score N [--out FILE] [--override --reason REASON]');
+    process.exitCode = 2;
+    return;
+  }
+  const safetyScore = flagValue('--safety-score');
+  if (safetyScore === null || safetyScore === undefined || String(safetyScore).trim() === '') {
+    console.error('Series voice lock requires --safety-score N from Casting Room (0-100).');
     process.exitCode = 2;
     return;
   }
@@ -242,7 +248,7 @@ async function runSeriesVoiceLock() {
     provider: flagValue('--provider'),
     providerVoiceId: flagValue('--voice-id'),
     approvedBy: flagValue('--approved-by', 'operator'),
-    safetyScore: flagValue('--safety-score'),
+    safetyScore,
     override: args.includes('--override'),
     reason: flagValue('--reason')
   });
@@ -438,13 +444,13 @@ if (args[0] === 'analyze') {
     seriesContinuitySeedCommand: 'node src/cli.js series-continuity-seed <book-one-audio-bible-prep.json> [--existing <series-continuity.json>] --out <directory>',
     seriesContinuityCompareCommand: 'node src/cli.js series-continuity-compare <series-continuity.json> <next-book-audio-bible-prep.json>',
     seriesRelationshipLockCommand: 'node src/cli.js series-continuity-lock-group <series-continuity.json> --members key1,key2,key3 --kind partner --out <file>',
-    seriesVoiceLockCommand: 'node src/cli.js series-continuity-lock-voice <series-continuity.json> --character <key> --provider <provider> --voice-id <id> --out <file>',
+    seriesVoiceLockCommand: 'node src/cli.js series-continuity-lock-voice <series-continuity.json> --character <key> --provider <provider> --voice-id <id> --safety-score <0-100> --out <file>',
     moneyGuardFixtureCommand: 'node src/cli.js money-guard-fixture',
     workflow: {
       manuscriptBrain: 'ready', audioBible: 'ready', castingRoom: 'ready', audiobookDirector: 'ready',
       productionEngine: 'ready', reviewStudio: 'ready', continuityQa: 'ready', masteringLab: 'ready',
       distributionBrain: 'ready', operatorFlowAudit: 'ready', bookOneSuperman: 'ready',
-      bookOneAudioBiblePrep: 'ready', seriesContinuity: 'ready', moneyGuard: 'ready'
+      bookOneAudioBiblePrep: 'ready', seriesContinuity: 'ready', moneyGuard: 'ready', finalSaasBoundaryClosure: 'ready'
     },
     distributionProfiles: ['acx-2026', 'spotify-direct-2026', 'apple-partner-2026', 'w3c-audiobook-2020'],
     duplicateProtection: generation.request.fingerprint,

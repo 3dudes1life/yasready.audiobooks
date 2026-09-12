@@ -91,10 +91,13 @@ export function buildOperatorFlowStatus(store, projectId) {
 
   const director = rows(store, 'director_plan', (x) => x.projectId === projectId && (!book?.id || !x.bookId || x.bookId === book.id)).at(-1) ?? null;
   const directorCues = director ? rows(store, 'director_cue', (x) => x.planId === director.id) : [];
+  const lockedDirectorCues = directorCues.filter((row) => row.locked).length;
   stage.push({
     key: 'director',
-    done: Boolean(director && director.locked && directorCues.length),
-    detail: director ? `${directorCues.length} cue(s); ${director.locked ? 'direction locked' : 'direction still open'}` : 'No director plan'
+    done: Boolean(director && director.locked && directorCues.length && lockedDirectorCues === directorCues.length),
+    detail: director
+      ? `${lockedDirectorCues}/${directorCues.length} cue(s) locked; ${director.locked ? 'plan locked' : 'plan still open'}`
+      : 'No director plan'
   });
 
   const production = rows(store, 'production_plan', (x) => x.projectId === projectId && (!book?.id || !x.bookId || x.bookId === book.id)).at(-1) ?? null;

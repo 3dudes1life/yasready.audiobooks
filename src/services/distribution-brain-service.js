@@ -10,6 +10,7 @@ import {
   normalizeAssetFormat
 } from '../distribution/profiles.js';
 import { buildW3cAudiobookManifest, validateW3cAudiobookManifest, buildHumanChecklist } from '../distribution/w3c-manifest.js';
+import { sha256, stableJson } from '../core/hash.js';
 
 const freeze = (value) => Object.freeze(value);
 const nowIso = (clock) => clock().toISOString();
@@ -88,48 +89,118 @@ export class DistributionBrainService {
     return project;
   }
 
+  #packageInputDigest(targetId) {
+    const target = this.store.get('distribution_target', targetId);
+    if (!target) throw new Error(`distribution_target ${targetId} not found`);
+    const project = this.getProject(target.distributionProjectId);
+    const { master, chapters, opening, closing } = this.#masteringAssets(project);
+    const compactSection = (row) => row ? ({
+      id: row.id, kind: row.kind ?? null, chapterId: row.chapterId ?? null,
+      outputFileName: row.outputFileName ?? null, status: row.status ?? null,
+      asset: row.asset ?? null, postAnalysis: row.postAnalysis ?? null
+    }) : null;
+    return sha256(stableJson({
+      profileId: target.profileId,
+      profileRevisionDate: target.profileRevisionDate,
+      platformEligibilityConfirmed: Boolean(target.platformEligibilityConfirmed),
+      platformEligibilityNote: target.platformEligibilityNote ?? null,
+      metadata: project.metadata,
+      digitalNarration: project.digitalNarration,
+      narrationProvider: project.narrationProvider,
+      rightsConfirmed: Boolean(project.rightsConfirmed),
+      rightsTerritories: project.rightsTerritories ?? null,
+      cover: project.cover ?? null,
+      sample: project.sample ?? null,
+      mastering: {
+        id: master.id, profileId: master.profileId, status: master.status, locked: master.locked,
+        chapters: chapters.map(compactSection), opening: compactSection(opening), closing: compactSection(closing)
+      }
+    }));
+  }
+
+  #invalidateTargetPackage(targetId, reason) {
+    const target = this.store.get('distribution_target', targetId);
+    if (!target?.packageId) return target;
+    const now = nowIso(this.clock);
+    const pkg = this.store.get('distribution_package', target.packageId);
+    if (pkg && !['stale', 'invalidated'].includes(pkg.status)) {
+      this.store.update('distribution_package', pkg.id, (current) => freeze({
+        ...current, status: 'stale', staleReason: reason, invalidatedAt: now, updatedAt: now
+      }));
+    }
+    const invalidated = this.store.update('distribution_target', targetId, (current) => freeze({
+      ...current, status: 'stale', stalePackageId: current.packageId, packageId: null,
+      staleReason: reason, invalidatedAt: now, updatedAt: now
+    }));
+    const project = this.store.get('distribution_project', target.distributionProjectId);
+    if (project?.locked) {
+      this.store.update('distribution_project', project.id, (current) => freeze({
+        ...current, status: 'stale', locked: false,
+        finalizationInvalidatedAt: now, finalizationInvalidationReason: reason,
+        updatedAt: now
+      }));
+    }
+    return invalidated;
+  }
+
+  #invalidateProjectPackages(distributionProjectId, reason) {
+    for (const target of this.store.list('distribution_target', (row) => row.distributionProjectId === distributionProjectId)) {
+      this.#invalidateTargetPackage(target.id, reason);
+    }
+  }
+
   updateMetadata(id, patch = {}) {
     const project = this.getProject(id);
     if (project.locked) throw new Error('distribution project is locked');
-    return this.store.update('distribution_project', id, (current) => freeze({
+    const updated = this.store.update('distribution_project', id, (current) => freeze({
       ...current,
       metadata: freeze({ ...current.metadata, ...patch }),
       updatedAt: nowIso(this.clock)
     }));
+    this.#invalidateProjectPackages(id, 'distribution metadata changed after packaging');
+    return updated;
   }
 
   setDigitalNarration(id, { enabled, provider = null }) {
     const project = this.getProject(id);
     if (project.locked) throw new Error('distribution project is locked');
     if (typeof enabled !== 'boolean') throw new Error('digital narration must be explicitly true or false');
-    return this.store.update('distribution_project', id, (current) => freeze({
+    const updated = this.store.update('distribution_project', id, (current) => freeze({
       ...current, digitalNarration: enabled, narrationProvider: enabled ? provider : null,
       updatedAt: nowIso(this.clock)
     }));
+    this.#invalidateProjectPackages(id, 'digital narration disclosure changed after packaging');
+    return updated;
   }
 
   confirmRights(id, { confirmedBy, territories = 'WORLD' } = {}) {
     if (!String(confirmedBy ?? '').trim()) throw new Error('rights confirmation requires confirmedBy');
     const project = this.getProject(id);
     if (project.locked) throw new Error('distribution project is locked');
-    return this.store.update('distribution_project', id, (current) => freeze({
+    const updated = this.store.update('distribution_project', id, (current) => freeze({
       ...current, rightsConfirmed: true, rightsConfirmedBy: confirmedBy,
       rightsTerritories: territories, rightsConfirmedAt: nowIso(this.clock), updatedAt: nowIso(this.clock)
     }));
+    this.#invalidateProjectPackages(id, 'distribution rights or territories changed after packaging');
+    return updated;
   }
 
   attachCover(id, asset) {
     const project = this.getProject(id);
     if (project.locked) throw new Error('distribution project is locked');
     assertAssetReference(asset, 'cover');
-    return this.store.update('distribution_project', id, (current) => freeze({ ...current, cover: freeze({ ...asset }), updatedAt: nowIso(this.clock) }));
+    const updated = this.store.update('distribution_project', id, (current) => freeze({ ...current, cover: freeze({ ...asset }), updatedAt: nowIso(this.clock) }));
+    this.#invalidateProjectPackages(id, 'distribution cover changed after packaging');
+    return updated;
   }
 
   attachSample(id, asset) {
     const project = this.getProject(id);
     if (project.locked) throw new Error('distribution project is locked');
     assertAssetReference(asset, 'sample');
-    return this.store.update('distribution_project', id, (current) => freeze({ ...current, sample: freeze({ ...asset }), updatedAt: nowIso(this.clock) }));
+    const updated = this.store.update('distribution_project', id, (current) => freeze({ ...current, sample: freeze({ ...asset }), updatedAt: nowIso(this.clock) }));
+    this.#invalidateProjectPackages(id, 'distribution sample changed after packaging');
+    return updated;
   }
 
   addTarget(id, profileId) {
@@ -151,10 +222,14 @@ export class DistributionBrainService {
     if (!String(confirmedBy ?? '').trim() || !String(note ?? '').trim()) throw new Error('platform eligibility confirmation requires confirmedBy and note');
     const target = this.store.get('distribution_target', targetId);
     if (!target) throw new Error(`distribution_target ${targetId} not found`);
-    return this.store.update('distribution_target', targetId, (current) => freeze({
+    const project = this.getProject(target.distributionProjectId);
+    if (project.locked) throw new Error('distribution project is locked');
+    this.store.update('distribution_target', targetId, (current) => freeze({
       ...current, platformEligibilityConfirmed: true, platformEligibilityConfirmedBy: confirmedBy,
       platformEligibilityNote: note, platformEligibilityConfirmedAt: nowIso(this.clock), updatedAt: nowIso(this.clock)
     }));
+    this.#invalidateTargetPackage(targetId, 'platform eligibility confirmation changed after packaging');
+    return this.store.get('distribution_target', targetId);
   }
 
   #masteringAssets(project) {
@@ -230,6 +305,16 @@ export class DistributionBrainService {
     const freshness = profileFreshness(profile, { now });
     if (freshness.stale) warnings.push({ code: 'profile-rules-stale', message: `Platform rules were last reviewed ${freshness.revisionDate}; re-check current platform requirements before submission.` });
 
+    const currentTarget = this.store.get('distribution_target', targetId);
+    if (currentTarget?.packageId) {
+      const pkg = this.store.get('distribution_package', currentTarget.packageId);
+      const currentDigest = this.#packageInputDigest(targetId);
+      if (!pkg || pkg.sourceDigest !== currentDigest || ['stale', 'invalidated'].includes(pkg.status)) {
+        blockers.push({ code: 'package-stale', message: 'The distribution package is stale because package-producing inputs changed. Rebuild the package.' });
+        this.#invalidateTargetPackage(targetId, 'package source digest no longer matches current distribution truth');
+      }
+    }
+
     const ready = blockers.length === 0;
     const result = freeze({
       targetId, profileId: profile.id, profileLabel: profile.label, route: profile.route,
@@ -243,7 +328,7 @@ export class DistributionBrainService {
     });
     this.store.update('distribution_target', targetId, (current) => freeze({
       ...current,
-      status: ['packaged', 'exported'].includes(current.status) ? current.status : (ready ? 'preflighted' : 'blocked'),
+      status: current.status === 'stale' ? 'stale' : (['packaged', 'exported'].includes(current.status) ? current.status : (ready ? 'preflighted' : 'blocked')),
       updatedAt: nowIso(this.clock)
     }));
     return result;
@@ -254,6 +339,11 @@ export class DistributionBrainService {
     if (!preflight.readyToPackage) throw new Error(`distribution package blocked: ${preflight.blockers.map((x) => x.code).join(', ')}`);
     const target = this.store.get('distribution_target', targetId);
     const project = this.getProject(target.distributionProjectId);
+    const sourceDigest = this.#packageInputDigest(targetId);
+    if (target.packageId) {
+      const existing = this.store.get('distribution_package', target.packageId);
+      if (existing && existing.sourceDigest === sourceDigest && !['stale', 'invalidated'].includes(existing.status)) return existing;
+    }
     const profile = getDistributionProfile(target.profileId);
     const { master, chapters, opening, closing } = this.#masteringAssets(project);
     const files = [];
@@ -279,17 +369,26 @@ export class DistributionBrainService {
       sample: project.sample ? freeze({ ...project.sample }) : null,
       metadata: project.metadata, digitalNarration: project.digitalNarration, narrationProvider: project.narrationProvider,
       rightsTerritories: project.rightsTerritories ?? null,
+      sourceDigest,
       w3cManifest: w3c, checklist,
       packageName: safeName(`${project.metadata.title ?? 'audiobook'}-${profile.id}`),
       createdAt: now, updatedAt: now
     }));
-    this.store.update('distribution_target', targetId, (current) => freeze({ ...current, status: 'packaged', packageId: packageRecord.id, updatedAt: now }));
+    this.store.update('distribution_target', targetId, (current) => freeze({
+      ...current, status: 'packaged', packageId: packageRecord.id, packageSourceDigest: sourceDigest,
+      stalePackageId: null, staleReason: null, invalidatedAt: null, updatedAt: now
+    }));
     return packageRecord;
   }
 
   async exportPackage(packageId) {
     const pkg = this.store.get('distribution_package', packageId);
     if (!pkg) throw new Error(`distribution_package ${packageId} not found`);
+    const target = this.store.get('distribution_target', pkg.targetId);
+    if (!target || target.packageId !== packageId || pkg.status === 'stale' || pkg.sourceDigest !== this.#packageInputDigest(pkg.targetId)) {
+      if (target?.packageId === packageId) this.#invalidateTargetPackage(pkg.targetId, 'distribution package became stale before export');
+      throw new Error('distribution package is stale; rebuild before export');
+    }
     if (typeof this.assetMaterializer !== 'function') throw new Error('distribution export requires assetMaterializer');
     if (typeof this.packageSink !== 'function') throw new Error('distribution export requires packageSink');
     const dir = await mkdtemp(path.join(tmpdir(), 'yasready-distribution-'));
@@ -345,7 +444,15 @@ export class DistributionBrainService {
     if (!String(reviewer ?? '').trim()) throw new Error('locking distribution requires reviewer');
     const project = this.getProject(id);
     const targets = this.store.list('distribution_target', (row) => row.distributionProjectId === id);
-    if (!targets.length || targets.some((x) => !['packaged', 'exported'].includes(x.status))) throw new Error('distribution project cannot lock until every target is packaged');
+    if (!targets.length) throw new Error('distribution project cannot lock until every target is packaged');
+    for (const target of targets) this.preflightTarget(target.id);
+    const currentTargets = this.store.list('distribution_target', (row) => row.distributionProjectId === id);
+    const invalid = currentTargets.some((target) => {
+      if (!['packaged', 'exported'].includes(target.status) || !target.packageId) return true;
+      const pkg = this.store.get('distribution_package', target.packageId);
+      return !pkg || pkg.sourceDigest !== this.#packageInputDigest(target.id) || pkg.status === 'stale';
+    });
+    if (invalid) throw new Error('distribution project cannot lock until every target has a current, non-stale package');
     return this.store.update('distribution_project', id, (current) => freeze({ ...current, status: 'ready', locked: true, finalizedBy: reviewer, finalizedAt: nowIso(this.clock), updatedAt: nowIso(this.clock) }));
   }
 }

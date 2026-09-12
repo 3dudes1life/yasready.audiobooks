@@ -110,8 +110,7 @@ test('Mastering Lab refuses approved upstream records from another project', () 
   store.put(Object.freeze({ id: 's1', type: 'review_session', projectId: 'p2', bookId: 'b1', status: 'approved', locked: true }));
   store.put(Object.freeze({ id: 'q1', type: 'qa_run', projectId: 'p1', bookId: 'b1', reviewSessionId: 's1', status: 'approved', locked: true }));
   const service = new MasteringLabService(store);
-  const plan = service.createPlan({ projectId: 'p1', bookId: 'b1', reviewSessionId: 's1', qaRunId: 'q1', title: 'Book', author: 'Author' });
-  assert.throws(() => service.preflight(plan.id), /another project\/book/);
+  assert.throws(() => service.createPlan({ projectId: 'p1', bookId: 'b1', reviewSessionId: 's1', qaRunId: 'q1', title: 'Book', author: 'Author' }), /another project\/book/);
 });
 
 function productionHarness({ assetSink } = {}) {

@@ -163,7 +163,7 @@ test('preflight does not downgrade already-packaged target status', () => {
 test('project cannot lock until every target is packaged', () => {
   const { service, project } = seed({ digitalNarration: false });
   service.addTarget(project.id, 'acx-2026');
-  assert.throws(() => service.lockProject(project.id, { reviewer: 'Tester' }), /every target is packaged/);
+  assert.throws(() => service.lockProject(project.id, { reviewer: 'Tester' }), /every target.*package/);
 });
 
 test('project locks after target package is built', () => {
@@ -228,7 +228,7 @@ test('operator flow advances to distribution after upstream approvals', () => {
   store.put({ id: 'ch', type: 'character', projectId: 'p1', bibleId: 'ab', role: 'narrator' });
   store.put({ id: 'va', type: 'voice_assignment', projectId: 'p1', characterId: 'ch', locked: true });
   store.put({ id: 'dp', type: 'director_plan', projectId: 'p1', bookId: 'b1', locked: true });
-  store.put({ id: 'dc', type: 'director_cue', projectId: 'p1', planId: 'dp' });
+  store.put({ id: 'dc', type: 'director_cue', projectId: 'p1', planId: 'dp', locked: true });
   store.put({ id: 'pp', type: 'production_plan', projectId: 'p1', bookId: 'b1' });
   store.put({ id: 'pj', type: 'production_job', projectId: 'p1', bookId: 'b1', planId: 'pp', status: 'ready' });
   store.put({ id: 'rv', type: 'review_session', projectId: 'p1', bookId: 'b1', status: 'approved', locked: true });

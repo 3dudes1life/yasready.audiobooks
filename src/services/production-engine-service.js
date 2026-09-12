@@ -63,6 +63,12 @@ function accountedProviderCost(result, fallback = null) {
     : { amountUsd: null, costBasis: 'unknown' };
 }
 
+function assertAssetReference(asset) {
+  if (!asset || typeof asset !== 'object') throw new Error('asset reference object is required');
+  if (['audio', 'data', 'bytes', 'bytesData'].some((key) => key in asset)) throw new Error('production store accepts references only, not raw audio bytes');
+  return asset;
+}
+
 export class ProductionEngineService {
   constructor(store, {
     directorService,
@@ -93,6 +99,15 @@ export class ProductionEngineService {
     concurrency = 2, maxAttempts = 4, chunkSafetyRatio = 0.8, notes = null
   }) {
     if (!projectId || !bookId || !directorPlanId) throw new Error('production plan requires projectId, bookId and directorPlanId');
+    const project = this.store.get('project', projectId);
+    const book = this.store.get('book', bookId);
+    const directorPlan = this.store.get('director_plan', directorPlanId);
+    if (project && !book) throw new Error('production requires a book belonging to the project');
+    if (book && book.projectId !== projectId) throw new Error('production book belongs to another project');
+    if (project && !directorPlan) throw new Error('production requires an Audiobook Director plan belonging to the project/book');
+    if (directorPlan && (directorPlan.projectId !== projectId || directorPlan.bookId !== bookId)) {
+      throw new Error('production Director plan belongs to another project/book');
+    }
     const budget = requirePositiveNumber(hardBudgetUsd, 'hardBudgetUsd');
     const reserveRatio = requirePositiveNumber(regenerationReserveRatio, 'regenerationReserveRatio', { allowZero: true });
     const workerCount = Math.max(1, Math.min(15, Math.floor(Number(concurrency) || 1)));
@@ -115,11 +130,31 @@ export class ProductionEngineService {
     return plan;
   }
 
+  #assertDirectorTruth(plan, { cue = null, requireLocked = false } = {}) {
+    const director = this.store.get('director_plan', plan.directorPlanId);
+    if (this.store.get('project', plan.projectId) && !director) {
+      throw new Error('production Audiobook Director plan is missing');
+    }
+    if (director) {
+      if (director.projectId !== plan.projectId || director.bookId !== plan.bookId) {
+        throw new Error('production Director plan belongs to another project/book');
+      }
+      if (requireLocked && !director.locked) throw new Error('production requires a locked Audiobook Director plan');
+    }
+    if (cue) {
+      if (cue.planId !== plan.directorPlanId) throw new Error(`director_cue ${cue.id} belongs to another director plan`);
+      if (cue.projectId && cue.projectId !== plan.projectId) throw new Error(`director_cue ${cue.id} belongs to another project`);
+      if (director && requireLocked && !cue.locked) throw new Error(`production requires locked director_cue ${cue.id}`);
+    }
+    return director;
+  }
+
   async planCues(planId, { cueIds, resolveVoice, pronunciationVersion = null, voiceSettings = null, languageCode = null } = {}) {
     const plan = this.getPlan(planId);
     if (plan.armed) throw new Error('cannot re-plan an armed production');
     if (!Array.isArray(cueIds) || !cueIds.length) throw new Error('planCues requires cueIds');
     if (typeof resolveVoice !== 'function') throw new Error('planCues requires resolveVoice');
+    this.#assertDirectorTruth(plan, { requireLocked: true });
     const provider = this.providers[plan.provider];
     if (!provider) throw new Error(`provider ${plan.provider} is unavailable`);
 
@@ -127,7 +162,7 @@ export class ProductionEngineService {
     for (const cueId of cueIds) {
       const cue = this.store.get('director_cue', cueId);
       if (!cue) throw new Error(`director_cue ${cueId} not found`);
-      if (cue.planId !== plan.directorPlanId) throw new Error(`director_cue ${cueId} belongs to another director plan`);
+      this.#assertDirectorTruth(plan, { cue, requireLocked: true });
       const resolved = await resolveVoice(cue);
       const voiceId = resolved?.providerVoiceId ?? resolved?.voiceId ?? null;
       if (!voiceId) throw new Error(`no voice resolved for director_cue ${cueId}`);
@@ -187,6 +222,11 @@ export class ProductionEngineService {
   arm(planId, { approvedBy, reason = null, moneyGuardId = null } = {}) {
     const plan = this.getPlan(planId);
     if (!String(approvedBy ?? '').trim()) throw new Error('arming production requires approvedBy');
+    this.#assertDirectorTruth(plan, { requireLocked: true });
+    for (const job of this.store.list('production_job', (row) => row.planId === planId)) {
+      const cue = this.store.get('director_cue', job.cueId);
+      if (cue) this.#assertDirectorTruth(plan, { cue, requireLocked: true });
+    }
     const preflight = this.preflight(planId);
     if (!preflight.withinBudget) throw new Error(`production blocked: projected $${preflight.projectedTotalUsd.toFixed(2)} exceeds $${preflight.hardBudgetUsd.toFixed(2)} budget`);
     let moneyAuthorization = null;
@@ -215,9 +255,14 @@ export class ProductionEngineService {
     }));
   }
 
-  actualSpend(planId) {
+  accountedSpend(planId) {
     return roundMoney(this.store.list('production_job', (job) => job.planId === planId)
       .reduce((sum, job) => sum + (job.accountedCostUsd ?? job.actualCostUsd ?? 0), 0));
+  }
+
+  actualSpend(planId) {
+    return roundMoney(this.store.list('production_job', (job) => job.planId === planId)
+      .reduce((sum, job) => sum + (Number.isFinite(Number(job.actualCostUsd)) ? Number(job.actualCostUsd) : 0), 0));
   }
 
   regenerationCommitted(planId) {
@@ -243,6 +288,43 @@ export class ProductionEngineService {
     }));
   }
 
+  retryFailedJob(jobId, { reason, approvedBy = 'operator' } = {}) {
+    if (!String(reason ?? '').trim() || !String(approvedBy ?? '').trim()) throw new Error('retrying a failed production job requires approvedBy and reason');
+    const job = this.store.get('production_job', jobId);
+    if (!job) throw new Error(`production_job ${jobId} not found`);
+    if (job.status !== 'failed') throw new Error('only failed production jobs may be retried');
+    if (job.failureStage === 'asset-storage') {
+      throw new Error('asset-storage failure crossed the billing boundary; recover the stored asset or request an explicit new paid take instead of silently re-calling the provider');
+    }
+    if (job.failureStage !== 'provider-render') throw new Error(`production retry is not supported for failure stage ${job.failureStage ?? 'unknown'}`);
+    const plan = this.getPlan(job.planId);
+    const cue = this.store.get('director_cue', job.cueId);
+    if (cue) this.#assertDirectorTruth(plan, { cue, requireLocked: true });
+    else this.#assertDirectorTruth(plan, { requireLocked: true });
+    const history = [...(job.retryHistory ?? []), freeze({
+      failedAt: job.failedAt ?? null, failureStage: job.failureStage, error: job.lastError ?? null,
+      priorAttemptCount: job.attemptCount ?? 0, approvedBy: String(approvedBy).trim(), reason: String(reason).trim(), requeuedAt: nowIso(this.clock)
+    })];
+    return this.store.update('production_job', jobId, (current) => freeze({
+      ...current, status: 'queued', attemptCount: 0, lastError: null, failureStage: null, failedAt: null,
+      retryHistory: freeze(history), lastRetryReason: String(reason).trim(), retriedBy: String(approvedBy).trim(),
+      updatedAt: nowIso(this.clock)
+    }));
+  }
+
+  recoverStoredAsset(jobId, { asset, reason, approvedBy = 'operator' } = {}) {
+    if (!String(reason ?? '').trim() || !String(approvedBy ?? '').trim()) throw new Error('recovering a production asset requires approvedBy and reason');
+    const job = this.store.get('production_job', jobId);
+    if (!job) throw new Error(`production_job ${jobId} not found`);
+    if (job.status !== 'failed' || job.failureStage !== 'asset-storage') throw new Error('asset recovery is only valid after an asset-storage failure');
+    const reference = assertAssetReference(asset);
+    return this.store.update('production_job', jobId, (current) => freeze({
+      ...current, status: 'ready', asset: freeze({ ...reference }), lastError: null, failureStage: null,
+      recoveredBy: String(approvedBy).trim(), recoveryReason: String(reason).trim(), recoveredAt: nowIso(this.clock),
+      completedAt: nowIso(this.clock), updatedAt: nowIso(this.clock)
+    }));
+  }
+
   findReusable(job) {
     if (!job.reuseAllowed) return null;
     return this.store.list('production_job', (candidate) =>
@@ -255,6 +337,9 @@ export class ProductionEngineService {
     if (!job) throw new Error(`production_job ${jobId} not found`);
     const plan = this.getPlan(job.planId);
     if (!plan.armed) throw new Error('production plan is not armed');
+    const directorCue = this.store.get('director_cue', job.cueId);
+    if (directorCue) this.#assertDirectorTruth(plan, { cue: directorCue, requireLocked: true });
+    else this.#assertDirectorTruth(plan, { requireLocked: true });
     if (!['queued', 'retrying'].includes(job.status)) return job;
 
     const reusable = this.findReusable(job);
@@ -265,7 +350,7 @@ export class ProductionEngineService {
       }));
     }
 
-    if (this.actualSpend(plan.id) + job.estimatedCostUsd > plan.hardBudgetUsd) {
+    if (this.accountedSpend(plan.id) + job.estimatedCostUsd > plan.hardBudgetUsd) {
       return this.store.update('production_job', job.id, (current) => freeze({
         ...current, status: 'budget_blocked', lastError: 'hard production budget would be exceeded', updatedAt: nowIso(this.clock)
       }));
@@ -346,9 +431,7 @@ export class ProductionEngineService {
     }
 
     try {
-      const asset = await this.assetSink(providerResult, { plan, job: this.store.get('production_job', job.id) });
-      if (!asset || typeof asset !== 'object') throw new Error('assetSink must return an asset reference object');
-      if (['audio', 'data', 'bytes', 'bytesData'].some((key) => key in asset)) throw new Error('assetSink returned raw audio bytes; production store accepts references only');
+      const asset = assertAssetReference(await this.assetSink(providerResult, { plan, job: this.store.get('production_job', job.id) }));
       return this.store.update('production_job', job.id, (current) => freeze({
         ...current, status: 'ready', asset: freeze({ ...asset }),
         completedAt: nowIso(this.clock), lastError: null, failureStage: null, updatedAt: nowIso(this.clock)
@@ -389,14 +472,19 @@ export class ProductionEngineService {
     const counts = countStatuses(jobs);
     const ready = counts.ready ?? 0;
     const total = jobs.length;
-    const accountedSpendUsd = this.actualSpend(planId);
-    const failed = jobs.filter((job) => job.status === 'failed').map((job) => ({ id: job.id, cueId: job.cueId, error: job.lastError }));
+    const accountedSpendUsd = this.accountedSpend(planId);
+    const providerSettledSpendUsd = this.actualSpend(planId);
+    const estimatedOrUnsettledSpendUsd = roundMoney(Math.max(0, accountedSpendUsd - providerSettledSpendUsd));
+    const actualSpendUsd = estimatedOrUnsettledSpendUsd === 0 ? providerSettledSpendUsd : null;
+    const failed = jobs.filter((job) => job.status === 'failed').map((job) => ({ id: job.id, cueId: job.cueId, error: job.lastError, failureStage: job.failureStage ?? null }));
     return freeze({
       planId, status: plan.status, armed: plan.armed, totalJobs: total, counts: freeze(counts),
       completionPercent: total ? Number(((ready / total) * 100).toFixed(2)) : 0,
       initialEstimateUsd: plan.initialEstimateUsd, reserveBudgetUsd: plan.reserveBudgetUsd,
       projectedTotalUsd: plan.projectedTotalUsd, hardBudgetUsd: plan.hardBudgetUsd,
-      accountedSpendUsd, actualSpendUsd: accountedSpendUsd, remainingHardBudgetUsd: roundMoney(Math.max(0, plan.hardBudgetUsd - accountedSpendUsd)),
+      accountedSpendUsd, providerSettledSpendUsd, estimatedOrUnsettledSpendUsd, actualSpendUsd,
+      spendBasis: estimatedOrUnsettledSpendUsd === 0 ? 'provider-settled' : 'accounted-estimate',
+      remainingHardBudgetUsd: roundMoney(Math.max(0, plan.hardBudgetUsd - accountedSpendUsd)),
       regenerationCommittedUsd: this.regenerationCommitted(planId),
       moneyGuard: this.moneyGuard && plan.moneyGuardId ? this.moneyGuard.report(plan.moneyGuardId) : null,
       failed: freeze(failed)

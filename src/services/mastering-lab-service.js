@@ -43,9 +43,18 @@ export class MasteringLabService {
   }) {
     if (!projectId || !bookId || !reviewSessionId || !qaRunId) throw new Error('mastering plan requires project/book/review/QA ids');
     if (!String(title ?? '').trim() || !String(author ?? '').trim()) throw new Error('mastering plan requires title and author');
+    const session = this.store.get('review_session', reviewSessionId);
+    if (session && (session.projectId !== projectId || session.bookId !== bookId)) throw new Error('mastering Review Studio session belongs to another project/book');
+    const qaRun = this.store.get('qa_run', qaRunId);
+    if (qaRun && (qaRun.projectId !== projectId || qaRun.bookId !== bookId || qaRun.reviewSessionId !== reviewSessionId)) {
+      throw new Error('mastering QA run belongs to another project/book/review session');
+    }
     const masteringProfile = getMasteringProfile(profile);
     const existing = this.store.list('mastering_plan', (row) => row.reviewSessionId === reviewSessionId && row.profileId === masteringProfile.id)[0];
-    if (existing) return existing;
+    if (existing) {
+      if (existing.projectId !== projectId || existing.bookId !== bookId || existing.qaRunId !== qaRunId) throw new Error('existing mastering plan is bound to different project/book/QA truth');
+      return existing;
+    }
     const now = nowIso(this.clock);
     return this.store.put(freeze({
       id: randomUUID(), type: 'mastering_plan', projectId, bookId, reviewSessionId, qaRunId,
@@ -91,6 +100,9 @@ export class MasteringLabService {
     if (qaRun.projectId !== plan.projectId || qaRun.bookId !== plan.bookId || qaRun.reviewSessionId !== plan.reviewSessionId) {
       throw new Error('mastering QA run belongs to another project/book/review session');
     }
+    if (qaRun.productionPlanId && session.productionPlanId && qaRun.productionPlanId !== session.productionPlanId) {
+      throw new Error('mastering QA run belongs to another production plan');
+    }
     return { session, qaRun };
   }
 
@@ -114,9 +126,15 @@ export class MasteringLabService {
         if (!take || !take.locked) throw new Error(`selected take for region ${region.id} is not locked`);
         const timing = this.store.list('review_timing', (row) => row.takeId === take.id && row.regionId === region.id)[0];
         if (!timing) throw new Error(`region ${region.id} has no synchronized timing`);
-        if (this.qaService) {
-          const gate = this.qaService.gateTake(take.id);
-          if (!gate.canApprove) throw new Error(`take ${take.id} has not passed QA`);
+        const qaReports = this.store.list('qa_report', (row) => row.runId === plan.qaRunId && row.takeId === take.id);
+        if (!qaReports.length) throw new Error(`take ${take.id} has no QA report in the exact mastering QA run`);
+        const qaReport = qaReports.at(-1);
+        const openBlocking = this.store.list('qa_finding', (row) => row.reportId === qaReport.id)
+          .some((row) => !['resolved', 'waived'].includes(row.status) && ['critical', 'high'].includes(row.severity));
+        if (openBlocking) throw new Error(`take ${take.id} has unresolved blocking QA findings in the mastering QA run`);
+        if (this.qaService?.gateTakeForRun) {
+          const gate = this.qaService.gateTakeForRun(plan.qaRunId, take.id);
+          if (!gate.canApprove) throw new Error(`take ${take.id} has not passed the exact mastering QA run`);
         }
         sources.push(freeze({
           regionId: region.id, takeId: take.id, jobId: take.jobId, asset: take.asset,

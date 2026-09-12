@@ -240,7 +240,10 @@ test('manifest exposes completion, failures and money state', async () => {
   assert.equal(manifest.totalJobs, 1);
   assert.equal(manifest.completionPercent, 100);
   assert.equal(manifest.counts.ready, 1);
-  assert.ok(manifest.actualSpendUsd > 0);
+  assert.ok(manifest.accountedSpendUsd > 0);
+  assert.equal(manifest.actualSpendUsd, null);
+  assert.ok(manifest.estimatedOrUnsettledSpendUsd > 0);
+  assert.equal(manifest.spendBasis, 'accounted-estimate');
   assert.ok(manifest.remainingHardBudgetUsd < manifest.hardBudgetUsd);
 });
 

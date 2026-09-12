@@ -131,8 +131,24 @@ export class ContinuityQaService {
     if (session.projectId !== projectId || session.bookId !== bookId) throw new Error('QA review session must belong to the same project/book');
     const resolvedProductionPlanId = productionPlanId ?? session.productionPlanId ?? null;
     if (resolvedProductionPlanId && session.productionPlanId && resolvedProductionPlanId !== session.productionPlanId) throw new Error('QA production plan does not match review session');
+    if (resolvedProductionPlanId) {
+      const production = this.store.get('production_plan', resolvedProductionPlanId);
+      if (production && (production.projectId !== projectId || production.bookId !== bookId)) throw new Error('QA production plan belongs to another project/book');
+    }
+    if (bibleId) {
+      const bible = this.store.get('audio_bible', bibleId);
+      const project = this.store.get('project', projectId);
+      if (project && !bible) throw new Error('QA Audio Bible was not found in this project');
+      if (bible && bible.projectId !== projectId) throw new Error('QA Audio Bible belongs to another project');
+      if (bible?.scope === 'book' && bible.bookId && bible.bookId !== bookId) throw new Error('QA Audio Bible belongs to another book');
+    }
     const existing = this.store.list('qa_run', (row) => row.reviewSessionId === reviewSessionId && !row.locked)[0];
-    if (existing) return existing;
+    if (existing) {
+      if (existing.projectId !== projectId || existing.bookId !== bookId || existing.productionPlanId !== resolvedProductionPlanId || existing.bibleId !== bibleId) {
+        throw new Error('existing QA run configuration does not match the requested project/book/production/Bible');
+      }
+      return existing;
+    }
     const now = nowIso(this.clock);
     return this.store.put(freeze({
       id: randomUUID(), type: 'qa_run', projectId, bookId, reviewSessionId, productionPlanId: resolvedProductionPlanId,
@@ -344,6 +360,33 @@ export class ContinuityQaService {
     });
   }
 
+  gateTakeForRun(runId, takeId) {
+    const run = this.getRun(runId);
+    const reports = this.store.list('qa_report', (row) => row.runId === run.id && row.takeId === takeId);
+    if (!reports.length) return freeze({ runId, takeId, status: 'not_checked', canApprove: false, reason: 'no QA report in this run' });
+    const latest = reports.at(-1);
+    const summary = this.reportSummary(latest.id);
+    return freeze({ runId, takeId, status: summary.status, canApprove: summary.canApprove, reportId: latest.id, openFindings: summary.openFindings });
+  }
+
+  coverage(runId) {
+    const run = this.getRun(runId);
+    const selectedRegions = this.store.list('review_region', (row) => row.sessionId === run.reviewSessionId && row.selectedTakeId && row.status === 'approved');
+    const fallbackTakes = this.store.list('review_take', (row) => row.sessionId === run.reviewSessionId);
+    const expectedTakeIds = [...new Set((selectedRegions.length ? selectedRegions.map((row) => row.selectedTakeId) : fallbackTakes.map((row) => row.id)).filter(Boolean))];
+    const gates = expectedTakeIds.map((takeId) => this.gateTakeForRun(runId, takeId));
+    const missingTakeIds = gates.filter((row) => row.status === 'not_checked').map((row) => row.takeId);
+    const blockingTakeIds = gates.filter((row) => row.status !== 'not_checked' && !row.canApprove).map((row) => row.takeId);
+    return freeze({
+      runId, reviewSessionId: run.reviewSessionId,
+      expectedTakeIds: freeze(expectedTakeIds), expectedTakeCount: expectedTakeIds.length,
+      reportedTakeCount: expectedTakeIds.length - missingTakeIds.length,
+      missingTakeIds: freeze(missingTakeIds), blockingTakeIds: freeze(blockingTakeIds),
+      complete: expectedTakeIds.length > 0 && missingTakeIds.length === 0,
+      canLock: expectedTakeIds.length > 0 && missingTakeIds.length === 0 && blockingTakeIds.length === 0
+    });
+  }
+
   gateTake(takeId) {
     const reports = this.store.list('qa_report', (row) => row.takeId === takeId);
     if (!reports.length) return freeze({ takeId, status: 'not_checked', canApprove: false, reason: 'no QA report' });
@@ -355,12 +398,17 @@ export class ContinuityQaService {
   lockRun(runId, { reviewer } = {}) {
     const run = this.#assertOpen(runId);
     if (!String(reviewer ?? '').trim()) throw new Error('locking QA run requires reviewer');
-    const reports = this.store.list('qa_report', (row) => row.runId === runId);
-    if (!reports.length) throw new Error('QA run cannot be locked without reports');
-    const unresolvedBlocking = reports.some((report) => !this.reportSummary(report.id).canApprove);
-    if (unresolvedBlocking) throw new Error('QA run has unresolved high/critical findings');
+    const session = this.store.get('review_session', run.reviewSessionId);
+    if (!session || session.projectId !== run.projectId || session.bookId !== run.bookId || session.status !== 'approved' || !session.locked) {
+      throw new Error('QA run cannot lock until the exact Review Studio session is approved and locked');
+    }
+    const coverage = this.coverage(runId);
+    if (!coverage.expectedTakeCount) throw new Error('QA run cannot be locked without selected review takes');
+    if (coverage.missingTakeIds.length) throw new Error(`QA run has incomplete coverage: ${coverage.missingTakeIds.length} selected take(s) have no QA report`);
+    if (coverage.blockingTakeIds.length) throw new Error('QA run has unresolved high/critical findings');
     return this.store.update('qa_run', runId, (current) => freeze({
       ...current, status: 'approved', locked: true, approvedBy: reviewer,
+      coverage: freeze({ expectedTakeCount: coverage.expectedTakeCount, reportedTakeCount: coverage.reportedTakeCount }),
       approvedAt: nowIso(this.clock), updatedAt: nowIso(this.clock)
     }));
   }

@@ -1,9 +1,9 @@
 {
   "name": "@yasready/audiobooks",
-  "version": "0.13.1",
+  "version": "0.13.2",
   "private": true,
   "type": "module",
-  "description": "YasReady Audiobooks Pre-External Superman / SaaS Boundary Hardening, SaaS Money Guard, Series Continuity, Audio Bible Lock, Production, QA, Mastering and Distribution",
+  "description": "YasReady Audiobooks Final SaaS Boundary Closure, SaaS Money Guard, Series Continuity, Audio Bible Lock, Production, QA, Mastering and Distribution",
   "engines": {
     "node": ">=20"
   },
@@ -21,6 +21,7 @@
     "series:lock-group": "node src/cli.js series-continuity-lock-group",
     "series:lock-voice": "node src/cli.js series-continuity-lock-voice",
     "money-guard:fixture": "node src/cli.js money-guard-fixture",
-    "boundary:fixture": "node --test test/saas-boundary-hardening.test.js"
+    "boundary:fixture": "node --test test/saas-boundary-hardening.test.js",
+    "closure:fixture": "node --test test/final-saas-boundary-closure.test.js"
   }
 }

@@ -51,6 +51,12 @@ export class ReviewStudioService {
 
   openChapter(sessionId, { chapterId, order = 0, title = null }) {
     const session = this.#assertSessionOpen(sessionId);
+    const canonicalBook = this.store.get('book', session.bookId);
+    const canonicalChapter = this.store.get('chapter', chapterId);
+    if (canonicalBook && !canonicalChapter) throw new Error('review chapter was not found in the canonical book');
+    if (canonicalChapter && (canonicalChapter.projectId !== session.projectId || canonicalChapter.bookId !== session.bookId)) {
+      throw new Error('review chapter belongs to another project/book');
+    }
     const existing = this.store.list('chapter_review', (row) => row.sessionId === sessionId && row.chapterId === chapterId)[0];
     return existing ?? this.store.put(createChapterReview({
       sessionId, projectId: session.projectId, bookId: session.bookId, chapterId, order, title
