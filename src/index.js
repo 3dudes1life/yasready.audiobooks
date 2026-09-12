@@ -23,3 +23,5 @@ export * from './production/model-limits.js';
 export * from './services/production-engine-service.js';
 export * from './review/review-model.js';
 export * from './services/review-studio-service.js';
+export * from './qa/text-diff.js';
+export * from './services/continuity-qa-service.js';

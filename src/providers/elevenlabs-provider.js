@@ -58,6 +58,37 @@ async function jsonOrThrow(response, label) {
   });
 }
 
+function requireMultipartSupport() {
+  if (typeof FormData !== 'function' || typeof Blob !== 'function') {
+    throw new Error('ElevenLabs QA operations require FormData and Blob support (Node 20+)');
+  }
+}
+
+function audioBlob(audio, mediaType = 'audio/mpeg') {
+  requireMultipartSupport();
+  if (audio instanceof Blob) return audio;
+  if (audio instanceof Uint8Array) return new Blob([audio], { type: mediaType });
+  if (audio instanceof ArrayBuffer) return new Blob([new Uint8Array(audio)], { type: mediaType });
+  if (ArrayBuffer.isView(audio)) return new Blob([new Uint8Array(audio.buffer, audio.byteOffset, audio.byteLength)], { type: mediaType });
+  throw new Error('audio must be a Blob, Uint8Array, ArrayBuffer, or typed-array view');
+}
+
+function cleanKeyterms(items = []) {
+  const banned = /[<>{}\[\]\\]/;
+  const seen = new Set();
+  const output = [];
+  for (const item of items ?? []) {
+    const value = String(item ?? '').trim();
+    if (!value || value.length >= 50 || banned.test(value) || value.split(/\s+/).length > 5) continue;
+    const key = value.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    output.push(value);
+    if (output.length >= 1000) break;
+  }
+  return output;
+}
+
 export class ElevenLabsProvider extends AudioProvider {
   constructor({ apiKey = process.env.ELEVENLABS_API_KEY ?? null, fetchImpl = globalThis.fetch, baseUrl = 'https://api.elevenlabs.io', pricingUsdPer1k = DEFAULT_PRICING } = {}) {
     super('elevenlabs');
@@ -195,8 +226,55 @@ export class ElevenLabsProvider extends AudioProvider {
     };
   }
 
-  async align() { throw new Error('ElevenLabs alignment is scheduled for YasReady Audiobooks 0.8.0'); }
-  async transcribe() { throw new Error('ElevenLabs transcription QA is scheduled for YasReady Audiobooks 0.8.0'); }
+  async align({ audio = null, sourceUrl = null, text, fileName = 'audio.mp3', mediaType = 'audio/mpeg' } = {}) {
+    if (!String(text ?? '').trim()) throw new Error('align requires canonical text');
+    if (!audio && !sourceUrl) throw new Error('align requires audio bytes/blob or sourceUrl');
+    if (sourceUrl) throw new Error('ElevenLabs forced alignment currently requires an uploaded audio file; load sourceUrl bytes before align()');
+    requireMultipartSupport();
+    const form = new FormData();
+    form.append('file', audioBlob(audio, mediaType), fileName);
+    form.append('text', String(text));
+    const response = await this.fetch(`${this.baseUrl}/v1/forced-alignment`, {
+      method: 'POST', headers: this.headers({ requireKey: true }), body: form
+    });
+    const data = await jsonOrThrow(response, 'ElevenLabs forced alignment');
+    return {
+      ...data,
+      provider: this.name,
+      requestId: response.headers?.get?.('request-id') ?? null,
+      traceId: response.headers?.get?.('x-trace-id') ?? null
+    };
+  }
+
+  async transcribe({
+    audio = null, sourceUrl = null, fileName = 'audio.mp3', mediaType = 'audio/mpeg',
+    model = 'scribe_v2', languageCode = null, diarize = false, tagAudioEvents = false,
+    timestampsGranularity = 'word', keyterms = [], noVerbatim = false
+  } = {}) {
+    if (!audio && !sourceUrl) throw new Error('transcribe requires audio bytes/blob or sourceUrl');
+    requireMultipartSupport();
+    const form = new FormData();
+    if (audio) form.append('file', audioBlob(audio, mediaType), fileName);
+    else form.append('source_url', String(sourceUrl));
+    form.append('model_id', model);
+    if (languageCode) form.append('language_code', String(languageCode));
+    form.append('diarize', String(Boolean(diarize)));
+    form.append('tag_audio_events', String(Boolean(tagAudioEvents)));
+    form.append('timestamps_granularity', timestampsGranularity);
+    form.append('no_verbatim', String(Boolean(noVerbatim)));
+    for (const term of cleanKeyterms(keyterms)) form.append('keyterms', term);
+    const response = await this.fetch(`${this.baseUrl}/v1/speech-to-text`, {
+      method: 'POST', headers: this.headers({ requireKey: true }), body: form
+    });
+    const data = await jsonOrThrow(response, 'ElevenLabs speech-to-text');
+    return {
+      ...data,
+      provider: this.name,
+      model,
+      requestId: response.headers?.get?.('request-id') ?? null,
+      traceId: response.headers?.get?.('x-trace-id') ?? null
+    };
+  }
 }
 
 export { DEFAULT_PRICING as ELEVENLABS_PRICING_SNAPSHOT };
