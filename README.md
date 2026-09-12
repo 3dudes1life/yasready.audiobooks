@@ -2,7 +2,7 @@
 
 Professional audiobook production infrastructure for YasReady Publishing.
 
-**Current build: 0.13.2 — Final SaaS Boundary Closure**
+**Current build: 0.13.3 — Casting Scope Integrity Closure**
 
 YasReady Audiobooks is being developed as a standalone service first so audiobook experimentation cannot destabilize YasReady Publishing. The product goal is professional long-form audiobook production with strong continuity, human approval gates, cost protection, quality control, mastering and retailer-ready packaging.
 
@@ -32,6 +32,7 @@ YasReady Audiobooks is being developed as a standalone service first so audioboo
 - 0.13.0 SaaS Money Guard — adds project/provider/operation spend ceilings, approval thresholds, reservation accounting, projected-vs-actual tracking, emergency lockdown, provider-overrun protection, and Casting/Production fail-closed spend authorization
 - 0.13.1 Pre-External Superman / SaaS Boundary Hardening — closes cross-project asset reuse, post-billing retry, QA spend-guard, series voice/materialization, safe-refresh and operator-flow gaps before external-book testing
 - 0.13.2 Final SaaS Boundary Closure — enforces canonical project/book ownership through Casting/Director/Production/Review/QA/Mastering, makes Director approval transitive, requires complete exact-run QA coverage, adds safe failed-render recovery, invalidates stale distribution packages, and separates accounted estimates from provider-settled spend
+- 0.13.3 Casting Scope Integrity Closure — fails closed when a character is not actually visible to the requested book/series, requires `bookId` for book-scoped locks, and preserves valid series-Bible inheritance
 
 ## Book One Superman
 
@@ -94,6 +95,7 @@ npm run money-guard:fixture
 - Billable provider responses are recorded before downstream asset storage so real charges cannot disappear from cost truth.
 - The canonical manuscript is never rewritten by performance direction.
 - Cross-project/book IDs fail closed at Casting, Director, Production, Review, QA and Mastering boundaries.
+- Casting also fails closed on exact character-to-book/series membership; book-scoped locks require a real `bookId`.
 - Production requires locked Director truth and cannot silently render after that truth is unlocked.
 - QA approval requires complete exact-run coverage of every selected Review Studio take.
 - Distribution packages become stale when package-producing truth changes and must be rebuilt before export/finalization.
@@ -113,6 +115,7 @@ node src/cli.js
 npm run superman:fixture
 npm run boundary:fixture
 npm run closure:fixture
+npm run casting:fixture
 node src/cli.js audio-bible-prep <file> --out <directory>
 ```
 

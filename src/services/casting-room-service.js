@@ -39,24 +39,49 @@ export class CastingRoomService {
     this.minimumSeriesSafety = minimumSeriesSafety;
   }
 
+  #characterVisibleToBook({ projectId, characterBibleId, bookId }) {
+    const bookBibles = this.store.list('audio_bible', (bible) =>
+      bible.projectId === projectId && bible.scope === 'book' && bible.bookId === bookId
+    );
+    for (const bookBible of bookBibles) {
+      const seen = new Set();
+      let current = bookBible;
+      while (current && current.projectId === projectId && !seen.has(current.id)) {
+        if (current.id === characterBibleId) return true;
+        seen.add(current.id);
+        current = current.parentBibleId ? this.store.get('audio_bible', current.parentBibleId) : null;
+      }
+    }
+    return false;
+  }
+
   #assertCharacterOwnership({ projectId, characterId, seriesId = null, bookId = null }) {
     const project = this.store.get('project', projectId);
     const character = this.store.get('character', characterId);
     if (project && !character) throw new Error('Casting Room character was not found in this project');
     if (character && character.projectId !== projectId) throw new Error('Casting Room character belongs to another project');
+
+    let characterBible = null;
     if (character?.bibleId) {
-      const bible = this.store.get('audio_bible', character.bibleId);
-      if (bible && bible.projectId !== projectId) throw new Error('Casting Room character Audio Bible belongs to another project');
+      characterBible = this.store.get('audio_bible', character.bibleId);
+      if (project && !characterBible) throw new Error('Casting Room character Audio Bible was not found in this project');
+      if (characterBible && characterBible.projectId !== projectId) throw new Error('Casting Room character Audio Bible belongs to another project');
     }
     if (seriesId) {
       const series = this.store.get('series', seriesId);
       if (project && !series) throw new Error('Casting Room series was not found in this project');
       if (series && series.projectId !== projectId) throw new Error('Casting Room series belongs to another project');
+      if (project && character && (!characterBible || characterBible.seriesId !== seriesId)) {
+        throw new Error('Casting Room character does not belong to this series');
+      }
     }
     if (bookId) {
       const book = this.store.get('book', bookId);
       if (project && !book) throw new Error('Casting Room book was not found in this project');
       if (book && book.projectId !== projectId) throw new Error('Casting Room book belongs to another project');
+      if (project && character && (!characterBible || !this.#characterVisibleToBook({ projectId, characterBibleId: characterBible.id, bookId }))) {
+        throw new Error('Casting Room character is not visible to this book');
+      }
     }
     return character;
   }
@@ -229,11 +254,12 @@ export class CastingRoomService {
   }
 
   lockCast({ projectId, seriesId = null, bookId = null, characterId, candidateId, scope = seriesId ? 'series' : 'book', approvedBy = 'operator', overrideRisk = false, reason = null }) {
+    if (!['series', 'book'].includes(scope)) throw new Error('cast scope must be series or book');
+    if (scope === 'series' && !seriesId) throw new Error('series cast lock requires seriesId');
+    if (scope === 'book' && !bookId) throw new Error('book cast lock requires bookId');
     this.#assertCharacterOwnership({ projectId, characterId, seriesId, bookId });
     const candidate = this.store.get('voice_candidate', candidateId);
     if (!candidate || candidate.projectId !== projectId || candidate.characterId !== characterId) throw new Error('candidate does not belong to this project/character');
-    if (scope === 'series' && !seriesId) throw new Error('series cast lock requires seriesId');
-    if (!['series', 'book'].includes(scope)) throw new Error('cast scope must be series or book');
     if (candidate.safety.score < this.minimumSeriesSafety && scope === 'series' && !overrideRisk) {
       throw new Error(`series cast lock blocked: safety score ${candidate.safety.score}/${this.minimumSeriesSafety}`);
     }
