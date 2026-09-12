@@ -11,6 +11,7 @@ import {
   renderDialogueReviewCsv,
   renderPronunciationReviewCsv
 } from '../audio-bible/book-one-prep.js';
+import { buildDialogueIntelligence } from '../audio-bible/book-one-intelligence.js';
 import { BOOK_ONE_PROFILE, canonicalizeSpeakerCandidate } from '../superman/book-one-superman.js';
 
 const freeze = (value) => Object.freeze(value);
@@ -63,8 +64,9 @@ export class BookOneAudioBiblePrepService {
       throw new Error('Audio Bible Prep blocked: Book One Superman found critical manuscript issues');
     }
 
-    const characterPlan = buildBookOneCharacterPlan(supermanResult.report);
-    const review = buildDialogueReviewQueue(ingestResult);
+    const intelligence = buildDialogueIntelligence(ingestResult);
+    const characterPlan = buildBookOneCharacterPlan(supermanResult.report, { provisionalRoles: intelligence.provisionalRoles });
+    const review = buildDialogueReviewQueue(ingestResult, { intelligence });
     const bible = this.audioBible.createBible({
       projectId: project.id,
       bookId: ingestResult.book.id,
@@ -79,31 +81,29 @@ export class BookOneAudioBiblePrepService {
         role: planned.role,
         seriesCharacterKey: planned.seriesCharacterKey,
         performanceProfile: {
-          prepRelease: '0.11.2',
+          prepRelease: '0.11.3',
           castingStatus: planned.castingStatus,
           sourceMentions: planned.mentions,
-          sourceConfidence: planned.averageConfidence
+          sourceConfidence: planned.averageConfidence,
+          provisional: Boolean(planned.provisional),
+          source: planned.source
         }
       });
       characterByName.set(planned.canonicalName, character);
     }
 
     let autoBound = 0;
-    for (const row of analysisSegmentRows(ingestResult)) {
-      if (row.segment.kind !== 'dialogue' || !row.record) continue;
-      const candidate = row.segment.speakerCandidate;
-      const confidence = Number(candidate?.confidence ?? 0);
-      if (confidence < 0.75) continue;
-      const canonical = canonicalizeSpeakerCandidate(candidate?.name);
-      const character = canonical ? characterByName.get(canonical) : null;
+    for (const binding of review.autoBindings ?? []) {
+      if (!binding.segmentId) continue;
+      const character = characterByName.get(binding.speaker);
       if (!character) continue;
-      this.audioBible.bindSegmentSpeaker(bible.id, row.record.id, {
+      const result = this.audioBible.bindSegmentSpeaker(bible.id, binding.segmentId, {
         characterId: character.id,
-        source: 'book-one-audio-bible-prep',
-        confidence,
-        evidence: candidate?.evidence ?? 'book-one-superman'
+        source: binding.source ?? 'book-one-audio-bible-prep',
+        confidence: binding.confidence,
+        evidence: binding.evidence ?? 'book-one-intelligence'
       });
-      autoBound += 1;
+      if (result?.status === 'bound') autoBound += 1;
     }
 
     const pronunciationReview = buildPronunciationReview(ingestResult, characterPlan);
@@ -111,8 +111,8 @@ export class BookOneAudioBiblePrepService {
     const snapshot = this.audioBible.snapshot(bible.id);
     const productionReady = review.needsReview === 0 && pronunciationReview.needsConfirmation === 0;
     const prep = freeze({
-      schemaVersion: 1,
-      release: '0.11.2',
+      schemaVersion: 2,
+      release: '0.11.3',
       status: 'READY_FOR_AUDIO_BIBLE_REVIEW',
       providerCallsPerformed: 0,
       book: freeze({
@@ -127,6 +127,14 @@ export class BookOneAudioBiblePrepService {
       superman: freeze({ status: supermanResult.report.status, score: supermanResult.report.score, release: supermanResult.report.release }),
       audioBible: freeze({ id: bible.id, name: bible.name, revision: this.store.get('audio_bible', bible.id).revision, digest: snapshot.digest }),
       characterPlan,
+      intelligence: freeze({
+        autoResolved: review.intelligenceResolved,
+        reviewCandidatesBeforeIntelligence: review.reviewCandidatesBeforeIntelligence,
+        reviewReduction: review.reviewReduction,
+        quotedNarrationSegments: review.quotedNarrationSegments,
+        provisionalRoles: intelligence.provisionalRoles.map((x) => x.canonicalName),
+        resolutionCounts: intelligence.counts
+      }),
       dialogueReview: freeze({ ...review, autoBound }),
       pronunciationReview,
       continuity,
@@ -140,8 +148,8 @@ export class BookOneAudioBiblePrepService {
         paidGenerationArmed: false
       }),
       nextAction: review.needsReview
-        ? `Review ${review.needsReview} targeted dialogue line(s) in dialogue-review.csv while primary-role casting begins in parallel.`
-        : 'Confirm pronunciation candidates, then lock the Audio Bible for production.'
+        ? `Review the remaining ${review.needsReview} genuinely ambiguous dialogue line(s); YasReady already removed ${review.reviewReduction} review chores through Audio Bible intelligence.`
+        : 'Confirm the focused pronunciation candidates, then lock the Audio Bible for production.'
     });
 
     return freeze({

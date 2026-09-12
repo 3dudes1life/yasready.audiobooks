@@ -9,6 +9,8 @@ import {
   buildBookOneCharacterPlan,
   buildDialogueReviewQueue,
   buildPronunciationReview,
+  buildDialogueIntelligence,
+  classifyQuotedNarration,
   classifyBookOneCharacter,
   renderDialogueReviewCsv
 } from '../src/index.js';
@@ -57,18 +59,19 @@ test('character plan includes narrator, strips discourse artifact aliases, and k
   assert.equal(michael.seriesCharacterKey, 'michael-rawlins');
 });
 
-test('dialogue review queue excludes safe high-confidence lines and targets only inferred/unresolved dialogue', () => {
-  const ingest = ingestShape('Chapter 1\n\nMichael said, “High.”\n\nMichael raised an eyebrow.\n\n“Context.”\n\n“Unknown.”\n\nJuan replied, “Known.”');
+test('dialogue review queue excludes safe and intelligence-resolved lines while preserving truly ambiguous dialogue', () => {
+  const ingest = ingestShape('Chapter 1\n\nMichael said, “High.”\n\n* * *\n\nThe hallway was empty.\n\n“Who the hell are you?”\n\nThe door slammed shut.\n\n* * *\n\nJuan replied, “Known.”');
   const review = buildDialogueReviewQueue(ingest);
   assert.ok(review.autoBindable >= 2);
-  assert.ok(review.needsReview >= 1);
+  assert.equal(review.needsReview, 1);
+  assert.equal(review.queue[0].dialogue, 'Who the hell are you?');
+  assert.equal(review.queue[0].priority, 'manual-identify');
   assert.equal(review.queue.every((x) => x.status === 'inferred-review' || x.status === 'unresolved'), true);
-  assert.equal(review.queue.every((x) => x.dialogue.length > 0), true);
 });
 
-test('dialogue review queue includes ranked nearby speaker suggestions but never auto-fills the human decision', () => {
-  const ingest = ingestShape('Chapter 1\n\nMichael said, “First.”\n\n“Who said this?”\n\nJuan replied, “Third.”');
-  const review = buildDialogueReviewQueue(ingest);
+test('dialogue review queue keeps ambiguous nearby-speaker cases blank for human decision', () => {
+  const ingest = ingestShape('Chapter 1\n\nMichael said, “First.”\n\nThe lights flickered.\n\n“Who said this?”\n\nThe room went quiet.\n\nJuan replied, “Third.”');
+  const review = buildDialogueReviewQueue(ingest, { intelligence: { resolutions: new Map(), provisionalRoles: [], counts: {} } });
   const row = review.queue.find((x) => x.dialogue === 'Who said this?');
   assert.ok(row);
   assert.ok(row.suggestedSpeakers.some((x) => ['Michael Rawlins', 'Juan Delgado'].includes(x.name)));
@@ -125,19 +128,58 @@ test('Book One Audio Bible Prep creates a real bible, characters and high-confid
   }
 });
 
-test('Audio Bible Prep leaves non-high-confidence dialogue unbound for operator review', async () => {
+test('Audio Bible Prep leaves genuinely ambiguous dialogue unbound for operator review', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'yasready-prep-review-'));
   const file = path.join(dir, 'book.txt');
   try {
-    await writeFile(file, 'Chapter 1\n\nMichael said, “Known.”\n\n“Unresolved.”\n\nJuan replied, “Known.”');
+    await writeFile(file, 'Chapter 1\n\nMichael said, “Known.”\n\n* * *\n\nThe hallway was empty.\n\n“Who the hell are you?”\n\nThe door slammed shut.\n\n* * *\n\nJuan replied, “Known.”');
     const store = new InMemoryStore();
     const service = new BookOneAudioBiblePrepService(store);
     const result = await service.runFile(file);
-    assert.ok(result.prep.dialogueReview.needsReview >= 1);
+    assert.equal(result.prep.dialogueReview.needsReview, 1);
+    assert.equal(result.prep.dialogueReview.queue[0].dialogue, 'Who the hell are you?');
     assert.ok(result.prep.continuity.unresolvedDialogueSegments >= result.prep.dialogueReview.needsReview);
     assert.equal(result.prep.gates.productionReady, false);
     assert.equal(result.prep.gates.primaryCastingCanBegin, true);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+
+test('0.11.3 classifies quoted labels and displayed text as narrator instead of fake dialogue speakers', () => {
+  const result = classifyQuotedNarration('Loan Docs Attached', 'There were emails with subject lines like', 'and');
+  assert.ok(result);
+  assert.equal(result.classification, 'displayed-text');
+  assert.equal(result.evidence, 'quoted-display-label');
+});
+
+test('0.11.3 resolves explicit self-identification without a human review row', () => {
+  const ingest = ingestShape('Chapter 1\n\nHe extended a hand.\n\n“I’m Christopher.”\n\nJuan shook it.');
+  const intelligence = buildDialogueIntelligence(ingest);
+  const review = buildDialogueReviewQueue(ingest, { intelligence });
+  assert.equal(review.needsReview, 0);
+  assert.ok(review.autoBindings.some((x) => x.speaker === 'Christopher Lancaster' && x.evidence === 'self-identification'));
+});
+
+test('0.11.3 creates provisional relational roles only when contextual evidence supports them', () => {
+  const ingest = JSON.parse(JSON.stringify(ingestShape('Chapter 24 – When the Call Comes\n\nMichael’s mother came out to the porch.\n\n“You’ve changed, son.”\n\nshe said softly.')));
+  ingest.analysis.chapters[0].order = 24;
+  const intelligence = buildDialogueIntelligence(ingest);
+  assert.ok(intelligence.provisionalRoles.some((x) => x.canonicalName === "Michael's Mother"));
+  const review = buildDialogueReviewQueue(ingest, { intelligence });
+  assert.equal(review.needsReview, 0);
+  assert.ok(review.autoBindings.some((x) => x.speaker === "Michael's Mother"));
+});
+
+test('0.11.3 focused pronunciation review makes no guesses and avoids broad obvious-name harvesting', () => {
+  const ingest = ingestShape('Chapter 1\n\nMichael said, “Te amo, Juan.”\n\nThey went from San Diego to Clairemont and discussed DJ work and IG posts.');
+  const plan = buildBookOneCharacterPlan(fakeSupermanReport());
+  const pronunciation = buildPronunciationReview(ingest, plan);
+  const terms = new Set(pronunciation.candidates.map((x) => x.term));
+  assert.ok(terms.has('Te amo'));
+  assert.ok(terms.has('Clairemont'));
+  assert.equal(terms.has('San Diego'), false);
+  assert.equal(pronunciation.noGuessesMade, true);
+  assert.equal(pronunciation.candidates.every((x) => x.spokenAs === ''), true);
 });

@@ -10,7 +10,7 @@ import {
   ProjectService
 } from './index.js';
 
-const VERSION = '0.11.2';
+const VERSION = '0.11.3';
 const args = process.argv.slice(2);
 
 function flagValue(name, fallback = null) {
@@ -128,6 +128,10 @@ async function runAudioBiblePrep() {
     supportingCharacters: result.prep.characterPlan.filter((x) => x.role === 'supporting').length,
     minorCharacters: result.prep.characterPlan.filter((x) => x.role === 'minor').length,
     autoBoundDialogue: result.prep.dialogueReview.autoBound,
+    intelligenceResolved: result.prep.intelligence?.autoResolved ?? 0,
+    quotedNarrationSegments: result.prep.intelligence?.quotedNarrationSegments ?? 0,
+    reviewReduction: result.prep.intelligence?.reviewReduction ?? 0,
+    provisionalRoles: result.prep.intelligence?.provisionalRoles ?? [],
     dialogueNeedsReview: result.prep.dialogueReview.needsReview,
     inferredQuickConfirm: result.prep.dialogueReview.inferredReview,
     unresolvedDialogue: result.prep.dialogueReview.unresolved,

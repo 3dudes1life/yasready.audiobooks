@@ -35,4 +35,5 @@ export * from './ux/operator-flow.js';
 export * from './superman/book-one-superman.js';
 export * from './services/book-one-superman-service.js';
 export * from './audio-bible/book-one-prep.js';
+export * from './audio-bible/book-one-intelligence.js';
 export * from './services/book-one-audio-bible-prep-service.js';

@@ -1,6 +1,6 @@
 # Book One Audio Bible Prep
 
-0.11.2 converts a passing Book One Superman run into the first real production-control artifact: a prepared Audio Bible plus small, explicit human review queues.
+0.11.3 keeps the 0.11.2 Audio Bible Prep workflow but adds an intelligence cleanup layer that removes avoidable review chores without silently guessing ambiguous speakers.
 
 ## Command
 
@@ -25,7 +25,7 @@ bash scripts/RUN_BOOK_ONE_AUDIO_BIBLE_PREP.command "/path/to/book_1.docx"
 
 ## Speaker safety
 
-Only dialogue with a canonical speaker candidate at confidence >= 0.75 is auto-bound. Lower-confidence contextual inference stays in the review queue. Completely unresolved lines receive nearby-speaker suggestions, but `selected_speaker` and `decision` remain blank.
+Existing canonical dialogue at confidence >= 0.75 is auto-bound. 0.11.3 may also auto-resolve only high-confidence cases supported by explicit manuscript evidence: self-identification, direct speech tags, preceding speaker leads, conservative direct-address exclusion, supported relational roles, or quoted/displayed text that belongs to narration. Anything that remains ambiguous stays in the review queue with `selected_speaker` and `decision` blank.
 
 The review queue is sorted to reduce operator work:
 
@@ -36,7 +36,7 @@ The review queue is sorted to reduce operator work:
 
 ## Pronunciation safety
 
-Pronunciation detection is intentionally conservative. Candidate terms are surfaced for review, but `spoken_as` is always blank. A pronunciation only becomes authoritative after an operator explicitly approves or enters it through the Audio Bible workflow.
+Pronunciation detection is intentionally conservative and now uses a focused Book One watchlist instead of broad proper-noun harvesting. Candidate terms are surfaced for review, but `spoken_as` is always blank. A pronunciation only becomes authoritative after an operator explicitly approves or enters it through the Audio Bible workflow.
 
 ## Privacy
 
