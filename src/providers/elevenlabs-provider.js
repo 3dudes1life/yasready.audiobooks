@@ -24,11 +24,38 @@ function cleanQuery(params) {
   return query.toString();
 }
 
+function extractProviderCode(payload) {
+  if (!payload || typeof payload !== 'object') return null;
+  return payload.code ?? payload.status ?? payload.detail?.code ?? payload.detail?.status ?? null;
+}
+
+export class ElevenLabsApiError extends Error {
+  constructor(message, { status = null, providerCode = null, detail = null, retryable = null, requestId = null } = {}) {
+    super(message);
+    this.name = 'ElevenLabsApiError';
+    this.status = status;
+    this.providerCode = providerCode;
+    this.code = providerCode;
+    this.detail = detail;
+    this.retryable = retryable ?? (status === 429 || (Number.isInteger(status) && status >= 500));
+    this.requestId = requestId;
+  }
+}
+
+async function errorPayload(response) {
+  try { return await response.clone().json(); } catch {}
+  try { return await response.text(); } catch {}
+  return null;
+}
+
 async function jsonOrThrow(response, label) {
   if (response.ok) return response.json();
-  let detail = '';
-  try { detail = JSON.stringify(await response.json()); } catch { detail = await response.text().catch(() => ''); }
-  throw new Error(`${label} failed (${response.status})${detail ? `: ${detail}` : ''}`);
+  const detail = await errorPayload(response);
+  const providerCode = extractProviderCode(detail);
+  const requestId = response.headers?.get?.('request-id') ?? null;
+  throw new ElevenLabsApiError(`${label} failed (${response.status})${detail ? `: ${typeof detail === 'string' ? detail : JSON.stringify(detail)}` : ''}`, {
+    status: response.status, providerCode, detail, requestId
+  });
 }
 
 export class ElevenLabsProvider extends AudioProvider {
@@ -115,7 +142,12 @@ export class ElevenLabsProvider extends AudioProvider {
     };
   }
 
-  async render({ voiceId, text, model = 'eleven_multilingual_v2', outputFormat = 'mp3_44100_128', voiceSettings = null, pronunciationDictionaryLocators = null, languageCode = null }) {
+  async render({
+    voiceId, text, model = 'eleven_multilingual_v2', outputFormat = 'mp3_44100_128',
+    voiceSettings = null, pronunciationDictionaryLocators = null, languageCode = null,
+    previousText = null, nextText = null, previousRequestIds = null, nextRequestIds = null,
+    seed = null, applyTextNormalization = 'auto'
+  }) {
     if (!voiceId || !String(text ?? '').trim()) throw new Error('render requires voiceId and text');
     const query = cleanQuery({ output_format: outputFormat });
     const response = await this.fetch(`${this.baseUrl}/v1/text-to-speech/${encodeURIComponent(voiceId)}?${query}`, {
@@ -126,21 +158,40 @@ export class ElevenLabsProvider extends AudioProvider {
         model_id: model,
         ...(voiceSettings ? { voice_settings: voiceSettings } : {}),
         ...(pronunciationDictionaryLocators ? { pronunciation_dictionary_locators: pronunciationDictionaryLocators } : {}),
-        ...(languageCode ? { language_code: languageCode } : {})
+        ...(languageCode ? { language_code: languageCode } : {}),
+        ...(previousText ? { previous_text: previousText } : {}),
+        ...(nextText ? { next_text: nextText } : {}),
+        ...(previousRequestIds?.length ? { previous_request_ids: previousRequestIds.slice(-3) } : {}),
+        ...(nextRequestIds?.length ? { next_request_ids: nextRequestIds.slice(0, 3) } : {}),
+        ...(seed !== null && seed !== undefined ? { seed } : {}),
+        ...(applyTextNormalization ? { apply_text_normalization: applyTextNormalization } : {})
       })
     });
     if (!response.ok) {
-      let detail = '';
-      try { detail = await response.text(); } catch {}
-      throw new Error(`ElevenLabs render failed (${response.status})${detail ? `: ${detail}` : ''}`);
+      const detail = await errorPayload(response);
+      const providerCode = extractProviderCode(detail);
+      const requestId = response.headers?.get?.('request-id') ?? null;
+      throw new ElevenLabsApiError(`ElevenLabs render failed (${response.status})${detail ? `: ${typeof detail === 'string' ? detail : JSON.stringify(detail)}` : ''}`, {
+        status: response.status, providerCode, detail, requestId
+      });
     }
+    const billedCharactersRaw = response.headers?.get?.('character-cost');
+    const billedCharacters = billedCharactersRaw !== null && billedCharactersRaw !== undefined && billedCharactersRaw !== ''
+      ? Number(billedCharactersRaw) : [...String(text)].length;
+    const rate = this.pricingUsdPer1k[model];
+    const estimatedCostUsd = Number.isFinite(rate) && Number.isFinite(billedCharacters)
+      ? Number(((billedCharacters / 1000) * rate).toFixed(6)) : null;
     return {
       audio: new Uint8Array(await response.arrayBuffer()),
       mediaType: response.headers?.get?.('content-type') ?? 'audio/mpeg',
       provider: this.name,
       voiceId,
       model,
-      outputFormat
+      outputFormat,
+      requestId: response.headers?.get?.('request-id') ?? null,
+      traceId: response.headers?.get?.('x-trace-id') ?? null,
+      billedCharacters: Number.isFinite(billedCharacters) ? billedCharacters : null,
+      estimatedCostUsd
     };
   }
 

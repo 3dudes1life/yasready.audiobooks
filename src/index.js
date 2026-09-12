@@ -19,3 +19,5 @@ export * from './manuscript/zip-reader.js';
 export * from './manuscript/xml.js';
 export * from './manuscript/extractors.js';
 export * from './manuscript/analyzer.js';
+export * from './production/model-limits.js';
+export * from './services/production-engine-service.js';
