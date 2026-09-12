@@ -21,3 +21,5 @@ export * from './manuscript/extractors.js';
 export * from './manuscript/analyzer.js';
 export * from './production/model-limits.js';
 export * from './services/production-engine-service.js';
+export * from './review/review-model.js';
+export * from './services/review-studio-service.js';
