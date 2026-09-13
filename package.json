@@ -1,9 +1,9 @@
 {
   "name": "@yasready/audiobooks",
-  "version": "0.14.3.14",
+  "version": "0.14.3.14.1",
   "private": true,
   "type": "module",
-  "description": "YasReady Audiobooks Production Arm & Chapter One Pilot, Production Plan & Budget, Pace Ceiling Calibration, QA, Mastering and Distribution",
+  "description": "YasReady Audiobooks Eleven v3 Context Compatibility Hotfix, Production Arm & Chapter One Pilot, Production Plan & Budget, QA, Mastering and Distribution",
   "engines": {
     "node": ">=20"
   },
@@ -43,6 +43,7 @@
     "casting:emotional-lift:fixture": "node --test test/emotional-lift-tuning.test.js",
     "casting:pace-ceiling:fixture": "node --test test/pace-ceiling-calibration.test.js",
     "production:plan:fixture": "node --test test/production-plan-budget.test.js",
-    "production:pilot:fixture": "node --test test/production-arm-chapter-one-pilot.test.js"
+    "production:pilot:fixture": "node --test test/production-arm-chapter-one-pilot.test.js",
+    "production:v3-context:fixture": "node --test test/eleven-v3-context-hotfix.test.js"
   }
 }

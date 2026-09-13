@@ -107,8 +107,8 @@ async function armFixture({provider=providerFixture(),ffmpeg=ffmpegFixture()}={}
   return {plan,arm,provider,ffmpeg};
 }
 
-test('0.14.3.14 is current application provenance',()=>{
-  assert.equal(YASREADY_AUDIOBOOKS_VERSION,'0.14.3.14');
+test('0.14.3.14.1 is current application provenance',()=>{
+  assert.equal(YASREADY_AUDIOBOOKS_VERSION,'0.14.3.14.1');
 });
 
 test('Chapter One materialization skips Front Matter and preserves exact generation digests',()=>{
@@ -206,7 +206,7 @@ test('unknown in-flight provider outcome fails closed with DO NOT RERUN',async()
   const out=await mkdtemp(path.join(os.tmpdir(),'yas-pilot-inflight-'));
   try {
     await writeFile(path.join(out,'dummy'),'x').catch(()=>{});
-    const state={schemaVersion:1,release:'0.14.3.14',artifact:'book-one-chapter-one-pilot-state',armDigest:arm.integrity.armDigest,productionPlanDigest:arm.sourceProductionPlan.productionPlanDigest,chunks:{[arm.pilotScope.chunkIds[0]]:{id:arm.pilotScope.chunkIds[0],generationDigest:arm.pilotScope.generationDigests[0],status:'PROVIDER_IN_FLIGHT'}},createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()};
+    const state={schemaVersion:1,release:'0.14.3.14.1',artifact:'book-one-chapter-one-pilot-state',armDigest:arm.integrity.armDigest,productionPlanDigest:arm.sourceProductionPlan.productionPlanDigest,chunks:{[arm.pilotScope.chunkIds[0]]:{id:arm.pilotScope.chunkIds[0],generationDigest:arm.pilotScope.generationDigests[0],status:'PROVIDER_IN_FLIGHT'}},createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()};
     await writeFile(path.join(out,'chapter-one-pilot-state.json'),JSON.stringify(state));
     await assert.rejects(renderBookOneChapterOnePilot({arm,productionPlan:plan,manuscriptAnalysis:analysisFixture(),provider,ffmpeg,outDir:out,approvalToken:arm.confirmation.token,maxUsd:arm.budget.suggestedMaxUsd}),/DO NOT RERUN PROVIDER/i);
     assert.equal(provider.state.renders,0);

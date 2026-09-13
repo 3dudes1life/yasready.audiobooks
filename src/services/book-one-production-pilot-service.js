@@ -7,7 +7,8 @@ import { verifyBookOneProductionPlan } from './book-one-production-plan-service.
 import { evaluateMasterAgainstProfile } from '../mastering/profiles.js';
 
 export const BOOK_ONE_PILOT_MASTERING_PROFILE = 'acx-2026';
-export const BOOK_ONE_PILOT_ACCEPTED_PLAN_RELEASES = Object.freeze(['0.14.3.13', '0.14.3.14']);
+export const BOOK_ONE_PILOT_ACCEPTED_PLAN_RELEASES = Object.freeze(['0.14.3.13', '0.14.3.14', '0.14.3.14.1']);
+export const BOOK_ONE_PILOT_ACCEPTED_ARM_RELEASES = Object.freeze(['0.14.3.14', '0.14.3.14.1']);
 
 function freeze(value) {
   if (Array.isArray(value)) {
@@ -146,7 +147,7 @@ function armCore(arm) {
 
 export function verifyBookOneChapterOnePilotArm(arm) {
   if (!arm || arm.artifact !== 'book-one-chapter-one-pilot-arm') throw new Error('Invalid Chapter One pilot arm artifact');
-  if (arm.release !== YASREADY_AUDIOBOOKS_VERSION) throw new Error('Chapter One pilot arm release does not match application release');
+  if (!BOOK_ONE_PILOT_ACCEPTED_ARM_RELEASES.includes(arm.release)) throw new Error('Chapter One pilot arm release is not accepted by this operation');
   if (arm.status !== 'ARMED_FOR_CHAPTER_ONE_PILOT_ONLY') throw new Error('Chapter One pilot arm has invalid status');
   if (arm.guardrails?.pilotArmed !== true) throw new Error('Chapter One pilot arm is not armed');
   if (arm.guardrails?.productionArmed !== false || arm.guardrails?.fullBookGenerationArmed !== false) {

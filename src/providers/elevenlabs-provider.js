@@ -323,6 +323,7 @@ export class ElevenLabsProvider extends AudioProvider {
   }) {
     if (!voiceId || !String(text ?? '').trim()) throw new Error('render requires voiceId and text');
     const query = cleanQuery({ output_format: outputFormat });
+    const supportsTextContext = model !== 'eleven_v3';
     const response = await this.fetch(`${this.baseUrl}/v1/text-to-speech/${encodeURIComponent(voiceId)}?${query}`, {
       method: 'POST',
       headers: this.headers({ json: true, requireKey: true }),
@@ -332,8 +333,8 @@ export class ElevenLabsProvider extends AudioProvider {
         ...(voiceSettings ? { voice_settings: voiceSettings } : {}),
         ...(pronunciationDictionaryLocators ? { pronunciation_dictionary_locators: pronunciationDictionaryLocators } : {}),
         ...(languageCode ? { language_code: languageCode } : {}),
-        ...(previousText ? { previous_text: previousText } : {}),
-        ...(nextText ? { next_text: nextText } : {}),
+        ...(supportsTextContext && previousText ? { previous_text: previousText } : {}),
+        ...(supportsTextContext && nextText ? { next_text: nextText } : {}),
         ...(previousRequestIds?.length ? { previous_request_ids: previousRequestIds.slice(-3) } : {}),
         ...(nextRequestIds?.length ? { next_request_ids: nextRequestIds.slice(0, 3) } : {}),
         ...(seed !== null && seed !== undefined ? { seed } : {}),
