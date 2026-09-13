@@ -503,7 +503,7 @@ async function runCastingDiscovery({ fixture = false } = {}) {
     const launchPath = args[1];
     const prepPath = flagValue('--prep');
     if (!launchPath || !prepPath) {
-      console.error('Usage: node src/cli.js casting-discover <casting-launch.json> --prep <book-one-audio-bible-prep.json> [--manuscript FILE] [--voice-pool FILE] [--out DIR] [--per-role 1-8] [--audition-top N] [--pages N] [--page-size N] [--model MODEL]');
+      console.error('Usage: node src/cli.js casting-discover <casting-launch.json> --prep <book-one-audio-bible-prep.json> [--manuscript FILE] [--voice-pool FILE] [--out DIR] [--per-role 1-8] [--audition-top N] [--pages N] [--anonymous-pages N] [--page-size N] [--model MODEL]');
       process.exitCode = 2;
       return;
     }
@@ -543,6 +543,7 @@ async function runCastingDiscovery({ fixture = false } = {}) {
       result = await service.discoverFromProvider({
         launch, prep, provider, auditionSamples, perRole, auditionTop, model,
         maxPages: Number(flagValue('--pages', 3)),
+        anonymousPageLimit: Number(flagValue('--anonymous-pages', 30)),
         pageSize: Number(flagValue('--page-size', 100))
       });
     }
@@ -558,6 +559,8 @@ async function runCastingDiscovery({ fixture = false } = {}) {
     catalogCallsPerformed: result.discovery.catalog.catalogCallsPerformed,
     catalogQueryMode: result.discovery.catalog.queryMode,
     anonymousFallbackUsed: result.discovery.catalog.anonymousFallbackUsed,
+    anonymousPageSizeCap: result.discovery.catalog.anonymousPageSizeCap,
+    catalogAuthRecommended: result.discovery.catalog.authRecommended,
     rawCatalogVoicesSeen: result.discovery.catalog.rawVoicesSeen,
     uniqueCatalogVoices: result.discovery.catalog.uniqueVoices,
     perRole: result.discovery.catalog.requestedPerRole,

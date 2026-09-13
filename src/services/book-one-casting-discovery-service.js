@@ -465,6 +465,8 @@ export function renderCastingDiscoveryMarkdown(discovery) {
     `- Catalog metadata calls: ${discovery.catalog.catalogCallsPerformed}`,
     `- Catalog query mode: ${discovery.catalog.queryMode ?? 'unknown'}`,
     `- Anonymous fallback used: ${discovery.catalog.anonymousFallbackUsed ? 'YES — safety filters enforced locally' : 'NO'}`,
+    `- Anonymous page-size cap: ${discovery.catalog.anonymousPageSizeCap ?? 'none detected'}`,
+    `- API key recommended for broader discovery: ${discovery.catalog.authRecommended ? 'YES' : 'NO'}`,
     '- Paid provider calls: 0',
     '- TTS generation calls: 0',
     '- Paid audition generation armed: NO',
@@ -547,7 +549,7 @@ export function renderAuditionScriptsCsv(discovery) {
 }
 
 export class BookOneCastingDiscoveryService {
-  async build({ launch, prep, voices, auditionSamples = null, costEstimator = null, perRole = 6, auditionTop = 3, model = 'eleven_multilingual_v2', catalogCallsPerformed = 0, catalogProvider = 'provided-pool', catalogQueryMode = 'provided-pool', providerFiltersApplied = null, anonymousFallbackUsed = false, rawCatalogVoices = null } = {}) {
+  async build({ launch, prep, voices, auditionSamples = null, costEstimator = null, perRole = 6, auditionTop = 3, model = 'eleven_multilingual_v2', catalogCallsPerformed = 0, catalogProvider = 'provided-pool', catalogQueryMode = 'provided-pool', providerFiltersApplied = null, anonymousFallbackUsed = false, anonymousPageSizeCap = null, catalogAuthRecommended = false, rawCatalogVoices = null } = {}) {
     const { waveOne } = assertArtifacts(launch, prep);
     const perRoleCount = clamp(Math.trunc(Number(perRole) || 6), 1, 8);
     const auditionCount = clamp(Math.trunc(Number(auditionTop) || 3), 1, perRoleCount);
@@ -607,6 +609,8 @@ export class BookOneCastingDiscoveryService {
         queryMode: catalogQueryMode,
         providerFiltersApplied,
         anonymousFallbackUsed: Boolean(anonymousFallbackUsed),
+        anonymousPageSizeCap: anonymousPageSizeCap === null ? null : Number(anonymousPageSizeCap),
+        authRecommended: Boolean(catalogAuthRecommended),
         rawVoicesSeen: rawCatalogVoices === null ? uniquePool.length : Number(rawCatalogVoices),
         uniqueVoices: uniquePool.length,
         requestedPerRole: perRoleCount,
@@ -640,7 +644,9 @@ export class BookOneCastingDiscoveryService {
       }),
       artifactFingerprint,
       nextAction: totalStaged < totalNeeded
-        ? `Only ${totalStaged}/${totalNeeded} unique Wave 1 candidate slots were filled. Increase catalog pages or lower --per-role before auditioning.`
+        ? catalogAuthRecommended
+          ? `Only ${totalStaged}/${totalNeeded} unique Wave 1 candidate slots were filled through ElevenLabs anonymous catalog browsing. Set ELEVENLABS_API_KEY for broader filtered discovery, then rerun; do not reuse a core voice just to fill the shortlist.`
+          : `Only ${totalStaged}/${totalNeeded} unique Wave 1 candidate slots were filled. Increase catalog pages or lower --per-role before auditioning.`
         : sourceReady
           ? `Review preview links and shortlist decisions for ${waveOne.map((row) => row.canonicalName).join(', ')}. Then explicitly approve which candidates should enter the future ARM AUDITIONS step; no audio has been generated.`
           : 'Candidate discovery is complete, but canonical audition scripts are missing. Re-run with --manuscript pointing to the exact Book One source before any audition can be armed.'
@@ -653,11 +659,19 @@ export class BookOneCastingDiscoveryService {
     });
   }
 
-  async discoverFromProvider({ launch, prep, provider, auditionSamples = null, perRole = 6, auditionTop = 3, model = 'eleven_multilingual_v2', maxPages = 3, pageSize = 100 } = {}) {
+  async discoverFromProvider({
+    launch, prep, provider, auditionSamples = null, perRole = 6, auditionTop = 3,
+    model = 'eleven_multilingual_v2', maxPages = 3, anonymousPageLimit = 30, pageSize = 100
+  } = {}) {
     if (!provider || typeof provider.searchVoices !== 'function') throw new Error('Casting Candidate Discovery requires a provider with searchVoices()');
+
     const waveOne = launch?.waves?.find((row) => row.wave === 1)?.targets ?? [];
     const perRoleCount = clamp(Math.trunc(Number(perRole) || 6), 1, 8);
     const targetEligibleCount = Math.max(1, waveOne.length * perRoleCount);
+    const filteredPageLimit = clamp(Math.trunc(Number(maxPages) || 3), 1, 5);
+    const anonymousLimit = clamp(Math.trunc(Number(anonymousPageLimit) || 30), 1, 50);
+    const size = clamp(Math.trunc(Number(pageSize) || 100), 10, 100);
+
     const eligibleVoices = [];
     const eligibleSeen = new Set();
     let rawVoicesSeen = 0;
@@ -665,10 +679,15 @@ export class BookOneCastingDiscoveryService {
     let catalogQueryMode = 'provider-filtered';
     let providerFiltersApplied = true;
     let anonymousFallbackUsed = false;
-    const pages = clamp(Math.trunc(Number(maxPages) || 3), 1, 5);
-    const size = clamp(Math.trunc(Number(pageSize) || 100), 10, 100);
+    let anonymousPageSizeCap = null;
+    let anonymousPublicOnly = false;
+    let noGrowthPages = 0;
+    let page = 0;
 
-    for (let page = 0; page < pages; page += 1) {
+    while (true) {
+      const currentLimit = anonymousPublicOnly ? anonymousLimit : filteredPageLimit;
+      if (page >= currentLimit) break;
+
       const result = await provider.searchVoices({
         language: 'en',
         category: 'professional',
@@ -677,14 +696,21 @@ export class BookOneCastingDiscoveryService {
         includeLiveModerated: false,
         sort: 'trending',
         page,
-        pageSize: size
+        pageSize: size,
+        anonymousPublicOnly,
+        anonymousPageSizeCap: anonymousPageSizeCap ?? 3
       });
-      catalogCallsPerformed += 1;
+
+      catalogCallsPerformed += Number(result.httpCallsPerformed ?? 1);
       catalogQueryMode = result.queryMode ?? catalogQueryMode;
       providerFiltersApplied = result.providerFiltersApplied ?? providerFiltersApplied;
       anonymousFallbackUsed = Boolean(anonymousFallbackUsed || result.anonymousFallbackUsed);
+      anonymousPageSizeCap = result.anonymousPageSizeCap ?? anonymousPageSizeCap;
+      if (result.queryMode === 'anonymous-public-capped') anonymousPublicOnly = true;
+
       const rows = result.voices ?? [];
       rawVoicesSeen += rows.length;
+      const before = eligibleVoices.length;
 
       for (const raw of rows) {
         if (!meetsBookOneDiscoveryPolicy(raw)) continue;
@@ -695,15 +721,31 @@ export class BookOneCastingDiscoveryService {
         eligibleVoices.push(voice);
       }
 
+      if (eligibleVoices.length === before) noGrowthPages += 1;
+      else noGrowthPages = 0;
+
       if (eligibleVoices.length >= targetEligibleCount) break;
       if (!result.hasMore) break;
+      if (noGrowthPages >= 3) break;
+      page += 1;
     }
+
+    const catalogAuthRecommended = Boolean(
+      anonymousFallbackUsed && eligibleVoices.length < targetEligibleCount
+    );
 
     return this.build({
       launch, prep, voices: eligibleVoices, auditionSamples,
       costEstimator: typeof provider.estimateCost === 'function' ? provider.estimateCost.bind(provider) : null,
-      perRole, auditionTop, model, catalogCallsPerformed, catalogProvider: provider.name ?? 'elevenlabs',
-      catalogQueryMode, providerFiltersApplied, anonymousFallbackUsed, rawCatalogVoices: rawVoicesSeen
+      perRole, auditionTop, model,
+      catalogCallsPerformed,
+      catalogProvider: provider.name ?? 'elevenlabs',
+      catalogQueryMode,
+      providerFiltersApplied,
+      anonymousFallbackUsed,
+      anonymousPageSizeCap,
+      catalogAuthRecommended,
+      rawCatalogVoices: rawVoicesSeen
     });
   }
 }

@@ -2,7 +2,7 @@
 
 Professional audiobook production infrastructure for YasReady Publishing.
 
-**Current build: 0.14.2.1 — Catalog Auth Fallback & Discovery UX Hotfix**
+**Current build: 0.14.2.2 — Anonymous Catalog Pagination & Auth UX**
 
 YasReady Audiobooks is being developed as a standalone service first so audiobook experimentation cannot destabilize YasReady Publishing. The product goal is professional long-form audiobook production with strong continuity, human approval gates, cost protection, quality control, mastering and retailer-ready packaging.
 
@@ -37,6 +37,7 @@ YasReady Audiobooks is being developed as a standalone service first so audioboo
 - 0.14.1 Production Provenance & Casting Launch — separates current application/artifact release from subsystem engine provenance and converts a locked Book One Audio Bible Prep artifact into a zero-spend, book-scoped Casting Room launch pack
 - 0.14.2 Book One Casting Candidate Discovery — searches the shared professional voice catalog, ranks and uniquely stages Wave 1 candidates, extracts canonical audition samples, previews audition cost, and preserves a hard zero-generation boundary
 - 0.14.2.1 Catalog Auth Fallback & Discovery UX Hotfix — retries logged-out ElevenLabs filtered-catalog failures against the public unfiltered catalog, reapplies all safety filters locally, reports auth mode honestly, and preserves the zero-spend boundary
+- 0.14.2.2 Anonymous Catalog Pagination & Auth UX — detects ElevenLabs' logged-out 3-voice page limit, paginates the public catalog in safe 3-voice pages, counts fallback HTTP calls honestly, and recommends API-key discovery only if anonymous browsing cannot fill Wave 1
 
 ## Book One Superman
 
@@ -119,7 +120,7 @@ npm run external:fixture
 
 ### ElevenLabs catalog authentication fallback
 
-ElevenLabs may reject filtered shared-catalog browsing for logged-out callers. 0.14.2.1 automatically retries the public catalog without protected server-side filters and reapplies the same English/professional/180-day/no-custom-rate/no-live-moderation policy locally. If ElevenLabs also blocks the public catalog, set `ELEVENLABS_API_KEY` in the shell and rerun. Catalog discovery remains read-only and performs zero TTS generation.
+ElevenLabs may reject filtered shared-catalog browsing for logged-out callers and may cap anonymous pages at 3 voices. 0.14.2.2 detects both behaviors, paginates the public catalog at the allowed page size, and reapplies the same English/professional-or-high-quality/180-day/no-custom-rate/no-live-moderation policy locally. If anonymous browsing still cannot fill Wave 1, set `ELEVENLABS_API_KEY` in the shell and rerun. Catalog discovery remains read-only and performs zero TTS generation.
 
 ## SaaS Money Guard
 

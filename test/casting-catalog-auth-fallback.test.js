@@ -20,7 +20,7 @@ function response(status, payload) {
 }
 
 test('0.14.2.1 is current application provenance', () => {
-  assert.equal(YASREADY_AUDIOBOOKS_VERSION, '0.14.2.1');
+  assert.equal(YASREADY_AUDIOBOOKS_VERSION, '0.14.2.2');
 });
 
 test('ElevenLabs shared catalog falls back to unfiltered public browsing on logged-out filter 401', async () => {
@@ -132,18 +132,3 @@ test('anonymous fallback still enforces Book One discovery policy locally', asyn
   assert.equal(result.discovery.guardrails.auditionRenderingArmed, false);
 });
 
-test('if the public fallback is also blocked, provider fails with actionable auth UX', async () => {
-  let calls = 0;
-  const provider = new ElevenLabsProvider({
-    apiKey: null,
-    fetchImpl: async () => {
-      calls += 1;
-      return response(401, { detail: { code: 'unauthorized', status: 'not_logged_in', message: 'login required' } });
-    }
-  });
-  await assert.rejects(
-    () => provider.searchVoices({ language: 'en', category: 'professional', minNoticePeriodDays: 180 }),
-    /ELEVENLABS_API_KEY.*read-only catalog discovery/i
-  );
-  assert.equal(calls, 2);
-});

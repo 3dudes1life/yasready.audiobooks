@@ -7,7 +7,7 @@ import {
 } from '../src/index.js';
 
 test('0.14.2.1 is current application provenance', () => {
-  assert.equal(YASREADY_AUDIOBOOKS_VERSION, '0.14.2.1');
+  assert.equal(YASREADY_AUDIOBOOKS_VERSION, '0.14.2.2');
 });
 
 test('candidate discovery fills unique Wave 1 shortlists without paid generation', async () => {
