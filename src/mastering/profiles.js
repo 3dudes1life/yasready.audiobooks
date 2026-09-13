@@ -15,6 +15,7 @@ const PROFILES = {
     openingCreditsRequired: true,
     closingCreditsRequired: true,
     channelMode: 'consistent',
+    maxSectionDurationSec: 7200,
     output: { format: 'mp3', codec: 'libmp3lame', sampleRateHz: 44100, bitrateKbps: 192, cbr: true },
     loudness: {
       rmsMinDb: -23,

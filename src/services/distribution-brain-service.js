@@ -272,12 +272,23 @@ export class DistributionBrainService {
     if (profile.digitalNarration === 'disclosure-required' && project.digitalNarration && !String(project.narrationProvider ?? '').trim()) {
       warnings.push({ code: 'digital-narration-provider-missing', message: 'Recording the narration provider is recommended for provenance and support.' });
     }
-    const manualEligibilityRequired = profile.digitalNarration === 'manual-eligibility-check' && project.digitalNarration === true;
-    if (manualEligibilityRequired && !target.platformEligibilityConfirmed) {
-      blockers.push({ code: 'platform-eligibility-unconfirmed', message: 'Technical compliance is not platform-policy approval. Confirm current narration eligibility before submission.' });
+    const explicitAuthorizationRequired = profile.digitalNarration === 'explicit-authorization-required' && project.digitalNarration === true;
+    const partnerEligibilityRequired = profile.digitalNarration === 'partner-dependent' && project.digitalNarration === true;
+    const manualEligibilityRequired = explicitAuthorizationRequired || partnerEligibilityRequired;
+    if (explicitAuthorizationRequired) {
+      const authorizationEvidence = target.platformEligibilityConfirmed && /authoriz/i.test(String(target.platformEligibilityNote ?? ''));
+      if (!authorizationEvidence) blockers.push({ code: 'platform-authorization-unconfirmed', message: 'Current ACX/Audible rules prohibit unauthorized TTS/AI. Do not submit digital narration unless ACX/Audible explicitly authorizes this route; record that authorization as eligibility evidence.' });
     }
-    if (profile.digitalNarration === 'partner-dependent' && project.digitalNarration === true) {
-      warnings.push({ code: 'partner-digital-narration-policy', message: 'Confirm digital narration policy with the selected Apple Books distribution partner.' });
+    if (partnerEligibilityRequired && !target.platformEligibilityConfirmed) {
+      blockers.push({ code: 'partner-digital-narration-policy-unconfirmed', message: 'Confirm digital narration eligibility with the selected Apple Books preferred partner before packaging or handoff.' });
+    }
+    if (profile.sample === 'required' && !project.sample) blockers.push({ code: 'sample-required', message: `${profile.label} requires a listener/retail sample.` });
+    if (project.sample && Number.isFinite(Number(profile.sampleMaxDurationSec))) {
+      const sampleDuration = Number(project.sample?.metadata?.durationSec ?? project.sample?.durationSec);
+      if (!Number.isFinite(sampleDuration)) blockers.push({ code: 'sample-duration-unverified', message: 'Retail sample duration must be measured before distribution.' });
+      else if (sampleDuration > Number(profile.sampleMaxDurationSec)) blockers.push({ code: 'sample-duration', message: `Retail sample must be ${Math.round(Number(profile.sampleMaxDurationSec) / 60)} minutes or less.` });
+      const sampleFormat = normalizeAssetFormat(project.sample?.fileName?.split('.').pop() ?? project.sample?.mediaType);
+      if (profile.audio.formats?.length && sampleFormat && !profile.audio.formats.includes(sampleFormat)) blockers.push({ code: 'sample-format', message: `Retail sample must use an accepted ${profile.label} audio format.` });
     }
     if (profile.sample === 'recommended' && !project.sample) warnings.push({ code: 'sample-recommended', message: `${profile.label} recommends a listener sample.` });
 

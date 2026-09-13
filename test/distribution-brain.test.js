@@ -22,7 +22,7 @@ class Store {
   update(type, id, updater) { const current = this.get(type, id); if (!current) throw new Error(`${type} ${id} not found`); const next = Object.freeze({ ...updater(current) }); this.rows.get(type).set(id, next); return next; }
 }
 
-function seed({ profileId = 'acx-2026', digitalNarration = true } = {}) {
+function seed({ profileId = 'acx-2026', digitalNarration = true, sample = true } = {}) {
   const store = new Store();
   store.put({ id: 'm1', type: 'mastering_plan', projectId: 'p1', bookId: 'b1', title: 'Book', author: 'Author', narrators: ['Narrator'], profileId, status: 'mastered', locked: true });
   store.put({ id: 'r1', type: 'chapter_review', projectId: 'p1', chapterId: 'c1', order: 0 });
@@ -32,9 +32,10 @@ function seed({ profileId = 'acx-2026', digitalNarration = true } = {}) {
   store.put({ id: 'o1', type: 'mastering_credit_section', planId: 'm1', kind: 'opening', outputFileName: '000-opening-credits.mp3', status: 'passed', asset: { locator: 'open', mediaType: 'audio/mpeg' }, postAnalysis: { durationSec: 8, bitrateKbps: 192, sampleRateHz: 44100, channels: 1 } });
   store.put({ id: 'z1', type: 'mastering_credit_section', planId: 'm1', kind: 'closing', outputFileName: '999-closing-credits.mp3', status: 'passed', asset: { locator: 'close', mediaType: 'audio/mpeg' }, postAnalysis: { durationSec: 10, bitrateKbps: 192, sampleRateHz: 44100, channels: 1 } });
   const service = new DistributionBrainService(store, { clock: () => new Date('2026-09-12T17:00:00Z') });
-  const project = service.createProject({ projectId: 'p1', bookId: 'b1', masteringPlanId: 'm1', metadata: { title: 'Book', author: 'Author', narrators: ['Narrator'], language: 'en' }, digitalNarration, narrationProvider: digitalNarration ? 'ElevenLabs' : null });
+  const project = service.createProject({ projectId: 'p1', bookId: 'b1', masteringPlanId: 'm1', metadata: { title: 'Book', author: 'Author', narrators: ['Narrator'], language: 'en', isbn13: '9780306406157', bisac: 'FIC000000', territories: 'WORLD', priceUsd: 9.99 }, digitalNarration, narrationProvider: digitalNarration ? 'ElevenLabs' : null });
   service.confirmRights(project.id, { confirmedBy: 'Tester' });
   service.attachCover(project.id, { locator: 'cover', fileName: 'cover.jpg', mediaType: 'image/jpeg', metadata: { width: 3000, height: 3000, format: 'jpg', bytes: 1200000, colorSpace: 'RGB' } });
+  if (sample) service.attachSample(project.id, { locator: 'sample', fileName: 'sample.mp3', mediaType: 'audio/mpeg', metadata: { durationSec: 180 } });
   return { store, service, project };
 }
 
@@ -72,7 +73,7 @@ test('profile freshness warns on stale retailer rules but exempts stable W3C sta
 });
 
 test('Spotify preflight requires explicit digital narration disclosure', () => {
-  const { service, project } = seed({ profileId: 'acx-2026', digitalNarration: true });
+  const { service, project } = seed({ profileId: 'acx-2026', digitalNarration: true, sample: false });
   service.setDigitalNarration(project.id, { enabled: true, provider: 'ElevenLabs' });
   const target = service.addTarget(project.id, 'spotify-direct-2026');
   const pf = service.preflightTarget(target.id);
@@ -89,13 +90,13 @@ test('Spotify blocks when digital narration state is unset', () => {
   assert.ok(pf.blockers.some((x) => x.code === 'digital-narration-disclosure-unset'));
 });
 
-test('ACX digital narration requires manual platform eligibility confirmation', () => {
+test('ACX digital narration requires explicit platform authorization evidence', () => {
   const { service, project } = seed({ digitalNarration: true });
   const target = service.addTarget(project.id, 'acx-2026');
   const blocked = service.preflightTarget(target.id);
   assert.equal(blocked.readyToPackage, false);
-  assert.ok(blocked.blockers.some((x) => x.code === 'platform-eligibility-unconfirmed'));
-  service.confirmPlatformEligibility(target.id, { confirmedBy: 'Tester', note: 'Current policy checked manually.' });
+  assert.ok(blocked.blockers.some((x) => x.code === 'platform-authorization-unconfirmed'));
+  service.confirmPlatformEligibility(target.id, { confirmedBy: 'Tester', note: 'Explicit written authorization from ACX/Audible confirmed for this digital narration route.' });
   assert.equal(service.preflightTarget(target.id).readyToPackage, true);
 });
 
@@ -185,7 +186,7 @@ test('export package materializes audio/artwork/metadata without storing raw byt
   const outputDir = await mkdtemp(path.join(tmpdir(), 'dist-test-out-'));
   try {
     const map = {};
-    for (const key of ['a1', 'a2', 'open', 'close', 'cover']) {
+    for (const key of ['a1', 'a2', 'open', 'close', 'cover', 'sample']) {
       const f = path.join(sourceDir, `${key}.bin`);
       await writeFile(f, key);
       map[key] = f;

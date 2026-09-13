@@ -76,6 +76,7 @@ function distributionFixture() {
   const project = service.createProject({ projectId: 'p1', bookId: 'b1', masteringPlanId: 'm1', metadata: { title: 'Book', author: 'Author', narrators: ['Narrator'], language: 'en' }, digitalNarration: false });
   service.confirmRights(project.id, { confirmedBy: 'tester' });
   service.attachCover(project.id, { locator: 'cover', fileName: 'cover.jpg', mediaType: 'image/jpeg', metadata: { width: 3000, height: 3000, format: 'jpg', bytes: 1000000, colorSpace: 'RGB' } });
+  service.attachSample(project.id, { locator: 'sample', fileName: 'sample.mp3', mediaType: 'audio/mpeg', metadata: { durationSec: 180 } });
   const target = service.addTarget(project.id, 'acx-2026');
   return { store, service, project, target };
 }

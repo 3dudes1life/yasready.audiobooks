@@ -13,14 +13,15 @@ const PROFILES = {
     revisionDate: '2026-04-15',
     route: 'manual-upload',
     acceptedMasteringProfiles: ['acx-2026'],
-    audio: { formats: ['mp3'], minimumBitrateKbps: 192, sampleRateHz: 44100, cbrRequired: true, maxSectionDurationSec: null },
+    audio: { formats: ['mp3'], minimumBitrateKbps: 192, sampleRateHz: 44100, cbrRequired: true, maxSectionDurationSec: 7200 },
     cover: { required: true, formats: ['jpg', 'jpeg', 'png', 'tif', 'tiff'], squareRequired: true, minWidth: 2400, minHeight: 2400, maxBytes: 8 * 1024 * 1024, rgbRequired: true },
     metadata: { required: ['title', 'author', 'narrators'], recommended: ['language', 'description'], isbn: 'optional' },
     requiresOpeningCredits: true,
     requiresClosingCredits: true,
-    sample: 'optional',
-    digitalNarration: 'manual-eligibility-check',
-    notes: 'Technical compliance does not imply ACX/Audible acceptance of a specific narration method.'
+    sample: 'required',
+    sampleMaxDurationSec: 300,
+    digitalNarration: 'explicit-authorization-required',
+    notes: 'Technical compliance does not imply ACX/Audible acceptance. Current ACX guidance requires human narration unless otherwise authorized; digital narration requires an explicit eligibility/authorization check.'
   },
   'spotify-direct-2026': {
     id: 'spotify-direct-2026',
@@ -30,7 +31,7 @@ const PROFILES = {
     acceptedMasteringProfiles: ['spotify-direct-2026', 'acx-2026'],
     audio: { formats: ['mp3', 'wav', 'flac'], minimumBitrateKbps: 192, sampleRateHz: 44100, cbrRequired: false, maxSectionDurationSec: 7200 },
     cover: { required: true, formats: ['jpg', 'jpeg', 'png'], squareRequired: true, recommendedWidth: 3000, recommendedHeight: 3000 },
-    metadata: { required: ['title', 'author', 'narrators', 'language'], recommended: ['description', 'publisher', 'bisac', 'territories', 'priceUsd'], isbn: 'optional' },
+    metadata: { required: ['title', 'author', 'narrators', 'language', 'bisac', 'territories', 'priceUsd'], recommended: ['description', 'publisher'], isbn: 'optional' },
     requiresOpeningCredits: true,
     requiresClosingCredits: true,
     sample: 'recommended',
@@ -50,7 +51,7 @@ const PROFILES = {
     requiresClosingCredits: true,
     sample: 'recommended',
     digitalNarration: 'partner-dependent',
-    notes: 'Apple Books audiobook delivery is handled through preferred distribution partners; partner-specific rules remain authoritative.'
+    notes: 'Apple Books audiobook delivery is handled through preferred distribution partners; partner-specific audio, metadata, and digital-narration eligibility rules remain authoritative.'
   },
   'w3c-audiobook-2020': {
     id: 'w3c-audiobook-2020',
