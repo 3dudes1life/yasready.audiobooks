@@ -124,6 +124,34 @@ export class ElevenLabsProvider extends AudioProvider {
     };
   }
 
+  async subscriptionPreflight() {
+    try {
+      const subscription = await this.getSubscription();
+      return {
+        available: true,
+        safeToContinue: true,
+        subscription,
+        tier: subscription?.tier ?? subscription?.plan ?? subscription?.subscription?.tier ?? null,
+        status: subscription?.status ?? subscription?.subscription?.status ?? null,
+        reason: null
+      };
+    } catch (error) {
+      const status = Number(error?.status ?? 0);
+      const permissionStatus = error?.detail?.detail?.status ?? error?.detail?.status ?? null;
+      if ([401, 403].includes(status) && permissionStatus === 'missing_permissions') {
+        return {
+          available: false,
+          safeToContinue: true,
+          subscription: null,
+          tier: null,
+          status: 'unavailable',
+          reason: 'subscription-check-unavailable-missing-user-read'
+        };
+      }
+      throw error;
+    }
+  }
+
   async searchVoices({
     search = null, language = 'en', locale = null, accent = null, gender = null, age = null,
     category = 'professional', useCases = null, descriptives = null, minNoticePeriodDays = 180,
@@ -316,6 +344,12 @@ export class ElevenLabsProvider extends AudioProvider {
       const detail = await errorPayload(response);
       const providerCode = extractProviderCode(detail);
       const requestId = response.headers?.get?.('request-id') ?? null;
+      if (response.status === 402 && providerCode === 'paid_plan_required') {
+        throw new ElevenLabsApiError(
+          'ElevenLabs Voice Library API rendering requires a paid plan. Upgrade the ElevenLabs subscription or choose a voice available to the current plan. This provider rejection is non-retryable.',
+          { status: response.status, providerCode, detail, requestId, retryable: false }
+        );
+      }
       throw new ElevenLabsApiError(`ElevenLabs render failed (${response.status})${detail ? `: ${typeof detail === 'string' ? detail : JSON.stringify(detail)}` : ''}`, {
         status: response.status, providerCode, detail, requestId
       });

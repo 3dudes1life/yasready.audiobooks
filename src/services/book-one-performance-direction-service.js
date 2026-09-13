@@ -473,7 +473,8 @@ export function renderPerformanceDirectionReviewHtml(plan, result) {
 <h1>Performance Direction</h1>
 <div class="sub">Same Book One material. Same voice. Different direction. This round is about shaping performance — not searching the catalog again.</div>
 <div class="learn"><b>Human taste signal</b><div class="chips" id="signals"></div></div>
-<div class="toolbar"><button id="export" class="primary">Export Direction Feedback</button><button id="clear" class="ghost">Clear Local Feedback</button></div>
+<div class="toolbar"><button id="export" class="primary">Download Direction Feedback</button><button id="copyExport" class="ghost">Copy Feedback JSON</button><button id="clear" class="ghost">Clear Local Feedback</button></div>
+<div id="exportStatus" class="source"></div>
 <div id="content"></div>
 <div class="foot">Your explicit notes and ratings are the learning signal. YasReady does not infer orientation, ethnicity, identity, or biometric similarity from the audio. No production generation or cast lock occurs here.</div>
 <script>
@@ -503,7 +504,10 @@ for(const vid of voiceIds){
  } content.append(section)
 }
 document.getElementById('clear').onclick=()=>{if(confirm('Clear all local direction feedback?')){localStorage.removeItem(key);location.reload()}};
-document.getElementById('export').onclick=()=>{feedback.exportedAt=new Date().toISOString();const blob=new Blob([JSON.stringify(feedback,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='performance-direction-feedback.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)};
+function feedbackPayload(){feedback.exportedAt=new Date().toISOString();save();return JSON.stringify(feedback,null,2)}
+const exportStatus=document.getElementById('exportStatus');
+document.getElementById('copyExport').onclick=async()=>{try{await navigator.clipboard.writeText(feedbackPayload());exportStatus.textContent='Copied feedback JSON. If Safari suppresses a download, paste this into performance-direction-feedback.json.'}catch{exportStatus.textContent='Clipboard was blocked. Use Download Direction Feedback.'}};
+document.getElementById('export').onclick=async()=>{const text=feedbackPayload();try{if(window.showSaveFilePicker){const h=await window.showSaveFilePicker({suggestedName:'performance-direction-feedback.json',types:[{description:'JSON',accept:{'application/json':['.json']}}]});const w=await h.createWritable();await w.write(text);await w.close();exportStatus.textContent='Saved performance-direction-feedback.json successfully.';return}}catch(e){if(e?.name==='AbortError'){exportStatus.textContent='Save cancelled.';return}}const blob=new Blob([text],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='performance-direction-feedback.json';a.style.display='none';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000);exportStatus.textContent='Download requested. Check Downloads. If Safari suppresses it, use Copy Feedback JSON.'};
 </script></main></body></html>`;
 }
 
@@ -523,7 +527,13 @@ export async function renderPerformanceDirectionRound({
   if (cap < plan.cost.suggestedMaxUsd) throw new Error(`--max-usd must be at least $${plan.cost.suggestedMaxUsd.toFixed(2)}`);
   if (cap > PERFORMANCE_DIRECTION_HARD_CEILING_USD) throw new Error(`--max-usd cannot exceed $${PERFORMANCE_DIRECTION_HARD_CEILING_USD.toFixed(2)} for a direction round`);
 
-  if (typeof provider.getSubscription === 'function') {
+  if (typeof provider.subscriptionPreflight === 'function') {
+    const entitlement = await provider.subscriptionPreflight();
+    const tier = clean(entitlement?.tier ?? entitlement?.subscription?.tier).toLowerCase();
+    if (entitlement?.available && tier === 'free') {
+      throw new Error('ElevenLabs Voice Library API auditions require a paid subscription. Account tier is Free. No audio was generated and no spend occurred.');
+    }
+  } else if (typeof provider.getSubscription === 'function') {
     const subscription = await provider.getSubscription();
     const tier = clean(subscription?.tier ?? subscription?.plan ?? subscription?.subscription?.tier).toLowerCase();
     if (tier === 'free') {

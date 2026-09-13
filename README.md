@@ -2,7 +2,7 @@
 
 Professional audiobook production infrastructure for YasReady Publishing.
 
-**Current build: 0.14.3.8 — Performance Direction & Human Taste Learning**
+**Current build: 0.14.3.9 — Production Readiness Gate & Operator UX Hardening**
 
 YasReady Audiobooks is being developed as a standalone service first so audiobook experimentation cannot destabilize YasReady Publishing. The product goal is professional long-form audiobook production with strong continuity, human approval gates, cost protection, quality control, mastering and retailer-ready packaging.
 
@@ -47,6 +47,7 @@ YasReady Audiobooks is being developed as a standalone service first so audioboo
 - 0.14.3.6 Real Script Auditions & Human Feedback Loop — explicit plan/token/max-spend audition gate, canonical five-script narrator audition rendering, local human rating board, structured feedback export, and Book One canon cleanup
 - 0.14.3.7 Audition Spend Precision Hotfix — protected audition maxima always ceil to an operator-spendable cent so displayed approval amounts and guard validation can never disagree
 - 0.14.3.8 Performance Direction & Human Taste Learning — real audition feedback drives v3 direction variants, explicit human taste profile, provider subscription preflight, and zero-identity-inference learning
+- 0.14.3.9 Production Readiness Gate & Operator UX Hardening — selects a real contiguous 60–90 second manuscript scene, proves the human-winning narrator/direction under a one-call spend gate, requires PASS before narrator production lock, hardens feedback export, and safely degrades missing user_read subscription checks
 ## Book One Superman
 
 Run a real manuscript without spending on voice generation:

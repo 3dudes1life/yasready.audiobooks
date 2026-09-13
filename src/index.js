@@ -15,6 +15,7 @@ export * from './services/casting-launch-service.js';
 export * from './services/book-one-casting-discovery-service.js';
 export * from './services/book-one-real-audition-service.js';
 export * from './services/book-one-performance-direction-service.js';
+export * from './services/book-one-production-readiness-service.js';
 export * from './services/audiobook-director-service.js';
 export * from './assets/asset-manifest.js';
 export * from './bible/normalization.js';

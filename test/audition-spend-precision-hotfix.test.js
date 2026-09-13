@@ -55,8 +55,8 @@ function discoveryFixture() {
   };
 }
 
-test('0.14.3.8 is current application provenance', () => {
-  assert.equal(YASREADY_AUDIOBOOKS_VERSION, '0.14.3.8');
+test('0.14.3.9 is current application provenance', () => {
+  assert.equal(YASREADY_AUDIOBOOKS_VERSION,'0.14.3.9');
 });
 
 test('protected audition maximum always rounds UP to a spendable cent', async () => {

@@ -41,3 +41,5 @@
 - ✅ 0.14.3.8 Performance Direction & Human Taste Learning
 - ⏭️ 0.14.x Book One audition approval / Casting Room execution
 - ⏭️ 1.0.0 YasReady Audiobooks
+
+- ✅ 0.14.3.9 Production Readiness Gate & Operator UX Hardening

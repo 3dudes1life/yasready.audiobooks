@@ -28,7 +28,14 @@ import {
   renderPerformanceDirectionPlanMarkdown,
   renderPerformanceDirectionRound,
   summarizePerformanceDirectionFeedback,
-  renderPerformanceDirectionLearningMarkdown
+  renderPerformanceDirectionLearningMarkdown,
+  extractManuscriptFile,
+  analyzeManuscript,
+  buildProductionReadinessPlan,
+  renderProductionReadinessPlanMarkdown,
+  renderProductionReadinessSample,
+  finalizeProductionReadiness,
+  renderProductionReadinessFinalizationMarkdown
 } from './index.js';
 import { YASREADY_AUDIOBOOKS_VERSION } from './release.js';
 
@@ -867,6 +874,147 @@ async function runPerformanceDirectionLearn() {
   }, null, 2));
 }
 
+async function writeProductionReadinessPlanReports(plan, outDir) {
+  const resolved = path.resolve(outDir);
+  await mkdir(resolved, { recursive: true });
+  const files = {
+    json: path.join(resolved, 'production-readiness-plan.json'),
+    markdown: path.join(resolved, 'production-readiness-plan.md'),
+    confirmation: path.join(resolved, 'production-readiness-confirmation.txt')
+  };
+  await Promise.all([
+    writeFile(files.json, JSON.stringify(plan, null, 2)),
+    writeFile(files.markdown, renderProductionReadinessPlanMarkdown(plan)),
+    writeFile(files.confirmation, `${plan.confirmation.token}
+Suggested max USD: ${plan.cost.suggestedMaxUsd.toFixed(2)}
+`)
+  ]);
+  return files;
+}
+
+async function runProductionReadinessPlan() {
+  const learningPath = args[1];
+  const manuscriptPath = flagValue('--manuscript');
+  const out = flagValue('--out');
+  if (!learningPath || !manuscriptPath || !out) {
+    console.error('Usage: node src/cli.js casting-readiness-plan <performance-direction-learning-summary.json> --manuscript <book.docx|epub|txt> --out DIR [--model eleven_v3]');
+    process.exitCode = 2;
+    return;
+  }
+  const learningSummary = JSON.parse(await readFile(path.resolve(learningPath), 'utf8'));
+  const analysis = analyzeManuscript(extractManuscriptFile(path.resolve(manuscriptPath)));
+  const provider = new ElevenLabsProvider();
+  const plan = await buildProductionReadinessPlan({
+    learningSummary,
+    analysis,
+    estimator: provider.estimateCost.bind(provider),
+    model: flagValue('--model', 'eleven_v3')
+  });
+  const files = await writeProductionReadinessPlanReports(plan, out);
+  console.log(JSON.stringify({
+    version: VERSION,
+    productionReadinessPlan: plan.status,
+    narrator: plan.learning.candidateName,
+    voiceId: plan.learning.providerVoiceId,
+    direction: plan.learning.preferredDirectionLabel,
+    chapter: plan.sample.chapterTitle,
+    scene: plan.sample.sceneOrder,
+    sampleWords: plan.sample.wordCount,
+    estimatedSecondsAt155Wpm: plan.sample.estimatedSecondsAt155Wpm,
+    detectedSpeakers: plan.sample.speakerNames,
+    generationCallsPerformed: 0,
+    estimatedGenerationCallsIfApproved: 1,
+    estimatedUsd: plan.cost.estimateUsd,
+    protectedMaxUsd: plan.cost.suggestedMaxUsd,
+    confirmationToken: plan.confirmation.token,
+    productionArmed: false,
+    narratorProductionLockCreated: false,
+    nextAction: `Review ${files.markdown}. Render only the readiness sample with --approve-spend ${plan.confirmation.token} --max-usd ${plan.cost.suggestedMaxUsd.toFixed(2)}.`,
+    files
+  }, null, 2));
+}
+
+async function runProductionReadinessRender() {
+  const planPath = args[1];
+  const out = flagValue('--out');
+  const approvalToken = flagValue('--approve-spend');
+  const maxUsd = flagValue('--max-usd');
+  if (!planPath || !out || !approvalToken || maxUsd === null) {
+    console.error('Usage: node src/cli.js casting-readiness-render <production-readiness-plan.json> --out DIR --approve-spend TOKEN --max-usd USD');
+    process.exitCode = 2;
+    return;
+  }
+  const plan = JSON.parse(await readFile(path.resolve(planPath), 'utf8'));
+  const provider = new ElevenLabsProvider();
+  const result = await renderProductionReadinessSample({
+    plan,
+    provider,
+    outDir: out,
+    approvalToken,
+    maxUsd: Number(maxUsd)
+  });
+  console.log(JSON.stringify({
+    version: VERSION,
+    productionReadiness: result.status,
+    narrator: result.narrator.candidateName,
+    direction: result.narrator.preferredDirectionLabel,
+    providerGenerationCalls: result.providerGenerationCalls,
+    productionGenerationCalls: result.productionGenerationCalls,
+    narratorProductionLockCreated: result.narratorProductionLockCreated,
+    fullBookGenerationArmed: result.fullBookGenerationArmed,
+    capturedOrEstimatedBilledUsd: result.cost.capturedUsd,
+    approvedMaxUsd: result.cost.maxUsd,
+    subscriptionPreflight: result.subscriptionPreflight,
+    reviewBoard: path.join(path.resolve(out), 'production-readiness-review.html'),
+    nextAction: 'Open production-readiness-review.html and choose PASS / NEEDS TUNING / FAIL. Export feedback. Full-book production remains unarmed.'
+  }, null, 2));
+}
+
+async function runProductionReadinessFinalize() {
+  const feedbackPath = args[1];
+  const planPath = flagValue('--plan');
+  const out = flagValue('--out');
+  if (!feedbackPath || !planPath || !out) {
+    console.error('Usage: node src/cli.js casting-readiness-finalize <production-readiness-feedback.json> --plan <production-readiness-plan.json> --out DIR');
+    process.exitCode = 2;
+    return;
+  }
+  const [feedback, plan] = await Promise.all([
+    readFile(path.resolve(feedbackPath), 'utf8').then(JSON.parse),
+    readFile(path.resolve(planPath), 'utf8').then(JSON.parse)
+  ]);
+  const result = finalizeProductionReadiness({ plan, feedback });
+  const resolved = path.resolve(out);
+  await mkdir(resolved, { recursive: true });
+  const files = {
+    json: path.join(resolved, 'production-readiness-finalization.json'),
+    markdown: path.join(resolved, 'production-readiness-finalization.md'),
+    narratorLock: result.narratorProductionLock ? path.join(resolved, 'narrator-production-lock.json') : null,
+    performanceProfile: result.narratorProductionLock ? path.join(resolved, 'production-performance-profile.json') : null
+  };
+  const writes = [
+    writeFile(files.json, JSON.stringify(result, null, 2)),
+    writeFile(files.markdown, renderProductionReadinessFinalizationMarkdown(result))
+  ];
+  if (result.narratorProductionLock) {
+    writes.push(writeFile(files.narratorLock, JSON.stringify(result.narratorProductionLock, null, 2)));
+    writes.push(writeFile(files.performanceProfile, JSON.stringify(result.narratorProductionLock.performanceProfile, null, 2)));
+  }
+  await Promise.all(writes);
+  console.log(JSON.stringify({
+    version: VERSION,
+    productionReadinessFinalization: result.status,
+    decision: result.decision,
+    narratorProductionLockCreated: result.narratorProductionLockCreated,
+    productionArmed: result.productionArmed,
+    fullBookGenerationArmed: result.fullBookGenerationArmed,
+    narrator: result.narratorProductionLock?.narrator ?? null,
+    performanceProfile: result.narratorProductionLock?.performanceProfile ?? null,
+    nextAction: result.nextAction,
+    files
+  }, null, 2));
+}
+
 async function runMoneyGuardFixture() {
   const store = new InMemoryStore();
   const ledger = new CostLedger();
@@ -967,6 +1115,12 @@ if (args[0] === 'analyze') {
   await runPerformanceDirectionRender();
 } else if (args[0] === 'casting-performance-learn') {
   await runPerformanceDirectionLearn();
+} else if (args[0] === 'casting-readiness-plan') {
+  await runProductionReadinessPlan();
+} else if (args[0] === 'casting-readiness-render') {
+  await runProductionReadinessRender();
+} else if (args[0] === 'casting-readiness-finalize') {
+  await runProductionReadinessFinalize();
 } else if (args[0] === 'money-guard-fixture') {
   await runMoneyGuardFixture();
 } else {
@@ -995,6 +1149,9 @@ if (args[0] === 'analyze') {
     performanceDirectionPlanCommand: 'node src/cli.js casting-performance-plan <real-audition-plan.json> --feedback <real-audition-feedback.json> --out <directory>',
     performanceDirectionRenderCommand: 'node src/cli.js casting-performance-render <performance-direction-plan.json> --approve-spend <token> --max-usd <usd> --out <directory>',
     performanceDirectionLearnCommand: 'node src/cli.js casting-performance-learn <performance-direction-feedback.json> --plan <performance-direction-plan.json> --out <directory>',
+    productionReadinessPlanCommand: 'node src/cli.js casting-readiness-plan <performance-direction-learning-summary.json> --manuscript <book.docx> --out <directory>',
+    productionReadinessRenderCommand: 'node src/cli.js casting-readiness-render <production-readiness-plan.json> --approve-spend <token> --max-usd <usd> --out <directory>',
+    productionReadinessFinalizeCommand: 'node src/cli.js casting-readiness-finalize <production-readiness-feedback.json> --plan <production-readiness-plan.json> --out <directory>',
     seriesContinuitySeedCommand: 'node src/cli.js series-continuity-seed <book-one-audio-bible-prep.json> [--existing <series-continuity.json>] --out <directory>',
     seriesContinuityCompareCommand: 'node src/cli.js series-continuity-compare <series-continuity.json> <next-book-audio-bible-prep.json>',
     seriesRelationshipLockCommand: 'node src/cli.js series-continuity-lock-group <series-continuity.json> --members key1,key2,key3 --kind partner --out <file>',

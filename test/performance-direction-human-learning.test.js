@@ -76,7 +76,7 @@ function fakeProvider({ tier='creator' }={}) {
   };
 }
 
-test('0.14.3.8 is current application provenance',()=>assert.equal(YASREADY_AUDIOBOOKS_VERSION,'0.14.3.8'));
+test('0.14.3.9 is current application provenance',()=>assert.equal(YASREADY_AUDIOBOOKS_VERSION,'0.14.3.9'));
 
 test('real human notes become delivery signals without identity inference', async()=>{
   const plan=await sourcePlan();
@@ -153,7 +153,8 @@ test('creator-tier approved round renders 20 clips and writes human review board
   await stat(path.join(out,'performance-direction-review.html'));
   const html=await readFile(path.join(out,'performance-direction-review.html'),'utf8');
   assert.match(html,/Same Book One material/);
-  assert.match(html,/Export Direction Feedback/);
+  assert.match(html,/Download Direction Feedback/);
+  assert.match(html,/Copy Feedback JSON/);
   assert.doesNotMatch(html,/ELEVENLABS_API_KEY/i);
 });
 
