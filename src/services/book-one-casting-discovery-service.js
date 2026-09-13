@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { normalizeVoiceProfile, scoreSeriesSafety } from '../casting/voice-profile.js';
+import { scoreCharacterBiographyFit } from '../casting/character-biography.js';
 import { YASREADY_AUDIOBOOKS_VERSION } from '../release.js';
 
 const freeze = (value) => Object.freeze(value);
@@ -341,19 +342,33 @@ function compactVoice(voice) {
   });
 }
 
-function candidateScore(voice, target) {
+function candidateScore(voice, target, biography = null) {
   const safety = scoreSeriesSafety(voice, { desiredLanguage: 'en' });
   const fit = scoreBookOneCastingFit(voice, target);
   const culturalFit = scoreBookOneCulturalFit(voice, target);
-  const combined = culturalFit.applicable
-    ? Number((safety.score * 0.25 + fit.score * 0.55 + culturalFit.score * 0.20).toFixed(1))
-    : Number((safety.score * 0.35 + fit.score * 0.65).toFixed(1));
+  const biographyFit = scoreCharacterBiographyFit(voice, biography);
+  let combined;
+  if (biographyFit.applicable && culturalFit.applicable) {
+    combined = Number((safety.score * 0.20 + fit.score * 0.35 + culturalFit.score * 0.25 + biographyFit.score * 0.20).toFixed(1));
+  } else if (biographyFit.applicable) {
+    combined = Number((safety.score * 0.25 + fit.score * 0.50 + biographyFit.score * 0.25).toFixed(1));
+  } else if (culturalFit.applicable) {
+    combined = Number((safety.score * 0.25 + fit.score * 0.55 + culturalFit.score * 0.20).toFixed(1));
+  } else {
+    combined = Number((safety.score * 0.35 + fit.score * 0.65).toFixed(1));
+  }
   const strengths = [...safety.reasons];
   if (fit.matchedKeywords.length) strengths.push(`casting-fit metadata: ${fit.matchedKeywords.join(', ')}`);
   if (culturalFit.matchedSignals.length) strengths.push(`explicit cultural/regional metadata: ${culturalFit.matchedSignals.join(', ')}`);
-  const concerns = [...safety.warnings, ...fit.stretchFlags.map((row) => row.note), ...culturalFit.flags.map((row) => row.note)];
+  if (biographyFit.matchedTerms?.length) strengths.push(`full-book biography match: ${biographyFit.matchedTerms.join(', ')}`);
+  const concerns = [
+    ...safety.warnings,
+    ...fit.stretchFlags.map((row) => row.note),
+    ...culturalFit.flags.map((row) => row.note),
+    ...(biographyFit.concerns ?? [])
+  ];
   if (!fit.matchedKeywords.length) concerns.push('limited role-specific descriptive metadata; audition matters more than metadata fit');
-  return freeze({ voice, safety, fit, culturalFit, combined, strengths: freeze(strengths), concerns: freeze(concerns) });
+  return freeze({ voice, safety, fit, culturalFit, biographyFit, combined, strengths: freeze(strengths), concerns: freeze(concerns) });
 }
 
 function meetsBookOneDiscoveryPolicy(raw) {
@@ -417,6 +432,7 @@ function buildDistinctiveness(shortlists) {
 function recommendationFor(candidate, rank, auditionTop) {
   if (candidate.fit.hardMismatch || candidate.fit.score < 72) return 'PASS';
   if (candidate.culturalFit?.requiredForAudition && !candidate.culturalFit.requirementMet) return 'ALTERNATE';
+  if (candidate.biographyFit?.preferredAuditionRequirement && !candidate.biographyFit.requirementMet) return 'ALTERNATE';
   if (rank <= auditionTop && candidate.fit.score >= 84) return 'AUDITION';
   return 'ALTERNATE';
 }
@@ -430,11 +446,13 @@ function leaderAdjustedScore(candidate, leaders) {
   return candidate.combined - penalty;
 }
 
-function chooseUniqueShortlists(waveOne, voices, { perRole = 6, auditionTop = 3 } = {}) {
+function chooseUniqueShortlists(waveOne, voices, { perRole = 6, auditionTop = 3, characterBiographies = null } = {}) {
+  const biographyByCharacter = new Map((characterBiographies?.profiles ?? []).map((row) => [row.character, row]));
   const ranked = new Map();
   for (const target of waveOne) {
+    const biography = biographyByCharacter.get(target.canonicalName) ?? null;
     ranked.set(target.canonicalName, voices
-      .map((voice) => candidateScore(voice, target))
+      .map((voice) => candidateScore(voice, target, biography))
       .sort((a, b) => b.combined - a.combined || b.fit.score - a.fit.score || b.safety.score - a.safety.score || a.voice.name.localeCompare(b.voice.name)));
   }
   const used = new Set();
@@ -684,6 +702,7 @@ function compactShortlists(shortlists, prep, launch) {
         seriesSafety: candidate.safety,
         roleFit: candidate.fit,
         culturalFit: candidate.culturalFit,
+        biographyFit: candidate.biographyFit,
         combinedScore: candidate.combined,
         strengths: candidate.strengths,
         concerns: candidate.concerns
@@ -724,6 +743,7 @@ export function renderCastingDiscoveryMarkdown(discovery) {
         `   - Series safety: ${candidate.seriesSafety.score}/100 (${candidate.seriesSafety.grade})`,
         `   - Role fit: ${candidate.roleFit.score}/100 (${candidate.roleFit.grade ?? 'ungraded'})`,
         ...(candidate.culturalFit?.applicable ? [`   - Cultural fit: ${candidate.culturalFit.score}/100 (${candidate.culturalFit.requirementMet ? 'metadata signal satisfied' : 'explicit signal missing'})`] : []),
+        ...(candidate.biographyFit?.applicable ? [`   - Full-book biography fit: ${candidate.biographyFit.score}/100 (${candidate.biographyFit.requirementMet ? 'preferred evidence target met' : 'preferred evidence target missing'})`] : []),
         `   - Accent / age / gender: ${v.accent ?? 'not listed'} / ${v.age ?? 'not listed'} / ${v.gender ?? 'not listed'}`,
         `   - Notice protection: ${v.noticePeriodDays} day(s)`,
         `   - Use case: ${v.useCase ?? 'not listed'}`,
@@ -774,6 +794,7 @@ export function renderCastingReviewBoardHtml(discovery) {
     book: discovery.book,
     shortlists: discovery.shortlists,
     auditionSamples: discovery.auditionSamples,
+    characterBiographies: discovery.characterBiographies,
     auditionCost: discovery.auditionCost,
     guardrails: discovery.guardrails
   };
@@ -793,7 +814,7 @@ export function renderCastingReviewBoardHtml(discovery) {
 .toolbar{position:sticky;top:0;z-index:5;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(20px);padding:12px 0;border-bottom:1px solid var(--line);display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 button{font:inherit;border:0;border-radius:999px;padding:10px 14px;cursor:pointer}.primary{background:var(--accent);color:white;font-weight:700}.ghost{background:var(--card);color:var(--text);border:1px solid var(--line)}
 .summary{margin-left:auto;color:var(--muted);font-size:14px}.role{margin-top:42px}.role h2{font-size:30px;letter-spacing:-.03em;margin-bottom:5px}.intent{color:var(--muted);margin-bottom:7px}.context{color:var(--muted);font-size:13px;line-height:1.45;max-width:860px;margin-bottom:18px;padding:10px 12px;border-left:3px solid var(--accent);background:var(--card);border-radius:0 12px 12px 0}
-.scripts{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:14px 0 20px}.script{padding:14px;background:var(--card);border:1px solid var(--line);border-radius:18px}.script b{display:block;font-size:13px;margin-bottom:6px}.script p{font-size:13px;color:var(--muted);margin:0;line-height:1.4}
+.bio{padding:15px 16px;background:var(--card);border:1px solid var(--line);border-radius:18px;margin:12px 0 18px}.bio b{display:block;font-size:13px;margin-bottom:5px}.bio p{font-size:13px;color:var(--muted);line-height:1.45;margin:4px 0}.bio .evidence{font-size:12px}.scripts{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:14px 0 20px}.script{padding:14px;background:var(--card);border:1px solid var(--line);border-radius:18px}.script b{display:block;font-size:13px;margin-bottom:6px}.script p{font-size:13px;color:var(--muted);margin:0;line-height:1.4}
 .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.card{background:var(--card);border:1px solid var(--line);border-radius:24px;padding:18px;box-shadow:0 8px 30px rgba(0,0,0,.04)}.topline{display:flex;gap:10px;justify-content:space-between;align-items:flex-start}.rank{font-size:12px;color:var(--muted);font-weight:700}.name{font-size:21px;font-weight:750;letter-spacing:-.02em;margin:3px 0}.rec{font-size:12px;font-weight:800;padding:6px 9px;border-radius:999px;background:var(--bg)}
 .meta{display:flex;gap:7px;flex-wrap:wrap;margin:10px 0}.meta span{font-size:12px;padding:5px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}audio{width:100%;margin:9px 0 12px}.scores{display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:8px}.score{padding:9px;border-radius:14px;background:var(--bg);font-size:12px}.score strong{display:block;font-size:18px}
 .concerns{font-size:12px;color:var(--maybe);margin:9px 0;line-height:1.4}.decisions{display:flex;gap:7px;margin-top:12px}.decision{flex:1;background:var(--bg);color:var(--text);border:1px solid var(--line);font-weight:700}.decision.active.keep{background:var(--good);color:#fff}.decision.active.maybe{background:var(--maybe);color:#fff}.decision.active.pass{background:var(--bad);color:#fff}
@@ -817,6 +838,7 @@ try{decisions=JSON.parse(localStorage.getItem(storageKey)||'{}')}catch{}
 const roleRoot=document.getElementById('roles');
 document.querySelector('.sub').textContent=DISCOVERY.book.title+' — listen first, then mark Keep, Maybe, or Pass. YasReady recommendations are metadata guidance, not a substitute for your ears.';
 const samples=new Map((DISCOVERY.auditionSamples?.samples||[]).map(x=>[x.character,x]));
+const biographies=new Map((DISCOVERY.characterBiographies?.profiles||[]).map(x=>[x.character,x]));
 function save(){localStorage.setItem(storageKey,JSON.stringify(decisions));updateSummary()}
 function updateSummary(){
  const values=Object.values(decisions).map(x=>x.decision).filter(Boolean);
@@ -827,6 +849,15 @@ function el(tag,cls,text){const n=document.createElement(tag);if(cls)n.className
 for(const role of DISCOVERY.shortlists){
  const section=el('section','role'); section.append(el('h2','',role.character)); section.append(el('div','intent',role.intent.label));
  if(role.intent.characterContext)section.append(el('div','context',role.intent.characterContext));
+ const bio=biographies.get(role.character);
+ if(bio&&bio.status!=='NOT_APPLICABLE'){
+   const box=el('div','bio');box.append(el('b','','Full-book casting biography'));
+   box.append(el('p','',bio.castingProfile?.summary||'No strong manuscript-supported casting cues found.'));
+   if(bio.castingProfile?.regionalFlavor)box.append(el('p','', 'Voice target: '+bio.castingProfile.regionalFlavor.label));
+   const ev=(bio.evidence||[]).slice(0,5).map(x=>x.label+' ('+x.confidenceLabel+')').join(' • ');
+   if(ev)box.append(el('p','evidence','Evidence: '+ev));
+   section.append(box);
+ }
  const scriptRow=el('div','scripts');
  for(const script of samples.get(role.character)?.scripts||[]){
    const box=el('div','script'); box.append(el('b','',script.label)); box.append(el('p','',script.text)); scriptRow.append(box);
@@ -844,10 +875,13 @@ for(const role of DISCOVERY.shortlists){
    if(c.voice.previewUrl){const audio=document.createElement('audio');audio.controls=true;audio.preload='none';audio.src=c.voice.previewUrl;card.append(audio)}
    const scores=el('div','scores');
    const scoreRows=[['Overall',c.combinedScore],['Role fit',c.roleFit.score],['Safety',c.seriesSafety.score]];
-   if(c.culturalFit?.applicable)scoreRows.splice(2,0,['Cultural fit',c.culturalFit.score]);
+   let insertAt=2;
+   if(c.culturalFit?.applicable){scoreRows.splice(insertAt,0,['Cultural fit',c.culturalFit.score]);insertAt+=1}
+   if(c.biographyFit?.applicable)scoreRows.splice(insertAt,0,['Book fit',c.biographyFit.score]);
    for(const [label,value] of scoreRows){const s=el('div','score');s.append(el('strong','',value));s.append(document.createTextNode(label));scores.append(s)}
    card.append(scores);
    if(c.culturalFit?.applicable){const policy=el('div','concerns','Cultural fit uses explicit provider catalog metadata only — never the voice sound or name. '+(c.culturalFit.requirementMet?'Relevant signal found.':'Required signal not found.'));card.append(policy)}
+   if(c.biographyFit?.applicable&&c.biographyFit.preferredAuditionRequirement){const policy=el('div','concerns','Full-book voice target: '+(c.biographyFit.requirementMet?'preferred regional/background metadata found.':'preferred regional/background metadata not found; shown as an alternate rather than auto-audition.'));card.append(policy)}
    if(c.concerns?.length)card.append(el('div','concerns',c.concerns.slice(0,3).join(' • ')));
    const buttons=el('div','decisions');
    for(const choice of ['keep','maybe','pass']){const b=el('button','decision '+choice,choice[0].toUpperCase()+choice.slice(1));b.onclick=()=>{decisions[c.id]={...(decisions[c.id]||{}),candidateId:c.id,character:role.character,voiceId:c.voice.providerVoiceId,voiceName:c.voice.name,decision:choice};save();paint(card,c.id)};buttons.append(b)}
@@ -860,7 +894,7 @@ for(const role of DISCOVERY.shortlists){
 function paint(card,id){const d=decisions[id]?.decision;for(const b of card.querySelectorAll('.decision'))b.classList.toggle('active',b.classList.contains(d))}
 document.getElementById('clear').onclick=()=>{if(confirm('Clear every local Keep / Maybe / Pass decision?')){decisions={};save();for(const card of document.querySelectorAll('.card'))paint(card,card.dataset.id);for(const t of document.querySelectorAll('textarea'))t.value=''}};
 document.getElementById('export').onclick=()=>{
- const rows=DISCOVERY.shortlists.flatMap(role=>role.candidates.map(c=>({role,c}))).map(({role,c})=>({...decisions[c.id],candidateId:c.id,character:role.character,voiceId:c.voice.providerVoiceId,voiceName:c.voice.name,yasReadyRecommendation:c.recommendation,roleFit:c.roleFit.score,culturalFit:c.culturalFit?.applicable?c.culturalFit.score:null,culturalRequirementMet:c.culturalFit?.requirementMet??true,seriesSafety:c.seriesSafety.score})).filter(x=>x.decision||x.notes);
+ const rows=DISCOVERY.shortlists.flatMap(role=>role.candidates.map(c=>({role,c}))).map(({role,c})=>({...decisions[c.id],candidateId:c.id,character:role.character,voiceId:c.voice.providerVoiceId,voiceName:c.voice.name,yasReadyRecommendation:c.recommendation,roleFit:c.roleFit.score,culturalFit:c.culturalFit?.applicable?c.culturalFit.score:null,culturalRequirementMet:c.culturalFit?.requirementMet??true,biographyFit:c.biographyFit?.applicable?c.biographyFit.score:null,biographyRequirementMet:c.biographyFit?.requirementMet??true,seriesSafety:c.seriesSafety.score})).filter(x=>x.decision||x.notes);
  const auditionCandidateIds=rows.filter(x=>x.decision==='keep'||x.decision==='maybe').map(x=>x.candidateId);
  const payload={schemaVersion:1,release:DISCOVERY.release,artifactFingerprint:DISCOVERY.artifactFingerprint,book:DISCOVERY.book,exportedAt:new Date().toISOString(),decisions:rows,auditionCandidateIds,armed:false,moneyGuardApprovalRequiredBeforeRendering:true};
  const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='casting-review-decisions.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
@@ -870,14 +904,14 @@ updateSummary();
 }
 
 export function renderCastingDiscoveryCsv(discovery) {
-  const header = ['character', 'rank', 'recommendation', 'candidate_id', 'character_id', 'provider', 'voice_name', 'voice_id', 'combined_score', 'series_safety_score', 'series_safety_grade', 'role_fit_score', 'cultural_fit_score', 'cultural_requirement_met', 'accent', 'age', 'gender', 'use_case', 'notice_days', 'preview_url', 'candidate_status', 'audition_status', 'operator_decision', 'notes'];
+  const header = ['character', 'rank', 'recommendation', 'candidate_id', 'character_id', 'provider', 'voice_name', 'voice_id', 'combined_score', 'series_safety_score', 'series_safety_grade', 'role_fit_score', 'cultural_fit_score', 'cultural_requirement_met', 'biography_fit_score', 'biography_requirement_met', 'accent', 'age', 'gender', 'use_case', 'notice_days', 'preview_url', 'candidate_status', 'audition_status', 'operator_decision', 'notes'];
   const lines = [header.map(csvCell).join(',')];
   for (const row of discovery.shortlists) for (const candidate of row.candidates) {
     const v = candidate.voice;
     lines.push([
       row.character, candidate.rank, candidate.recommendation, candidate.id, candidate.characterId,
       v.provider, v.name, v.providerVoiceId, candidate.combinedScore, candidate.seriesSafety.score,
-      candidate.seriesSafety.grade, candidate.roleFit.score, candidate.culturalFit?.applicable ? candidate.culturalFit.score : '', candidate.culturalFit?.requirementMet ?? true, v.accent, v.age, v.gender, v.useCase,
+      candidate.seriesSafety.grade, candidate.roleFit.score, candidate.culturalFit?.applicable ? candidate.culturalFit.score : '', candidate.culturalFit?.requirementMet ?? true, candidate.biographyFit?.applicable ? candidate.biographyFit.score : '', candidate.biographyFit?.requirementMet ?? true, v.accent, v.age, v.gender, v.useCase,
       v.noticePeriodDays, v.previewUrl, candidate.candidateStatus, candidate.auditionStatus, '', ''
     ].map(csvCell).join(','));
   }
@@ -894,7 +928,7 @@ export function renderAuditionScriptsCsv(discovery) {
 }
 
 export class BookOneCastingDiscoveryService {
-  async build({ launch, prep, voices, auditionSamples = null, costEstimator = null, perRole = 6, auditionTop = 3, model = 'eleven_multilingual_v2', catalogCallsPerformed = 0, catalogProvider = 'provided-pool', catalogQueryMode = 'provided-pool', providerFiltersApplied = null, anonymousFallbackUsed = false, anonymousPageSizeCap = null, catalogAuthRecommended = false, rawCatalogVoices = null, supplementalSearchesPerformed = [] } = {}) {
+  async build({ launch, prep, voices, auditionSamples = null, costEstimator = null, perRole = 6, auditionTop = 3, model = 'eleven_multilingual_v2', catalogCallsPerformed = 0, catalogProvider = 'provided-pool', catalogQueryMode = 'provided-pool', providerFiltersApplied = null, anonymousFallbackUsed = false, anonymousPageSizeCap = null, catalogAuthRecommended = false, rawCatalogVoices = null, supplementalSearchesPerformed = [], characterBiographies = null } = {}) {
     const { waveOne } = assertArtifacts(launch, prep);
     const perRoleCount = clamp(Math.trunc(Number(perRole) || 6), 1, 8);
     const auditionCount = clamp(Math.trunc(Number(auditionTop) || 3), 1, perRoleCount);
@@ -908,7 +942,7 @@ export class BookOneCastingDiscoveryService {
       seen.add(key);
       uniquePool.push(voice);
     }
-    const rawShortlists = chooseUniqueShortlists(waveOne, uniquePool, { perRole: perRoleCount, auditionTop: auditionCount });
+    const rawShortlists = chooseUniqueShortlists(waveOne, uniquePool, { perRole: perRoleCount, auditionTop: auditionCount, characterBiographies });
     const shortlists = freeze(compactShortlists(rawShortlists, prep, launch));
     const totalNeeded = waveOne.length * perRoleCount;
     const totalStaged = shortlists.reduce((sum, row) => sum + row.candidates.length, 0);
@@ -928,6 +962,7 @@ export class BookOneCastingDiscoveryService {
       prepDigest: prep.audioBible.digest,
       voices: shortlists.flatMap((row) => row.candidates.map((candidate) => [row.character, candidate.voice.provider, candidate.voice.providerVoiceId])),
       sampleHash: auditionSamples ? sha256(JSON.stringify(auditionSamples.samples)) : null,
+      biographyHash: characterBiographies ? sha256(JSON.stringify(characterBiographies.profiles)) : null,
       model
     }));
     const discovery = freeze({
@@ -966,11 +1001,13 @@ export class BookOneCastingDiscoveryService {
         filters: freeze({ language: 'en', category: 'professional/high_quality', minNoticePeriodDays: 180, includeCustomRates: false, includeLiveModerated: false, sort: 'trending' }),
         localSafetyPolicyEnforced: true,
         supplementalSearchesPerformed: freeze([...(supplementalSearchesPerformed ?? [])]),
-        culturalFitSource: 'explicit-provider-catalog-metadata-only'
+        culturalFitSource: 'explicit-provider-catalog-metadata-only',
+        biographyFitSource: characterBiographies ? 'full-manuscript-evidence-plus-provider-metadata' : 'not-supplied'
       }),
       shortlists,
       distinctiveness,
       auditionSamples,
+      characterBiographies,
       auditionCost,
       auditionPlanPreview: freeze({
         status: sourceReady && totalStaged >= totalNeeded && rolesWithoutAudition.length === 0 ? 'READY_TO_REQUEST_ARMING' : 'NOT_READY',
@@ -989,6 +1026,9 @@ export class BookOneCastingDiscoveryService {
         culturalIdentityInferredFromAudio: false,
         culturalIdentityInferredFromVoiceName: false,
         JuanExplicitCulturalMetadataRequiredForAutoAudition: true,
+        fullManuscriptBiographyUsedForCasting: Boolean(characterBiographies),
+        biographyIdentityInferenceFromName: false,
+        biographyIdentityInferenceFromAudio: false,
         paidProviderCallsPerformed: 0,
         generationCallsPerformed: 0,
         auditionRenderingArmed: false,
@@ -1018,7 +1058,7 @@ export class BookOneCastingDiscoveryService {
   }
 
   async discoverFromProvider({
-    launch, prep, provider, auditionSamples = null, perRole = 6, auditionTop = 3,
+    launch, prep, provider, auditionSamples = null, characterBiographies = null, perRole = 6, auditionTop = 3,
     model = 'eleven_multilingual_v2', maxPages = 3, anonymousPageLimit = 30, pageSize = 100
   } = {}) {
     if (!provider || typeof provider.searchVoices !== 'function') throw new Error('Casting Candidate Discovery requires a provider with searchVoices()');
@@ -1092,16 +1132,24 @@ export class BookOneCastingDiscoveryService {
     if (provider.apiKey && !anonymousPublicOnly) {
       const searches = [];
       const searchSeen = new Set();
+      const biographyByCharacter = new Map((characterBiographies?.profiles ?? []).map((row) => [row.character, row]));
       for (const target of waveOne) {
         for (const term of roleIntent(target).cultural?.searchTerms ?? []) {
           const key = lower(term);
           if (!key || searchSeen.has(key)) continue;
           searchSeen.add(key);
-          searches.push({ character: target.canonicalName, term });
+          searches.push({ character: target.canonicalName, term, source: 'character-cultural-profile' });
+        }
+        const biographyTerms = biographyByCharacter.get(target.canonicalName)?.castingProfile?.searchTerms ?? [];
+        for (const term of biographyTerms.slice(0, 4)) {
+          const key = lower(term);
+          if (!key || searchSeen.has(key) || searches.length >= 12) continue;
+          searchSeen.add(key);
+          searches.push({ character: target.canonicalName, term, source: 'full-manuscript-biography' });
         }
       }
 
-      for (const searchSpec of searches) {
+      for (const searchSpec of searches.slice(0, 12)) {
         const result = await provider.searchVoices({
           search: searchSpec.term,
           language: 'en',
@@ -1119,6 +1167,7 @@ export class BookOneCastingDiscoveryService {
         supplementalSearchesPerformed.push(freeze({
           character: searchSpec.character,
           term: searchSpec.term,
+          source: searchSpec.source,
           voicesReturned: (result.voices ?? []).length
         }));
         for (const raw of result.voices ?? []) {
@@ -1148,7 +1197,8 @@ export class BookOneCastingDiscoveryService {
       anonymousPageSizeCap,
       catalogAuthRecommended,
       rawCatalogVoices: rawVoicesSeen,
-      supplementalSearchesPerformed
+      supplementalSearchesPerformed,
+      characterBiographies
     });
   }
 }

@@ -7,6 +7,8 @@ import {
   buildCastingLaunchFixture,
   BookOneCastingDiscoveryService,
   buildAuditionSamplePackFromPrepRun,
+  buildCharacterCastingBiographiesFromPrepRun,
+  renderCharacterCastingBiographiesMarkdown,
   buildCastingDiscoveryFixture,
   ElevenLabsProvider,
   ExternalBookSupermanService,
@@ -473,6 +475,8 @@ async function writeCastingDiscoveryReports(result, outDir) {
     shortlist: path.join(resolved, 'casting-shortlist.csv'),
     scripts: path.join(resolved, 'audition-scripts.csv'),
     auditionPreview: path.join(resolved, 'audition-plan-preview.json'),
+    biographies: path.join(resolved, 'character-casting-biographies.json'),
+    biographiesMarkdown: path.join(resolved, 'character-casting-biographies.md'),
     reviewBoard: path.join(resolved, 'casting-review.html')
   };
   await Promise.all([
@@ -481,6 +485,8 @@ async function writeCastingDiscoveryReports(result, outDir) {
     writeFile(files.shortlist, result.shortlistCsv),
     writeFile(files.scripts, result.scriptsCsv),
     writeFile(files.auditionPreview, JSON.stringify(result.discovery.auditionPlanPreview, null, 2)),
+    writeFile(files.biographies, JSON.stringify(result.discovery.characterBiographies ?? { status: 'not-supplied' }, null, 2)),
+    writeFile(files.biographiesMarkdown, result.discovery.characterBiographies ? renderCharacterCastingBiographiesMarkdown(result.discovery.characterBiographies) : '# Character Casting Biographies\n\nNo manuscript-derived biography was supplied for this run.\n'),
     writeFile(files.reviewBoard, result.reviewBoardHtml)
   ]);
   return files;
@@ -514,6 +520,7 @@ async function runCastingDiscovery({ fixture = false } = {}) {
       readFile(path.resolve(prepPath), 'utf8').then(JSON.parse)
     ]);
     let auditionSamples = null;
+    let characterBiographies = null;
     const manuscriptPath = flagValue('--manuscript');
     if (manuscriptPath) {
       const sampleStore = new InMemoryStore();
@@ -523,6 +530,7 @@ async function runCastingDiscovery({ fixture = false } = {}) {
         model: flagValue('--model', 'eleven_multilingual_v2')
       });
       auditionSamples = buildAuditionSamplePackFromPrepRun(freshPrep, launch);
+      characterBiographies = buildCharacterCastingBiographiesFromPrepRun(freshPrep, launch);
     }
     const model = flagValue('--model', 'eleven_multilingual_v2');
     const perRole = Number(flagValue('--per-role', 6));
@@ -534,7 +542,7 @@ async function runCastingDiscovery({ fixture = false } = {}) {
       if (!Array.isArray(voices)) throw new Error('--voice-pool must contain a JSON array or {"voices": [...]}');
       const provider = new ElevenLabsProvider();
       result = await service.build({
-        launch, prep, voices, auditionSamples,
+        launch, prep, voices, auditionSamples, characterBiographies,
         costEstimator: provider.estimateCost.bind(provider),
         perRole, auditionTop, model,
         catalogCallsPerformed: 0,
@@ -543,7 +551,7 @@ async function runCastingDiscovery({ fixture = false } = {}) {
     } else {
       const provider = new ElevenLabsProvider();
       result = await service.discoverFromProvider({
-        launch, prep, provider, auditionSamples, perRole, auditionTop, model,
+        launch, prep, provider, auditionSamples, characterBiographies, perRole, auditionTop, model,
         maxPages: Number(flagValue('--pages', 3)),
         anonymousPageLimit: Number(flagValue('--anonymous-pages', 30)),
         pageSize: Number(flagValue('--page-size', 100))
@@ -573,6 +581,7 @@ async function runCastingDiscovery({ fixture = false } = {}) {
     })),
     distinctiveness: result.discovery.distinctiveness.status,
     auditionSamples: result.discovery.auditionSamples?.status ?? 'not-provided',
+    characterBiographies: result.discovery.characterBiographies ? 'FULL_MANUSCRIPT' : 'not-provided',
     recommendedAuditionUsd: result.discovery.auditionCost.recommendedAuditionUsd,
     fullShortlistUsd: result.discovery.auditionCost.fullShortlistUsd,
     paidProviderCallsPerformed: result.discovery.guardrails.paidProviderCallsPerformed,
