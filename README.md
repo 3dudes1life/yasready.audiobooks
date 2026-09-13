@@ -2,7 +2,7 @@
 
 Professional audiobook production infrastructure for YasReady Publishing.
 
-**Current build: 0.14.3.6 — Real Script Auditions & Human Feedback Loop**
+**Current build: 0.14.3.7 — Audition Spend Precision Hotfix**
 
 YasReady Audiobooks is being developed as a standalone service first so audiobook experimentation cannot destabilize YasReady Publishing. The product goal is professional long-form audiobook production with strong continuity, human approval gates, cost protection, quality control, mastering and retailer-ready packaging.
 
@@ -45,6 +45,7 @@ YasReady Audiobooks is being developed as a standalone service first so audioboo
 - 0.14.3.4 Single Narrator Casting Pivot — defaults Book One to one young, strong Southern California Latino American narrator; character intelligence becomes performance direction; legacy multicast requires --multicast\n
 - 0.14.3.5 Human Taste Calibration & Narrator Search Refinement — metadata-calibrated human taste score, young US-English shortlist hard gates, refined Latino narrator search, and operator-review feedback export
 - 0.14.3.6 Real Script Auditions & Human Feedback Loop — explicit plan/token/max-spend audition gate, canonical five-script narrator audition rendering, local human rating board, structured feedback export, and Book One canon cleanup
+- 0.14.3.7 Audition Spend Precision Hotfix — protected audition maxima always ceil to an operator-spendable cent so displayed approval amounts and guard validation can never disagree
 ## Book One Superman
 
 Run a real manuscript without spending on voice generation:

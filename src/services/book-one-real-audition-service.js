@@ -6,6 +6,11 @@ import { YASREADY_AUDIOBOOKS_VERSION } from '../release.js';
 
 const freeze = (value) => Object.freeze(value);
 const round = (value) => Number(Number(value ?? 0).toFixed(6));
+const ceilMoneyToCent = (value) => {
+  const amount = Number(value ?? 0);
+  if (!Number.isFinite(amount) || amount < 0) throw new Error('money amount must be a non-negative finite number');
+  return Number((Math.ceil((amount - Number.EPSILON) * 100) / 100).toFixed(2));
+};
 const AUDITION_HARD_CEILING_USD = 5;
 
 function clean(value) {
@@ -188,7 +193,10 @@ export async function buildRealAuditionPlan({
 
   estimateTotal = round(estimateTotal);
   const reserveUsd = round(Math.max(0.02, estimateTotal * 0.25));
-  const suggestedMaxUsd = round(estimateTotal + reserveUsd);
+  // The operator must be able to type the exact currency value YasReady displays.
+  // Never round a protected spend maximum downward: ceiling the raw protected
+  // amount to the next cent before fingerprinting, displaying, or validating it.
+  const suggestedMaxUsd = ceilMoneyToCent(estimateTotal + reserveUsd);
   if (suggestedMaxUsd > AUDITION_HARD_CEILING_USD) {
     throw new Error(`Audition plan exceeds the $${AUDITION_HARD_CEILING_USD.toFixed(2)} hard audition ceiling`);
   }
@@ -213,6 +221,7 @@ export async function buildRealAuditionPlan({
       estimateUsd: estimateTotal,
       reserveUsd,
       suggestedMaxUsd,
+      roundingPolicy: 'protected-max-ceil-to-cent',
       hardCeilingUsd: AUDITION_HARD_CEILING_USD,
       estimatedCharacters: renderItems.reduce((sum, row) => sum + Number(row.characters ?? 0), 0),
       estimatedGenerationCalls: renderItems.length

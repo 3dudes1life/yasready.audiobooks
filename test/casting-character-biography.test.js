@@ -69,8 +69,8 @@ function voice(overrides = {}) {
   };
 }
 
-test('0.14.3.6 is current application provenance', () => {
-  assert.equal(YASREADY_AUDIOBOOKS_VERSION, '0.14.3.6');
+test('0.14.3.7 is current application provenance', () => {
+  assert.equal(YASREADY_AUDIOBOOKS_VERSION, '0.14.3.7');
 });
 
 test('full-manuscript biography discovers Michael Oklahoma + farm evidence and derives mild country target', () => {

@@ -70,8 +70,8 @@ function biographyPrepFixture() {
   };
 }
 
-test('0.14.3.6 is current application provenance', () => {
-  assert.equal(YASREADY_AUDIOBOOKS_VERSION, '0.14.3.6');
+test('0.14.3.7 is current application provenance', () => {
+  assert.equal(YASREADY_AUDIOBOOKS_VERSION, '0.14.3.7');
 });
 
 test('travel and conversation locations do not become character origin/residence truth', () => {

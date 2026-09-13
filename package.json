@@ -1,9 +1,9 @@
 {
   "name": "@yasready/audiobooks",
-  "version": "0.14.3.6",
+  "version": "0.14.3.7",
   "private": true,
   "type": "module",
-  "description": "YasReady Audiobooks Real Script Auditions & Human Feedback Loop, Single Narrator Casting, Production, QA, Mastering and Distribution",
+  "description": "YasReady Audiobooks Audition Spend Precision Hotfix, Real Script Auditions, Human Feedback Loop, Single Narrator Casting, Production, QA, Mastering and Distribution",
   "engines": {
     "node": ">=20"
   },
@@ -35,6 +35,7 @@
     "casting:truth-preview:fixture": "node --test test/casting-truth-preview-integrity.test.js",
     "casting:single-narrator:fixture": "node --test test/single-narrator-casting-pivot.test.js",
     "casting:taste:fixture": "node --test test/human-taste-narrator-refinement.test.js",
-    "casting:real-audition:fixture": "node --test test/real-script-audition-feedback.test.js"
+    "casting:real-audition:fixture": "node --test test/real-script-audition-feedback.test.js",
+    "casting:audition-spend-precision:fixture": "node --test test/audition-spend-precision-hotfix.test.js"
   }
 }
