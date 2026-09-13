@@ -28,8 +28,8 @@ function baseVoice(overrides = {}) {
   };
 }
 
-test('0.14.3.18.1 is current application provenance', () => {
-  assert.equal(YASREADY_AUDIOBOOKS_VERSION,'0.14.3.18.1');
+test('0.14.3.18.2 is current application provenance', () => {
+  assert.equal(YASREADY_AUDIOBOOKS_VERSION,'0.14.3.18.2');
 });
 
 test('Juan requires explicit Latino or Latin-American catalog metadata for auto-audition', () => {

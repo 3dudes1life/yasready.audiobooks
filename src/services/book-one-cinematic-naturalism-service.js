@@ -17,7 +17,7 @@ export const BOOK_ONE_CINEMATIC_ARCHIVE_PROFILE = 'archive-wav-2026';
 export const BOOK_ONE_CINEMATIC_MP3_PROFILE = 'acx-2026';
 export const BOOK_ONE_CINEMATIC_PROFILE_ID = 'cinematic-naturalism-a-v1';
 export const BOOK_ONE_CINEMATIC_ALLOWED_PLAN_RELEASES = Object.freeze([
-  '0.14.3.13', '0.14.3.14', '0.14.3.14.1', '0.14.3.14.2', '0.14.3.15', '0.14.3.16', '0.14.3.17', '0.14.3.18', '0.14.3.18.1'
+  '0.14.3.13', '0.14.3.14', '0.14.3.14.1', '0.14.3.14.2', '0.14.3.15', '0.14.3.16', '0.14.3.17', '0.14.3.18', '0.14.3.18.1', '0.14.3.18.2'
 ]);
 
 const PROVIDER_SETTLED = new Set([
@@ -209,8 +209,13 @@ export function compileCinematicNaturalismScene(segments = [], lock) {
 
   const canonicalText = directed.map((row) => row.canonicalText).join('\n');
   const providerText = directed.map((row) => row.providerText).join('\n');
-  const stripped = directed.map((row) => row.providerText.replace(/^\[[^\]]+\]\s*/, '')).join('\n');
-  if (stripped !== canonicalText) throw new Error('Cinematic Naturalism direction changed canonical manuscript text');
+  const reconstructedCanonicalText = directed.map((row) => {
+    if (!row.cue) return row.providerText;
+    const insertedCuePrefix = `[${row.cue}] `;
+    if (!row.providerText.startsWith(insertedCuePrefix)) throw new Error('Cinematic Naturalism provider cue prefix drifted');
+    return row.providerText.slice(insertedCuePrefix.length);
+  }).join('\n');
+  if (reconstructedCanonicalText !== canonicalText) throw new Error('Cinematic Naturalism direction changed canonical manuscript text');
   return freeze({
     canonicalText,
     providerText,

@@ -4,7 +4,7 @@ import { YASREADY_AUDIOBOOKS_VERSION } from '../release.js';
 import { sha256, stableJson } from '../core/hash.js';
 import { evaluateMasterAgainstProfile } from '../mastering/profiles.js';
 
-export const BOOK_ONE_VOICE_DEPTH_ACCEPTED_PILOT_RELEASES = Object.freeze(['0.14.3.14.1', '0.14.3.14.2', '0.14.3.15', '0.14.3.16', '0.14.3.17', '0.14.3.18', '0.14.3.18.1']);
+export const BOOK_ONE_VOICE_DEPTH_ACCEPTED_PILOT_RELEASES = Object.freeze(['0.14.3.14.1', '0.14.3.14.2', '0.14.3.15', '0.14.3.16', '0.14.3.17', '0.14.3.18', '0.14.3.18.1', '0.14.3.18.2']);
 export const BOOK_ONE_VOICE_DEPTH_MASTERING_PROFILE = 'acx-2026';
 export const BOOK_ONE_VOICE_DEPTH_SEMITONES = -0.5;
 export const BOOK_ONE_VOICE_DEPTH_PITCH_FACTOR = Number((2 ** (BOOK_ONE_VOICE_DEPTH_SEMITONES / 12)).toFixed(9));

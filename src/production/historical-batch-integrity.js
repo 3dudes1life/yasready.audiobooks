@@ -1,6 +1,6 @@
 import { sha256, stableJson } from '../core/hash.js';
 
-export const BOOK_ONE_HISTORICAL_BATCH_RELEASES = Object.freeze(['0.14.3.16', '0.14.3.17', '0.14.3.18', '0.14.3.18.1']);
+export const BOOK_ONE_HISTORICAL_BATCH_RELEASES = Object.freeze(['0.14.3.16', '0.14.3.17', '0.14.3.18', '0.14.3.18.1', '0.14.3.18.2']);
 
 export function historicalBatchArmCore(arm) {
   return {

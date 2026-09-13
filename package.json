@@ -1,9 +1,9 @@
 {
   "name": "@yasready/audiobooks",
-  "version": "0.14.3.18.1",
+  "version": "0.14.3.18.2",
   "private": true,
   "type": "module",
-  "description": "YasReady Audiobooks Cinematic Naturalism Lock & Batch One Rebuild with sub-millisecond historical QA reconciliation, preserved originals, quota-bounded regeneration, Direct Edition foundation, live production console, QA, Mastering and Distribution",
+  "description": "YasReady Audiobooks Cinematic Naturalism canonical-text guard hardening, Batch One cinematic rebuild, historical QA reconciliation, Direct Edition foundation, live production console, QA, Mastering and Distribution",
   "engines": {
     "node": ">=20"
   },

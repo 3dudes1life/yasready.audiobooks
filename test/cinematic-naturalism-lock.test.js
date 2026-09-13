@@ -36,7 +36,7 @@ function plan(){return buildBookOneProductionPlan({paceCeilingFinalization:final
 function finishLock(){const p=plan();const core={schemaVersion:1,release:'0.14.3.14.2',artifact:'book-one-local-voice-finish-lock',status:'LOCKED_FOR_PRODUCTION_PLANNING_ONLY',sourcePilotRenderDigest:'pilot-render',narrator:{provider:'elevenlabs',providerVoiceId:p.productionRecipe.providerVoiceId,narratorName:p.productionRecipe.narratorName},performanceUnchanged:true,providerVoiceSettingsUnchanged:p.productionRecipe.providerVoiceSettings,paceProfileUnchanged:p.productionRecipe.paceProfile,selectedVariant:{id:'warm-slightly-deeper',label:'Warm + Slightly Deeper',kind:'local-tone-and-pitch',eq:{bodyHz:180,bodyDb:1.2,presenceHz:3000,presenceDb:-1.6,airHz:5200,airDb:-0.8},semitones:-.5,pitchFactor:.971531941,durationCompensation:1.029302237,formantPreservationClaimed:false},productionArmed:false,fullBookGenerationArmed:false};return{...core,finishDigest:sha256(stableJson(core))};}
 function recipe(){return buildBookOneProductionRecipeLock({productionPlan:plan(),localVoiceFinishLock:finishLock()});}
 
-test('0.14.3.18.1 is current application provenance',()=>assert.equal(YASREADY_AUDIOBOOKS_VERSION,'0.14.3.18.1'));
+test('0.14.3.18.2 is current application provenance',()=>assert.equal(YASREADY_AUDIOBOOKS_VERSION,'0.14.3.18.2'));
 
 test('human-selected A is locked and +2 is explicitly rejected',()=>{
   const lock=buildBookOneCinematicNaturalismLock({productionPlan:plan(),recipeLock:recipe()});
@@ -58,6 +58,24 @@ test('Cinematic Naturalism preserves canonical words and adds only restrained ea
   assert.ok(compiled.cues.every(c=>lock.rules.allowedProviderCues.includes(c.cue)));
   for(let i=1;i<compiled.cues.length;i++) assert.ok(compiled.cues[i].index-compiled.cues[i-1].index>=2);
   assert.equal(compiled.providerText.replace(/^\[[^\]]+\]\s*/gm,''),compiled.canonicalText);
+});
+
+
+test('canonical guard preserves legitimate manuscript bracket prefixes and strips only cues YasReady inserted',()=>{
+  const p=plan(),r=recipe(),lock=buildBookOneCinematicNaturalismLock({productionPlan:p,recipeLock:r});
+  const segments=[
+    {order:0,paragraphIndex:0,kind:'narration',text:'[Text message] Meet me downstairs when you are ready.',speakerCandidate:null},
+    {order:1,paragraphIndex:1,kind:'dialogue',text:'“Fine,” Juan teased with a grin.',speakerCandidate:'Juan'},
+    {order:2,paragraphIndex:2,kind:'narration',text:'[Later that night] Michael hesitated in the doorway.',speakerCandidate:null}
+  ];
+  const compiled=compileCinematicNaturalismScene(segments,lock);
+  assert.equal(compiled.canonicalText,segments.map(s=>s.text).join('\n'));
+  assert.ok(compiled.providerText.includes('[Text message] Meet me downstairs when you are ready.'));
+  assert.ok(compiled.providerText.includes('[Later that night] Michael hesitated in the doorway.'));
+  for(const row of compiled.segments){
+    if(row.cue) assert.equal(row.providerText.slice(`[${row.cue}] `.length),row.canonicalText);
+    else assert.equal(row.providerText,row.canonicalText);
+  }
 });
 
 test('ten-chapter cinematic target is deterministic and uses the A lock in every generation digest',()=>{

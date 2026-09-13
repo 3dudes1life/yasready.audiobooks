@@ -143,8 +143,8 @@ function analysisFixture() {
   };
 }
 
-test('0.14.3.18.1 is current application provenance', () => {
-  assert.equal(YASREADY_AUDIOBOOKS_VERSION, '0.14.3.18.1');
+test('0.14.3.18.2 is current application provenance', () => {
+  assert.equal(YASREADY_AUDIOBOOKS_VERSION, '0.14.3.18.2');
 });
 
 test('locked Ryan production recipe validates without arming production', () => {
@@ -237,7 +237,7 @@ test('markdown and budget CSV are operator-readable and preserve no-arm state', 
   });
   const markdown = renderBookOneProductionPlanMarkdown(plan);
   const csv = renderBookOneProductionBudgetCsv(plan);
-  assert.match(markdown, /0\.14\.3\.18\.1 cannot generate production audio/i);
+  assert.match(markdown, /0\.14\.3\.18\.2 cannot generate production audio/i);
   assert.match(markdown, /Ryan Kurk - Pleasant and Smooth/);
   assert.match(markdown, /Deep Controlled Emotion/);
   assert.match(markdown, /Full-book generation armed:\*\* NO/i);
