@@ -21,6 +21,7 @@ export * from './services/book-one-emotional-lift-service.js';
 export * from './services/book-one-pace-ceiling-service.js';
 export * from './services/book-one-production-plan-service.js';
 export * from './services/book-one-production-pilot-service.js';
+export * from './services/book-one-voice-depth-calibration-service.js';
 export * from './services/audiobook-director-service.js';
 export * from './assets/asset-manifest.js';
 export * from './bible/normalization.js';

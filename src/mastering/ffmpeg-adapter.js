@@ -160,6 +160,23 @@ export class FfmpegAdapter {
     });
   }
 
+  async voiceDepth(inputPath, outputPath, { mode = 'warm-detinned' } = {}) {
+    if (!inputPath || !outputPath) throw new Error('voiceDepth requires inputPath and outputPath');
+    if (!['warm-detinned', 'warm-slightly-deeper'].includes(mode)) throw new Error(`unknown voiceDepth mode: ${mode}`);
+    const eq = 'equalizer=f=180:t=q:w=1:g=1.2,equalizer=f=3000:t=q:w=1.2:g=-1.6,equalizer=f=5200:t=q:w=1:g=-0.8';
+    const semitones = mode === 'warm-slightly-deeper' ? -0.5 : 0;
+    const pitchFactor = semitones ? Number((2 ** (semitones / 12)).toFixed(9)) : 1;
+    const durationCompensation = semitones ? Number((1 / pitchFactor).toFixed(9)) : 1;
+    const filter = semitones
+      ? `asetrate=44100*${pitchFactor.toFixed(9)},aresample=44100,atempo=${durationCompensation.toFixed(9)},${eq}`
+      : eq;
+    await this.execFile(this.ffmpegPath, [
+      '-y', '-hide_banner', '-loglevel', 'error', '-i', inputPath,
+      '-af', filter, '-c:a', 'pcm_s24le', '-ar', '44100', outputPath
+    ], { maxBuffer: 8 * 1024 * 1024 });
+    return freeze({ mode, semitones, pitchFactor, durationCompensation, finishedPacePreserved: true, formantPreservationClaimed: false, filter });
+  }
+
   async master(inputPath, outputPath, profileInput) {
     const profile = getMasteringProfile(profileInput);
     const loudness = profile.loudness ?? {};
