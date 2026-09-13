@@ -28,5 +28,6 @@
 - ✅ 0.14.0 External Book Superman
 - ✅ 0.14.1 Production Provenance & Casting Launch
 - ✅ 0.14.2 Book One Casting Candidate Discovery
+- ✅ 0.14.2.1 Catalog Auth Fallback & Discovery UX Hotfix
 - ⏭️ 0.14.x Book One audition approval / Casting Room execution
 - ⏭️ 1.0.0 YasReady Audiobooks

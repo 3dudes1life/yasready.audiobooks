@@ -542,7 +542,7 @@ async function runCastingDiscovery({ fixture = false } = {}) {
       const provider = new ElevenLabsProvider();
       result = await service.discoverFromProvider({
         launch, prep, provider, auditionSamples, perRole, auditionTop, model,
-        maxPages: Number(flagValue('--pages', 2)),
+        maxPages: Number(flagValue('--pages', 3)),
         pageSize: Number(flagValue('--page-size', 100))
       });
     }
@@ -556,6 +556,9 @@ async function runCastingDiscovery({ fixture = false } = {}) {
     book: result.discovery.book.title,
     catalogProvider: result.discovery.catalog.provider,
     catalogCallsPerformed: result.discovery.catalog.catalogCallsPerformed,
+    catalogQueryMode: result.discovery.catalog.queryMode,
+    anonymousFallbackUsed: result.discovery.catalog.anonymousFallbackUsed,
+    rawCatalogVoicesSeen: result.discovery.catalog.rawVoicesSeen,
     uniqueCatalogVoices: result.discovery.catalog.uniqueVoices,
     perRole: result.discovery.catalog.requestedPerRole,
     shortlists: result.discovery.shortlists.map((row) => ({

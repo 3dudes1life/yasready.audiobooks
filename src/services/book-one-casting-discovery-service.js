@@ -173,6 +173,22 @@ function candidateScore(voice, target) {
   return freeze({ voice, safety, fit, combined, strengths: freeze(strengths), concerns: freeze(concerns) });
 }
 
+function meetsBookOneDiscoveryPolicy(raw) {
+  const voice = normalizedVoice(raw);
+  const category = lower(voice.category);
+  const englishCapable =
+    lower(voice.language) === 'en' ||
+    (voice.verifiedLanguages ?? []).some((row) => lower(row.language) === 'en');
+  return Boolean(
+    voice.providerVoiceId &&
+    englishCapable &&
+    ['professional', 'high_quality'].includes(category) &&
+    Number(voice.noticePeriodDays ?? 0) >= 180 &&
+    !voice.hasCustomRate &&
+    !voice.liveModerationEnabled
+  );
+}
+
 function metadataSignature(voice) {
   const values = [voice.gender, voice.age, voice.accent, voice.useCase, ...(voice.descriptives ?? [])]
     .map(lower).filter(Boolean);
@@ -447,6 +463,8 @@ export function renderCastingDiscoveryMarkdown(discovery) {
     `**Voice catalog:** ${discovery.catalog.provider} (${discovery.catalog.uniqueVoices} unique voice(s))`, '',
     '## Spend state', '',
     `- Catalog metadata calls: ${discovery.catalog.catalogCallsPerformed}`,
+    `- Catalog query mode: ${discovery.catalog.queryMode ?? 'unknown'}`,
+    `- Anonymous fallback used: ${discovery.catalog.anonymousFallbackUsed ? 'YES — safety filters enforced locally' : 'NO'}`,
     '- Paid provider calls: 0',
     '- TTS generation calls: 0',
     '- Paid audition generation armed: NO',
@@ -529,7 +547,7 @@ export function renderAuditionScriptsCsv(discovery) {
 }
 
 export class BookOneCastingDiscoveryService {
-  async build({ launch, prep, voices, auditionSamples = null, costEstimator = null, perRole = 6, auditionTop = 3, model = 'eleven_multilingual_v2', catalogCallsPerformed = 0, catalogProvider = 'provided-pool' } = {}) {
+  async build({ launch, prep, voices, auditionSamples = null, costEstimator = null, perRole = 6, auditionTop = 3, model = 'eleven_multilingual_v2', catalogCallsPerformed = 0, catalogProvider = 'provided-pool', catalogQueryMode = 'provided-pool', providerFiltersApplied = null, anonymousFallbackUsed = false, rawCatalogVoices = null } = {}) {
     const { waveOne } = assertArtifacts(launch, prep);
     const perRoleCount = clamp(Math.trunc(Number(perRole) || 6), 1, 8);
     const auditionCount = clamp(Math.trunc(Number(auditionTop) || 3), 1, perRoleCount);
@@ -586,10 +604,15 @@ export class BookOneCastingDiscoveryService {
       catalog: freeze({
         provider: catalogProvider,
         catalogCallsPerformed: Number(catalogCallsPerformed ?? 0),
+        queryMode: catalogQueryMode,
+        providerFiltersApplied,
+        anonymousFallbackUsed: Boolean(anonymousFallbackUsed),
+        rawVoicesSeen: rawCatalogVoices === null ? uniquePool.length : Number(rawCatalogVoices),
         uniqueVoices: uniquePool.length,
         requestedPerRole: perRoleCount,
         auditionTopPerRole: auditionCount,
-        filters: freeze({ language: 'en', category: 'professional', minNoticePeriodDays: 180, sort: 'trending' })
+        filters: freeze({ language: 'en', category: 'professional/high_quality', minNoticePeriodDays: 180, includeCustomRates: false, includeLiveModerated: false, sort: 'trending' }),
+        localSafetyPolicyEnforced: true
       }),
       shortlists,
       distinctiveness,
@@ -630,12 +653,21 @@ export class BookOneCastingDiscoveryService {
     });
   }
 
-  async discoverFromProvider({ launch, prep, provider, auditionSamples = null, perRole = 6, auditionTop = 3, model = 'eleven_multilingual_v2', maxPages = 2, pageSize = 100 } = {}) {
+  async discoverFromProvider({ launch, prep, provider, auditionSamples = null, perRole = 6, auditionTop = 3, model = 'eleven_multilingual_v2', maxPages = 3, pageSize = 100 } = {}) {
     if (!provider || typeof provider.searchVoices !== 'function') throw new Error('Casting Candidate Discovery requires a provider with searchVoices()');
-    const voices = [];
+    const waveOne = launch?.waves?.find((row) => row.wave === 1)?.targets ?? [];
+    const perRoleCount = clamp(Math.trunc(Number(perRole) || 6), 1, 8);
+    const targetEligibleCount = Math.max(1, waveOne.length * perRoleCount);
+    const eligibleVoices = [];
+    const eligibleSeen = new Set();
+    let rawVoicesSeen = 0;
     let catalogCallsPerformed = 0;
-    const pages = clamp(Math.trunc(Number(maxPages) || 2), 1, 5);
+    let catalogQueryMode = 'provider-filtered';
+    let providerFiltersApplied = true;
+    let anonymousFallbackUsed = false;
+    const pages = clamp(Math.trunc(Number(maxPages) || 3), 1, 5);
     const size = clamp(Math.trunc(Number(pageSize) || 100), 10, 100);
+
     for (let page = 0; page < pages; page += 1) {
       const result = await provider.searchVoices({
         language: 'en',
@@ -648,13 +680,30 @@ export class BookOneCastingDiscoveryService {
         pageSize: size
       });
       catalogCallsPerformed += 1;
-      voices.push(...(result.voices ?? []));
+      catalogQueryMode = result.queryMode ?? catalogQueryMode;
+      providerFiltersApplied = result.providerFiltersApplied ?? providerFiltersApplied;
+      anonymousFallbackUsed = Boolean(anonymousFallbackUsed || result.anonymousFallbackUsed);
+      const rows = result.voices ?? [];
+      rawVoicesSeen += rows.length;
+
+      for (const raw of rows) {
+        if (!meetsBookOneDiscoveryPolicy(raw)) continue;
+        const voice = normalizedVoice(raw);
+        const key = `${voice.provider}:${voice.providerVoiceId}`;
+        if (eligibleSeen.has(key)) continue;
+        eligibleSeen.add(key);
+        eligibleVoices.push(voice);
+      }
+
+      if (eligibleVoices.length >= targetEligibleCount) break;
       if (!result.hasMore) break;
     }
+
     return this.build({
-      launch, prep, voices, auditionSamples,
+      launch, prep, voices: eligibleVoices, auditionSamples,
       costEstimator: typeof provider.estimateCost === 'function' ? provider.estimateCost.bind(provider) : null,
-      perRole, auditionTop, model, catalogCallsPerformed, catalogProvider: provider.name ?? 'elevenlabs'
+      perRole, auditionTop, model, catalogCallsPerformed, catalogProvider: provider.name ?? 'elevenlabs',
+      catalogQueryMode, providerFiltersApplied, anonymousFallbackUsed, rawCatalogVoices: rawVoicesSeen
     });
   }
 }

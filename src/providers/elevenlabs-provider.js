@@ -112,22 +112,68 @@ export class ElevenLabsProvider extends AudioProvider {
     return { ok: response.ok, provider: this.name, status: response.status };
   }
 
-  async searchVoices({ search = null, language = 'en', locale = null, accent = null, gender = null, age = null, category = 'professional', useCases = null, descriptives = null, minNoticePeriodDays = 180, includeCustomRates = false, includeLiveModerated = false, featured = false, sort = 'trending', page = 0, pageSize = 30 } = {}) {
-    const query = cleanQuery({
+  async searchVoices({
+    search = null, language = 'en', locale = null, accent = null, gender = null, age = null,
+    category = 'professional', useCases = null, descriptives = null, minNoticePeriodDays = 180,
+    includeCustomRates = false, includeLiveModerated = false, featured = false, sort = 'trending',
+    page = 0, pageSize = 30, allowAnonymousFallback = true
+  } = {}) {
+    const size = Math.min(100, Math.max(1, Number(pageSize) || 30));
+    const filteredQuery = cleanQuery({
       search, language, locale, accent, gender, age, category,
       use_cases: useCases, descriptives,
       min_notice_period_days: minNoticePeriodDays,
       include_custom_rates: includeCustomRates,
       include_live_moderated: includeLiveModerated,
-      featured, sort, page, page_size: Math.min(100, Math.max(1, Number(pageSize) || 30))
+      featured, sort, page, page_size: size
     });
-    const response = await this.fetch(`${this.baseUrl}/v1/shared-voices?${query}`, { headers: this.headers() });
+    let response = await this.fetch(`${this.baseUrl}/v1/shared-voices?${filteredQuery}`, { headers: this.headers() });
+    let anonymousFallbackUsed = false;
+    let providerFiltersApplied = true;
+    let queryMode = this.apiKey ? 'authenticated-filtered' : 'anonymous-filtered';
+
+    if (!response.ok && response.status === 401 && !this.apiKey && allowAnonymousFallback) {
+      const detail = await errorPayload(response);
+      const providerCode = extractProviderCode(detail);
+      const providerStatus = detail?.detail?.status ?? detail?.status ?? null;
+      const loggedOutFilterGate =
+        ['unauthorized', 'not_logged_in'].includes(String(providerCode ?? '').toLowerCase()) ||
+        String(providerStatus ?? '').toLowerCase() === 'not_logged_in' ||
+        /logged in.*filters|filters.*logged in/i.test(JSON.stringify(detail ?? ''));
+
+      if (loggedOutFilterGate) {
+        const publicQuery = cleanQuery({ page, page_size: size });
+        response = await this.fetch(`${this.baseUrl}/v1/shared-voices?${publicQuery}`, { headers: this.headers() });
+        anonymousFallbackUsed = true;
+        providerFiltersApplied = false;
+        queryMode = 'anonymous-unfiltered';
+
+        if (!response.ok && response.status === 401) {
+          const fallbackDetail = await errorPayload(response);
+          const fallbackCode = extractProviderCode(fallbackDetail);
+          throw new ElevenLabsApiError(
+            'ElevenLabs shared voice catalog requires an ElevenLabs login/API key on this account. Set ELEVENLABS_API_KEY for read-only catalog discovery; this does not render TTS or arm paid generation.',
+            {
+              status: response.status,
+              providerCode: fallbackCode,
+              detail: fallbackDetail,
+              requestId: response.headers?.get?.('request-id') ?? null,
+              retryable: false
+            }
+          );
+        }
+      }
+    }
+
     const data = await jsonOrThrow(response, 'ElevenLabs voice search');
     return {
       voices: (data.voices ?? []).map((voice) => normalizeVoiceProfile(voice, { provider: this.name, source: 'voice-library' })),
       hasMore: Boolean(data.has_more),
       totalCount: data.total_count ?? null,
-      lastSortId: data.last_sort_id ?? null
+      lastSortId: data.last_sort_id ?? null,
+      queryMode,
+      providerFiltersApplied,
+      anonymousFallbackUsed
     };
   }
 

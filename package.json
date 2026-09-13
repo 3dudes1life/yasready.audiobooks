@@ -1,9 +1,9 @@
 {
   "name": "@yasready/audiobooks",
-  "version": "0.14.2",
+  "version": "0.14.2.1",
   "private": true,
   "type": "module",
-  "description": "YasReady Audiobooks Book One Casting Candidate Discovery, Production Provenance, External Book Superman, SaaS Money Guard, Series Continuity, Audio Bible Lock, Production, QA, Mastering and Distribution",
+  "description": "YasReady Audiobooks Catalog Auth Fallback & Discovery UX Hotfix, Book One Casting Candidate Discovery, Production Provenance, External Book Superman, SaaS Money Guard, Production, QA, Mastering and Distribution",
   "engines": {
     "node": ">=20"
   },
@@ -26,6 +26,7 @@
     "casting:fixture": "node --test test/casting-scope-integrity.test.js",
     "external:fixture": "node src/cli.js external-superman-fixture",
     "casting:launch:fixture": "node src/cli.js casting-launch-fixture",
-    "casting:discover:fixture": "node src/cli.js casting-discover-fixture"
+    "casting:discover:fixture": "node src/cli.js casting-discover-fixture",
+    "casting:catalog:fixture": "node --test test/casting-catalog-auth-fallback.test.js"
   }
 }

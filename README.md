@@ -2,7 +2,7 @@
 
 Professional audiobook production infrastructure for YasReady Publishing.
 
-**Current build: 0.14.2 — Book One Casting Candidate Discovery**
+**Current build: 0.14.2.1 — Catalog Auth Fallback & Discovery UX Hotfix**
 
 YasReady Audiobooks is being developed as a standalone service first so audiobook experimentation cannot destabilize YasReady Publishing. The product goal is professional long-form audiobook production with strong continuity, human approval gates, cost protection, quality control, mastering and retailer-ready packaging.
 
@@ -36,6 +36,7 @@ YasReady Audiobooks is being developed as a standalone service first so audioboo
 - 0.14.0 External Book Superman — disables Book One identity assumptions, detects prior-book truth leakage, optionally verifies a distinct source hash, and runs an unrelated book through a zero-spend full-stack wiring probe from Audio Bible through W3C distribution packaging
 - 0.14.1 Production Provenance & Casting Launch — separates current application/artifact release from subsystem engine provenance and converts a locked Book One Audio Bible Prep artifact into a zero-spend, book-scoped Casting Room launch pack
 - 0.14.2 Book One Casting Candidate Discovery — searches the shared professional voice catalog, ranks and uniquely stages Wave 1 candidates, extracts canonical audition samples, previews audition cost, and preserves a hard zero-generation boundary
+- 0.14.2.1 Catalog Auth Fallback & Discovery UX Hotfix — retries logged-out ElevenLabs filtered-catalog failures against the public unfiltered catalog, reapplies all safety filters locally, reports auth mode honestly, and preserves the zero-spend boundary
 
 ## Book One Superman
 
@@ -114,6 +115,11 @@ Zero-spend fixture:
 ```bash
 npm run external:fixture
 ```
+
+
+### ElevenLabs catalog authentication fallback
+
+ElevenLabs may reject filtered shared-catalog browsing for logged-out callers. 0.14.2.1 automatically retries the public catalog without protected server-side filters and reapplies the same English/professional/180-day/no-custom-rate/no-live-moderation policy locally. If ElevenLabs also blocks the public catalog, set `ELEVENLABS_API_KEY` in the shell and rerun. Catalog discovery remains read-only and performs zero TTS generation.
 
 ## SaaS Money Guard
 
