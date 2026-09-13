@@ -2,7 +2,7 @@
 
 Professional audiobook production infrastructure for YasReady Publishing.
 
-**Current build: 0.14.0 — External Book Superman**
+**Current build: 0.14.1 — Production Provenance & Casting Launch**
 
 YasReady Audiobooks is being developed as a standalone service first so audiobook experimentation cannot destabilize YasReady Publishing. The product goal is professional long-form audiobook production with strong continuity, human approval gates, cost protection, quality control, mastering and retailer-ready packaging.
 
@@ -34,6 +34,7 @@ YasReady Audiobooks is being developed as a standalone service first so audioboo
 - 0.13.2 Final SaaS Boundary Closure — enforces canonical project/book ownership through Casting/Director/Production/Review/QA/Mastering, makes Director approval transitive, requires complete exact-run QA coverage, adds safe failed-render recovery, invalidates stale distribution packages, and separates accounted estimates from provider-settled spend
 - 0.13.3 Casting Scope Integrity Closure — fails closed when a character is not actually visible to the requested book/series, requires `bookId` for book-scoped locks, and preserves valid series-Bible inheritance
 - 0.14.0 External Book Superman — disables Book One identity assumptions, detects prior-book truth leakage, optionally verifies a distinct source hash, and runs an unrelated book through a zero-spend full-stack wiring probe from Audio Bible through W3C distribution packaging
+- 0.14.1 Production Provenance & Casting Launch — separates current application/artifact release from subsystem engine provenance and converts a locked Book One Audio Bible Prep artifact into a zero-spend, book-scoped Casting Room launch pack
 
 ## Book One Superman
 
@@ -60,6 +61,17 @@ node src/cli.js audio-bible-prep "/path/to/book_1.docx" --out "$HOME/Desktop/Boo
 ```
 
 The prep pack creates canonical character tiers, safely resolves dialogue, preserves the `book` vs `scene` continuity boundary, and writes local dialogue/pronunciation artifacts. 0.11.8 closes the Audio Bible gate: scene-local and collective dialogue count as resolved without becoming permanent cast entries; deterministic pronunciation defaults are persisted only where an explicit rule is useful; standard names/places remain standard-reading rows with no unnecessary override. When speaker review, pronunciation blockers, and continuity unresolved counts are all zero, the pack emits `AUDIO_BIBLE_LOCKED` and `productionReady: true`. The prep run still performs zero provider calls.
+
+
+## Casting Launch
+
+After Book One emits `AUDIO_BIBLE_LOCKED`, create the zero-spend Casting Room launch pack:
+
+```bash
+node src/cli.js casting-launch "/path/to/book-one-audio-bible-prep.json" --out "$HOME/Desktop/Book-One-Casting-Launch"
+```
+
+0.14.1 launches Narrator + primary characters first, then supporting and later permanent roles. Scene-local extras remain on-demand and outside permanent casting. Candidate discovery and audition planning are allowed, but audition rendering and production remain unarmed until an explicit Money Guard action. Book One locks remain book-scoped until Series Continuity provides a real series ID.
 
 ## Series Continuity
 
@@ -133,9 +145,10 @@ npm run superman:fixture
 npm run boundary:fixture
 npm run closure:fixture
 npm run casting:fixture
+npm run casting:launch:fixture
 node src/cli.js audio-bible-prep <file> --out <directory>
 ```
 
 ## Roadmap
 
-Next: **1.0.0 — YasReady Audiobooks production boundary**, after External Book Superman is proven against a real unrelated manuscript and any 0.14.x cleanup is closed.
+Next: **0.14.x Book One production rehearsal / Casting Room execution**, then **1.0.0 — YasReady Audiobooks production boundary** after real Book One casting/director/production gates are proven.

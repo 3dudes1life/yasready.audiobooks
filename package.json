@@ -1,15 +1,15 @@
 {
   "name": "@yasready/audiobooks",
-  "version": "0.14.0",
+  "version": "0.14.1",
   "private": true,
   "type": "module",
-  "description": "YasReady Audiobooks External Book Superman, Casting Scope Integrity Closure, SaaS Money Guard, Series Continuity, Audio Bible Lock, Production, QA, Mastering and Distribution",
+  "description": "YasReady Audiobooks Production Provenance & Casting Launch, External Book Superman, Casting Scope Integrity Closure, SaaS Money Guard, Series Continuity, Audio Bible Lock, Production, QA, Mastering and Distribution",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
     "test": "node --test",
-    "check": "node --check src/index.js && node --check src/cli.js && node --check src/manuscript/analyzer.js && node --check src/manuscript/extractors.js && node --check src/manuscript/zip-reader.js && node --check src/services/manuscript-service.js && node --check src/bible/normalization.js && node --check src/services/audio-bible-service.js && node --check src/casting/voice-profile.js && node --check src/providers/elevenlabs-provider.js && node --check src/services/casting-room-service.js && node --check src/director/performance-profile.js && node --check src/services/audiobook-director-service.js && node --check src/production/model-limits.js && node --check src/services/production-engine-service.js && node --check src/review/review-model.js && node --check src/services/review-studio-service.js && node --check src/qa/text-diff.js && node --check src/services/continuity-qa-service.js && node --check src/mastering/profiles.js && node --check src/mastering/ffmpeg-adapter.js && node --check src/services/mastering-lab-service.js && node --check src/distribution/profiles.js && node --check src/distribution/w3c-manifest.js && node --check src/services/distribution-brain-service.js && node --check src/ux/operator-flow.js && node --check src/superman/book-one-superman.js && node --check src/services/book-one-superman-service.js && node --check src/audio-bible/book-one-prep.js && node --check src/audio-bible/book-one-intelligence.js && node --check src/services/book-one-audio-bible-prep-service.js && node --check src/continuity/series-continuity.js && node --check src/services/series-continuity-service.js && node --check src/money/money-guard.js && node --check src/services/money-guard-service.js && node --check src/superman/external-book-superman.js && node --check src/services/external-book-superman-service.js",
+    "check": "node --check src/index.js && node --check src/cli.js && node --check src/manuscript/analyzer.js && node --check src/manuscript/extractors.js && node --check src/manuscript/zip-reader.js && node --check src/services/manuscript-service.js && node --check src/bible/normalization.js && node --check src/services/audio-bible-service.js && node --check src/casting/voice-profile.js && node --check src/providers/elevenlabs-provider.js && node --check src/services/casting-room-service.js && node --check src/director/performance-profile.js && node --check src/services/audiobook-director-service.js && node --check src/production/model-limits.js && node --check src/services/production-engine-service.js && node --check src/review/review-model.js && node --check src/services/review-studio-service.js && node --check src/qa/text-diff.js && node --check src/services/continuity-qa-service.js && node --check src/mastering/profiles.js && node --check src/mastering/ffmpeg-adapter.js && node --check src/services/mastering-lab-service.js && node --check src/distribution/profiles.js && node --check src/distribution/w3c-manifest.js && node --check src/services/distribution-brain-service.js && node --check src/ux/operator-flow.js && node --check src/superman/book-one-superman.js && node --check src/services/book-one-superman-service.js && node --check src/audio-bible/book-one-prep.js && node --check src/audio-bible/book-one-intelligence.js && node --check src/services/book-one-audio-bible-prep-service.js && node --check src/continuity/series-continuity.js && node --check src/services/series-continuity-service.js && node --check src/money/money-guard.js && node --check src/services/money-guard-service.js && node --check src/superman/external-book-superman.js && node --check src/services/external-book-superman-service.js && node --check src/release.js && node --check src/services/casting-launch-service.js",
     "demo": "node src/cli.js",
     "analyze": "node src/cli.js analyze",
     "superman": "node src/cli.js superman",
@@ -24,6 +24,7 @@
     "boundary:fixture": "node --test test/saas-boundary-hardening.test.js",
     "closure:fixture": "node --test test/final-saas-boundary-closure.test.js",
     "casting:fixture": "node --test test/casting-scope-integrity.test.js",
-    "external:fixture": "node src/cli.js external-superman-fixture"
+    "external:fixture": "node src/cli.js external-superman-fixture",
+    "casting:launch:fixture": "node src/cli.js casting-launch-fixture"
   }
 }

@@ -13,6 +13,7 @@ import {
 } from '../audio-bible/book-one-prep.js';
 import { buildDialogueIntelligence } from '../audio-bible/book-one-intelligence.js';
 import { BOOK_ONE_PROFILE, canonicalizeSpeakerCandidate } from '../superman/book-one-superman.js';
+import { YASREADY_AUDIOBOOKS_VERSION, BOOK_ONE_AUDIO_BIBLE_PREP_ENGINE_RELEASE, productionProvenance } from '../release.js';
 
 const freeze = (value) => Object.freeze(value);
 
@@ -163,8 +164,14 @@ export class BookOneAudioBiblePrepService {
       continuityUnresolvedDialogue: continuity.unresolvedDialogueSegments
     });
     const prep = freeze({
-      schemaVersion: 7,
-      release: '0.11.8',
+      schemaVersion: 8,
+      release: YASREADY_AUDIOBOOKS_VERSION,
+      provenance: productionProvenance({
+        artifact: 'book-one-audio-bible-prep',
+        prepEngineRelease: BOOK_ONE_AUDIO_BIBLE_PREP_ENGINE_RELEASE,
+        supermanEngineRelease: supermanResult.report.release,
+        sourceHash: ingestResult.analysis.source.sourceHash
+      }),
       status: productionReady ? 'AUDIO_BIBLE_LOCKED' : 'READY_FOR_AUDIO_BIBLE_REVIEW',
       providerCallsPerformed: 0,
       book: freeze({
@@ -177,7 +184,7 @@ export class BookOneAudioBiblePrepService {
         narrativeChapters: supermanResult.report.manuscript.narrativeChapterCount
       }),
       superman: freeze({ status: supermanResult.report.status, score: supermanResult.report.score, engineRelease: supermanResult.report.release }),
-      audioBible: freeze({ id: bible.id, name: bible.name, revision: this.store.get('audio_bible', bible.id).revision, digest: snapshot.digest, locked: productionReady, lockRelease: productionReady ? '0.11.8' : null }),
+      audioBible: freeze({ id: bible.id, name: bible.name, revision: this.store.get('audio_bible', bible.id).revision, digest: snapshot.digest, locked: productionReady, lockRelease: productionReady ? YASREADY_AUDIOBOOKS_VERSION : null, lockEngineRelease: productionReady ? BOOK_ONE_AUDIO_BIBLE_PREP_ENGINE_RELEASE : null }),
       characterPlan,
       sceneLocalRoles: intelligence.sceneLocalRoles ?? freeze([]),
       intelligence: freeze({
@@ -205,7 +212,8 @@ export class BookOneAudioBiblePrepService {
       snapshot,
       lock: freeze({
         status: productionReady ? 'LOCKED' : 'OPEN',
-        release: '0.11.8',
+        release: YASREADY_AUDIOBOOKS_VERSION,
+        engineRelease: BOOK_ONE_AUDIO_BIBLE_PREP_ENGINE_RELEASE,
         speakerReviewOutstanding: review.needsReview,
         pronunciationReviewOutstanding: pronunciationReview.needsConfirmation,
         permanentRoles: characterPlan.length,

@@ -571,6 +571,8 @@ export function renderAudioBiblePrepMarkdown(prep) {
   const lines = [
     '# Book One Audio Bible Prep', '',
     `**Release:** ${prep.release}`,
+    `**Prep Engine:** ${prep.provenance?.prepEngineRelease ?? prep.release}`,
+    `**Superman Engine:** ${prep.provenance?.supermanEngineRelease ?? prep.superman?.engineRelease ?? 'unknown'}`,
     `**Status:** ${prep.status}`,
     `**Book:** ${prep.book.title}`,
     `**Author:** ${prep.book.author ?? 'Not supplied'}`, '',
@@ -581,7 +583,7 @@ export function renderAudioBiblePrepMarkdown(prep) {
     `- ${prep.dialogueReview.autoBound.toLocaleString()} permanent-role/Narrator segment(s) bound into the Audio Bible`,
     `- ${(prep.dialogueReview.sceneLocalResolved ?? 0).toLocaleString()} scene-local segment(s) resolved without creating permanent cast entries`,
     `- ${(prep.dialogueReview.collectiveResolved ?? 0).toLocaleString()} collective dialogue segment(s) resolved without forcing a fake single speaker`,
-    `- ${prep.intelligence?.reviewReduction?.toLocaleString?.() ?? 0} avoidable review chore(s) removed by ${prep.release} context-resolver intelligence`,
+    `- ${prep.intelligence?.reviewReduction?.toLocaleString?.() ?? 0} avoidable review chore(s) removed by ${prep.provenance?.prepEngineRelease ?? prep.release} context-resolver intelligence`,
     `- ${prep.intelligence?.quotedNarrationSegments?.toLocaleString?.() ?? 0} quoted/displayed-text segment(s) routed to Narrator instead of fake speakers`,
     `- ${(prep.intelligence?.provisionalRoles ?? []).length} durable book/series relational role(s) created from explicit context`,
     `- ${prep.dialogueReview.needsReview.toLocaleString()} genuinely ambiguous dialogue line(s) placed in the review CSV`,

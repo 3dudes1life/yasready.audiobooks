@@ -1,3 +1,4 @@
+export * from './release.js';
 export * from './core/hash.js';
 export * from './core/cost-ledger.js';
 export * from './domain/model.js';
@@ -10,6 +11,7 @@ export * from './services/generation-registry.js';
 export * from './services/manuscript-service.js';
 export * from './services/audio-bible-service.js';
 export * from './services/casting-room-service.js';
+export * from './services/casting-launch-service.js';
 export * from './services/audiobook-director-service.js';
 export * from './assets/asset-manifest.js';
 export * from './bible/normalization.js';

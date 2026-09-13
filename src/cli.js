@@ -3,6 +3,8 @@ import path from 'node:path';
 import {
   BookOneAudioBiblePrepService,
   BookOneSupermanService,
+  CastingLaunchService,
+  buildCastingLaunchFixture,
   ExternalBookSupermanService,
   CostLedger,
   GenerationRegistry,
@@ -12,8 +14,9 @@ import {
   SeriesContinuityService,
   MoneyGuardService
 } from './index.js';
+import { YASREADY_AUDIOBOOKS_VERSION } from './release.js';
 
-const VERSION = '0.14.0';
+const VERSION = YASREADY_AUDIOBOOKS_VERSION;
 const args = process.argv.slice(2);
 
 function flagValue(name, fallback = null) {
@@ -405,6 +408,58 @@ async function runAudioBiblePrep() {
   }, null, 2));
 }
 
+async function writeCastingLaunchReports(result, outDir) {
+  const resolved = path.resolve(outDir);
+  await mkdir(resolved, { recursive: true });
+  const files = {
+    json: path.join(resolved, 'casting-launch.json'),
+    markdown: path.join(resolved, 'casting-launch.md'),
+    candidates: path.join(resolved, 'casting-candidates.csv')
+  };
+  await Promise.all([
+    writeFile(files.json, JSON.stringify(result.launch, null, 2)),
+    writeFile(files.markdown, result.markdown),
+    writeFile(files.candidates, result.candidateCsv)
+  ]);
+  return files;
+}
+
+async function runCastingLaunch({ fixture = false } = {}) {
+  let prep;
+  if (fixture) {
+    prep = buildCastingLaunchFixture();
+  } else {
+    const prepPath = args[1];
+    if (!prepPath) {
+      console.error('Usage: node src/cli.js casting-launch <book-one-audio-bible-prep.json> [--out DIR]');
+      process.exitCode = 2;
+      return;
+    }
+    prep = JSON.parse(await readFile(path.resolve(prepPath), 'utf8'));
+  }
+  const result = new CastingLaunchService().build(prep);
+  const out = flagValue('--out');
+  const files = out ? await writeCastingLaunchReports(result, out) : null;
+  console.log(JSON.stringify({
+    version: VERSION,
+    castingLaunch: 'book-one',
+    status: result.launch.status,
+    book: result.launch.book.title,
+    audioBibleLocked: true,
+    targetCount: result.launch.targets.length,
+    waveOne: result.launch.waves.find((row) => row.wave === 1)?.targets.map((row) => row.canonicalName) ?? [],
+    supportingCount: result.launch.targets.filter((row) => row.wave === 2).length,
+    laterCount: result.launch.targets.filter((row) => row.wave === 3).length,
+    sceneLocalExcluded: result.launch.sceneLocalExcluded.length,
+    providerCallsPerformed: result.launch.providerCallsPerformed,
+    auditionRenderingArmed: result.launch.guardrails.auditionRenderingArmed,
+    paidGenerationArmed: result.launch.guardrails.paidGenerationArmed,
+    artifactFingerprint: result.launch.artifactFingerprint,
+    nextAction: result.launch.nextAction,
+    files
+  }, null, 2));
+}
+
 async function runMoneyGuardFixture() {
   const store = new InMemoryStore();
   const ledger = new CostLedger();
@@ -485,6 +540,10 @@ if (args[0] === 'analyze') {
   await runSeriesRelationshipLock({ group: true });
 } else if (args[0] === 'series-continuity-lock-voice') {
   await runSeriesVoiceLock();
+} else if (args[0] === 'casting-launch') {
+  await runCastingLaunch();
+} else if (args[0] === 'casting-launch-fixture') {
+  await runCastingLaunch({ fixture: true });
 } else if (args[0] === 'money-guard-fixture') {
   await runMoneyGuardFixture();
 } else {
@@ -505,6 +564,7 @@ if (args[0] === 'analyze') {
     bookOneSupermanCommand: 'node src/cli.js superman <file> --out <directory>',
     externalBookSupermanCommand: 'node src/cli.js external-superman <unrelated-file> --out <directory>',
     bookOneAudioBiblePrepCommand: 'node src/cli.js audio-bible-prep <file> --out <directory>',
+    castingLaunchCommand: 'node src/cli.js casting-launch <book-one-audio-bible-prep.json> --out <directory>',
     seriesContinuitySeedCommand: 'node src/cli.js series-continuity-seed <book-one-audio-bible-prep.json> [--existing <series-continuity.json>] --out <directory>',
     seriesContinuityCompareCommand: 'node src/cli.js series-continuity-compare <series-continuity.json> <next-book-audio-bible-prep.json>',
     seriesRelationshipLockCommand: 'node src/cli.js series-continuity-lock-group <series-continuity.json> --members key1,key2,key3 --kind partner --out <file>',
@@ -514,7 +574,7 @@ if (args[0] === 'analyze') {
       manuscriptBrain: 'ready', audioBible: 'ready', castingRoom: 'ready', audiobookDirector: 'ready',
       productionEngine: 'ready', reviewStudio: 'ready', continuityQa: 'ready', masteringLab: 'ready',
       distributionBrain: 'ready', operatorFlowAudit: 'ready', bookOneSuperman: 'ready', externalBookSuperman: 'ready',
-      bookOneAudioBiblePrep: 'ready', seriesContinuity: 'ready', moneyGuard: 'ready', finalSaasBoundaryClosure: 'ready'
+      bookOneAudioBiblePrep: 'ready', castingLaunch: 'ready', seriesContinuity: 'ready', moneyGuard: 'ready', finalSaasBoundaryClosure: 'ready'
     },
     distributionProfiles: ['acx-2026', 'spotify-direct-2026', 'apple-partner-2026', 'w3c-audiobook-2020'],
     duplicateProtection: generation.request.fingerprint,
