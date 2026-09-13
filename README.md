@@ -2,7 +2,7 @@
 
 Professional audiobook production infrastructure for YasReady Publishing.
 
-**Current build: 0.14.3.10 — Readiness Tuning Loop**
+**Current build: 0.14.3.11 — Emotional Lift Tuning**
 
 YasReady Audiobooks is being developed as a standalone service first so audiobook experimentation cannot destabilize YasReady Publishing. The product goal is professional long-form audiobook production with strong continuity, human approval gates, cost protection, quality control, mastering and retailer-ready packaging.
 
@@ -49,6 +49,7 @@ YasReady Audiobooks is being developed as a standalone service first so audioboo
 - 0.14.3.8 Performance Direction & Human Taste Learning — real audition feedback drives v3 direction variants, explicit human taste profile, provider subscription preflight, and zero-identity-inference learning
 - 0.14.3.9 Production Readiness Gate & Operator UX Hardening — selects a real contiguous 60–90 second manuscript scene, proves the human-winning narrator/direction under a one-call spend gate, requires PASS before narrator production lock, hardens feedback export, and safely degrades missing user_read subscription checks
 - 0.14.3.10 Readiness Tuning Loop — preserves the human-winning narrator, direction and exact readiness scene while testing three controlled pace/emotion variants; adds resumable paid tuning renders and creates a narrator production lock only after one explicit human PASS
+- 0.14.3.11 Emotional Lift Tuning — locks the approved faster pace and tests graduated emotional headroom, preserving natural everyday delivery while carrying dynamic range forward for romance, conflict, grief and vulnerable scenes
 ## Book One Superman
 
 Run a real manuscript without spending on voice generation:

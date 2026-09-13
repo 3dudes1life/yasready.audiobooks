@@ -40,7 +40,12 @@ import {
   renderReadinessTuningPlanMarkdown,
   renderReadinessTuningRound,
   finalizeReadinessTuning,
-  renderReadinessTuningFinalizationMarkdown
+  renderReadinessTuningFinalizationMarkdown,
+  buildEmotionalLiftPlan,
+  renderEmotionalLiftPlanMarkdown,
+  renderEmotionalLiftRound,
+  finalizeEmotionalLift,
+  renderEmotionalLiftFinalizationMarkdown
 } from './index.js';
 import { YASREADY_AUDIOBOOKS_VERSION } from './release.js';
 
@@ -1166,6 +1171,163 @@ async function runReadinessTuningFinalize() {
   }, null, 2));
 }
 
+
+async function writeEmotionalLiftPlanReports(plan, outDir) {
+  const resolved = path.resolve(outDir);
+  await mkdir(resolved, { recursive: true });
+  const files = {
+    json: path.join(resolved, 'emotional-lift-plan.json'),
+    markdown: path.join(resolved, 'emotional-lift-plan.md'),
+    confirmation: path.join(resolved, 'emotional-lift-confirmation.txt')
+  };
+  await Promise.all([
+    writeFile(files.json, JSON.stringify(plan, null, 2)),
+    writeFile(files.markdown, renderEmotionalLiftPlanMarkdown(plan)),
+    writeFile(files.confirmation, `${plan.confirmation.token}\nSuggested max USD: ${plan.cost.suggestedMaxUsd.toFixed(2)}\n`)
+  ]);
+  return files;
+}
+
+async function runEmotionalLiftPlan() {
+  const finalizationPath = args[1];
+  const tuningPlanPath = flagValue('--tuning-plan');
+  const out = flagValue('--out');
+  if (!finalizationPath || !tuningPlanPath || !out) {
+    console.error('Usage: node src/cli.js casting-emotional-lift-plan <readiness-tuning-finalization.json> --tuning-plan <readiness-tuning-plan.json> --out DIR [--model eleven_v3]');
+    process.exitCode = 2;
+    return;
+  }
+  const [tuningFinalization, tuningPlan] = await Promise.all([
+    readFile(path.resolve(finalizationPath), 'utf8').then(JSON.parse),
+    readFile(path.resolve(tuningPlanPath), 'utf8').then(JSON.parse)
+  ]);
+  const provider = new ElevenLabsProvider();
+  const plan = await buildEmotionalLiftPlan({
+    tuningPlan,
+    tuningFinalization,
+    estimator: provider.estimateCost.bind(provider),
+    model: flagValue('--model', tuningPlan.model ?? 'eleven_v3')
+  });
+  const files = await writeEmotionalLiftPlanReports(plan, out);
+  console.log(JSON.stringify({
+    version: VERSION,
+    emotionalLiftPlan: plan.status,
+    narrator: plan.narrator.candidateName,
+    voiceId: plan.narrator.providerVoiceId,
+    baselineDirection: plan.baselineDirection.directionLabel,
+    anchorVariant: plan.anchor.variantLabel,
+    anchorHumanNote: plan.anchor.humanNote,
+    lockedSpeed: plan.anchor.lockedSpeed,
+    sameChapter: plan.sample.chapterTitle,
+    sameScene: plan.sample.sceneOrder,
+    variants: plan.variants.map((v) => ({
+      id: v.id,
+      label: v.label,
+      emotionalRange: v.emotionalRange,
+      voiceSettings: v.voiceSettings
+    })),
+    generationCallsPerformed: 0,
+    estimatedGenerationCallsIfApproved: plan.cost.estimatedGenerationCalls,
+    estimatedUsd: plan.cost.estimateUsd,
+    protectedMaxUsd: plan.cost.suggestedMaxUsd,
+    confirmationToken: plan.confirmation.token,
+    productionArmed: false,
+    narratorProductionLockCreated: false,
+    fullBookGenerationArmed: false,
+    nextAction: `Review ${files.markdown}. Rendering remains blocked until casting-emotional-lift-render is explicitly called with --approve-spend ${plan.confirmation.token} --max-usd ${plan.cost.suggestedMaxUsd.toFixed(2)}.`,
+    files
+  }, null, 2));
+}
+
+async function runEmotionalLiftRender() {
+  const planPath = args[1];
+  const out = flagValue('--out');
+  const approvalToken = flagValue('--approve-spend');
+  const maxUsd = flagValue('--max-usd');
+  if (!planPath || !out || !approvalToken || maxUsd === null) {
+    console.error('Usage: node src/cli.js casting-emotional-lift-render <emotional-lift-plan.json> --out DIR --approve-spend TOKEN --max-usd USD');
+    process.exitCode = 2;
+    return;
+  }
+  const plan = JSON.parse(await readFile(path.resolve(planPath), 'utf8'));
+  const provider = new ElevenLabsProvider();
+  const result = await renderEmotionalLiftRound({
+    plan,
+    provider,
+    outDir: out,
+    approvalToken,
+    maxUsd: Number(maxUsd)
+  });
+  console.log(JSON.stringify({
+    version: VERSION,
+    emotionalLift: result.status,
+    narrator: result.narrator.candidateName,
+    lockedSpeed: result.lockedSpeed,
+    baselineDirection: result.baselineDirection.directionLabel,
+    renderedVariants: result.rendered.map((x) => ({
+      variantId: x.variantId,
+      variantLabel: x.variantLabel,
+      voiceSettings: x.voiceSettings
+    })),
+    providerGenerationCalls: result.providerGenerationCalls,
+    currentRunProviderGenerationCalls: result.currentRunProviderGenerationCalls,
+    reusedClips: result.reusedClips,
+    productionGenerationCalls: result.productionGenerationCalls,
+    narratorProductionLockCreated: result.narratorProductionLockCreated,
+    fullBookGenerationArmed: result.fullBookGenerationArmed,
+    capturedOrEstimatedBilledUsd: result.cost.capturedUsd,
+    approvedMaxUsd: result.cost.maxUsd,
+    reviewBoard: path.join(path.resolve(out), 'emotional-lift-review.html'),
+    nextAction: 'Open emotional-lift-review.html. Choose PASS — Lock on at most one emotional range, MAYBE to keep tuning, or FAIL. Export emotional-lift-feedback.json. Full-book production remains unarmed.'
+  }, null, 2));
+}
+
+async function runEmotionalLiftFinalize() {
+  const feedbackPath = args[1];
+  const planPath = flagValue('--plan');
+  const out = flagValue('--out');
+  if (!feedbackPath || !planPath || !out) {
+    console.error('Usage: node src/cli.js casting-emotional-lift-finalize <emotional-lift-feedback.json> --plan <emotional-lift-plan.json> --out DIR');
+    process.exitCode = 2;
+    return;
+  }
+  const [feedback, plan] = await Promise.all([
+    readFile(path.resolve(feedbackPath), 'utf8').then(JSON.parse),
+    readFile(path.resolve(planPath), 'utf8').then(JSON.parse)
+  ]);
+  const result = finalizeEmotionalLift({ plan, feedback });
+  const resolved = path.resolve(out);
+  await mkdir(resolved, { recursive: true });
+  const files = {
+    json: path.join(resolved, 'emotional-lift-finalization.json'),
+    markdown: path.join(resolved, 'emotional-lift-finalization.md'),
+    narratorLock: result.narratorProductionLock ? path.join(resolved, 'narrator-production-lock.json') : null,
+    performanceProfile: result.narratorProductionLock ? path.join(resolved, 'production-performance-profile.json') : null
+  };
+  const writes = [
+    writeFile(files.json, JSON.stringify(result, null, 2)),
+    writeFile(files.markdown, renderEmotionalLiftFinalizationMarkdown(result))
+  ];
+  if (result.narratorProductionLock) {
+    writes.push(writeFile(files.narratorLock, JSON.stringify(result.narratorProductionLock, null, 2)));
+    writes.push(writeFile(files.performanceProfile, JSON.stringify(result.narratorProductionLock.performanceProfile, null, 2)));
+  }
+  await Promise.all(writes);
+  console.log(JSON.stringify({
+    version: VERSION,
+    emotionalLiftFinalization: result.status,
+    decision: result.decision,
+    winner: result.winner ?? null,
+    narratorProductionLockCreated: result.narratorProductionLockCreated,
+    productionArmed: result.productionArmed,
+    fullBookGenerationArmed: result.fullBookGenerationArmed,
+    narrator: result.narratorProductionLock?.narrator ?? null,
+    performanceProfile: result.narratorProductionLock?.performanceProfile ?? null,
+    nextAction: result.nextAction,
+    files
+  }, null, 2));
+}
+
 async function runMoneyGuardFixture() {
   const store = new InMemoryStore();
   const ledger = new CostLedger();
@@ -1278,6 +1440,12 @@ if (args[0] === 'analyze') {
   await runReadinessTuningRender();
 } else if (args[0] === 'casting-readiness-tuning-finalize') {
   await runReadinessTuningFinalize();
+} else if (args[0] === 'casting-emotional-lift-plan') {
+  await runEmotionalLiftPlan();
+} else if (args[0] === 'casting-emotional-lift-render') {
+  await runEmotionalLiftRender();
+} else if (args[0] === 'casting-emotional-lift-finalize') {
+  await runEmotionalLiftFinalize();
 } else if (args[0] === 'money-guard-fixture') {
   await runMoneyGuardFixture();
 } else {
@@ -1312,6 +1480,9 @@ if (args[0] === 'analyze') {
     readinessTuningPlanCommand: 'node src/cli.js casting-readiness-tuning-plan <production-readiness-finalization.json> --readiness-plan <production-readiness-plan.json> --out <directory>',
     readinessTuningRenderCommand: 'node src/cli.js casting-readiness-tuning-render <readiness-tuning-plan.json> --approve-spend <token> --max-usd <usd> --out <directory>',
     readinessTuningFinalizeCommand: 'node src/cli.js casting-readiness-tuning-finalize <readiness-tuning-feedback.json> --plan <readiness-tuning-plan.json> --out <directory>',
+    emotionalLiftPlanCommand: 'node src/cli.js casting-emotional-lift-plan <readiness-tuning-finalization.json> --tuning-plan <readiness-tuning-plan.json> --out <directory>',
+    emotionalLiftRenderCommand: 'node src/cli.js casting-emotional-lift-render <emotional-lift-plan.json> --approve-spend <token> --max-usd <usd> --out <directory>',
+    emotionalLiftFinalizeCommand: 'node src/cli.js casting-emotional-lift-finalize <emotional-lift-feedback.json> --plan <emotional-lift-plan.json> --out <directory>',
     seriesContinuitySeedCommand: 'node src/cli.js series-continuity-seed <book-one-audio-bible-prep.json> [--existing <series-continuity.json>] --out <directory>',
     seriesContinuityCompareCommand: 'node src/cli.js series-continuity-compare <series-continuity.json> <next-book-audio-bible-prep.json>',
     seriesRelationshipLockCommand: 'node src/cli.js series-continuity-lock-group <series-continuity.json> --members key1,key2,key3 --kind partner --out <file>',

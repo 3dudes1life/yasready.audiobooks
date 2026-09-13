@@ -75,8 +75,8 @@ function fakeProvider() {
   };
 }
 
-test('0.14.3.10 is current application provenance', () => {
-  assert.equal(YASREADY_AUDIOBOOKS_VERSION,'0.14.3.10');
+test('0.14.3.11 is current application provenance', () => {
+  assert.equal(YASREADY_AUDIOBOOKS_VERSION,'0.14.3.11');
 });
 
 test('plan stage selects explicit voices, estimates cost and performs zero generation calls', async () => {
