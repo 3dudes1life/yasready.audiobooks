@@ -112,8 +112,8 @@ function fixture() {
   return { extractedManuscript, manuscriptAnalysis, productionPlan, cinematicLock, cinematicResult, humanReviewDecisions };
 }
 
-test('0.14.3.20.3 is current application provenance', () => {
-  assert.equal(YASREADY_AUDIOBOOKS_VERSION, '0.14.3.20.3');
+test('0.14.3.20.4 is current application provenance', () => {
+  assert.equal(YASREADY_AUDIOBOOKS_VERSION, '0.14.3.20.4');
 });
 
 test('Pause Fidelity creates minimum silence floors without changing canonical words or spending', () => {

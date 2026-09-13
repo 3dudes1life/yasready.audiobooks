@@ -19,8 +19,8 @@ function response(status, payload) {
   };
 }
 
-test('0.14.3.20.3 is current application provenance', () => {
-  assert.equal(YASREADY_AUDIOBOOKS_VERSION,'0.14.3.20.3');
+test('0.14.3.20.4 is current application provenance', () => {
+  assert.equal(YASREADY_AUDIOBOOKS_VERSION,'0.14.3.20.4');
 });
 
 test('ElevenLabs shared catalog falls back to unfiltered public browsing on logged-out filter 401', async () => {

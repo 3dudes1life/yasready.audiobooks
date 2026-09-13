@@ -238,8 +238,8 @@ function cinematicResult(lock) {
   return { ...base, integrity: { resultDigest: sha256(stableJson(resultCore(base))) } };
 }
 
-test('0.14.3.20.3 is current application provenance', () => {
-  assert.equal(YASREADY_AUDIOBOOKS_VERSION, '0.14.3.20.3');
+test('0.14.3.20.4 is current application provenance', () => {
+  assert.equal(YASREADY_AUDIOBOOKS_VERSION, '0.14.3.20.4');
 });
 
 test('DOCX container-byte drift is accepted only when canonical normalized text and every chapter hash match', () => {

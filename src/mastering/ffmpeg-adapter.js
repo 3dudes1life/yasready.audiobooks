@@ -41,6 +41,22 @@ export function parseFfmpegAnalysis(stderr, probe = {}) {
   return freeze({ ...probe, rmsDb, peakDb, noiseFloorDb, leadingSilenceMs, trailingSilenceMs });
 }
 
+export function parseSilenceIntervals(stderr, durationMs = null) {
+  const text = String(stderr ?? '');
+  const starts = [...text.matchAll(/silence_start:\s*(-?\d+(?:\.\d+)?)/g)].map((m) => Number(m[1]) * 1000);
+  const endings = [...text.matchAll(/silence_end:\s*(-?\d+(?:\.\d+)?)\s*\|\s*silence_duration:\s*(-?\d+(?:\.\d+)?)/g)]
+    .map((m) => ({ endMs: Number(m[1]) * 1000, durationMs: Number(m[2]) * 1000 }));
+  const out = [];
+  for (let i = 0; i < starts.length; i += 1) {
+    const startMs = starts[i];
+    const end = endings[i] ?? null;
+    const endMs = end ? end.endMs : (Number.isFinite(Number(durationMs)) ? Number(durationMs) : null);
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) continue;
+    out.push(Object.freeze({ startMs, endMs, durationMs: end ? end.durationMs : endMs - startMs }));
+  }
+  return Object.freeze(out);
+}
+
 function concatEscape(file) {
   return String(file).replace(/'/g, "'\\''");
 }
@@ -109,6 +125,28 @@ export class FfmpegAdapter {
       if (!stderr) throw error;
     }
     return parseFfmpegAnalysis(stderr, probe);
+  }
+
+  async detectSilences(inputPath, { noiseDb = -50, minDurationMs = 60 } = {}) {
+    const probe = await this.probe(inputPath);
+    const db = Number(noiseDb);
+    const minimumMs = Number(minDurationMs);
+    if (!Number.isFinite(db) || db >= 0 || db < -120) throw new Error('detectSilences noiseDb must be between -120 and 0');
+    if (!Number.isFinite(minimumMs) || minimumMs < 10 || minimumMs > 10000) throw new Error('detectSilences minDurationMs must be 10-10000');
+    let stderr = '';
+    try {
+      const result = await this.execFile(this.ffmpegPath, [
+        '-hide_banner', '-nostats', '-i', inputPath,
+        '-af', `silencedetect=noise=${db}dB:d=${(minimumMs / 1000).toFixed(3)}`,
+        '-f', 'null', '-'
+      ], { maxBuffer: 16 * 1024 * 1024 });
+      stderr = result.stderr ?? '';
+    } catch (error) {
+      stderr = error?.stderr ?? '';
+      if (!stderr) throw error;
+    }
+    const durationMs = Number.isFinite(probe.durationSec) ? probe.durationSec * 1000 : null;
+    return freeze({ probe, noiseDb: db, minDurationMs: minimumMs, silences: parseSilenceIntervals(stderr, durationMs) });
   }
 
   async extract(inputPath, { startMs = 0, endMs = null, outputPath }) {

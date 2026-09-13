@@ -122,6 +122,7 @@ function chapterRowsFromLayout({ extractedManuscript, manuscriptAnalysis, narrat
       chapterNumber: row.chapterNumber,
       title: chapter.title,
       paragraphCount: 0,
+      sceneCount: (chapter.scenes ?? []).length,
       boundaries: []
     });
   }
