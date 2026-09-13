@@ -18,7 +18,12 @@ import {
   ManuscriptService,
   ProjectService,
   SeriesContinuityService,
-  MoneyGuardService
+  MoneyGuardService,
+  buildRealAuditionPlan,
+  renderRealAuditionPlanMarkdown,
+  renderRealAuditions,
+  summarizeRealAuditionFeedback,
+  renderRealAuditionFeedbackSummaryMarkdown
 } from './index.js';
 import { YASREADY_AUDIOBOOKS_VERSION } from './release.js';
 
@@ -29,6 +34,14 @@ function flagValue(name, fallback = null) {
   const index = args.indexOf(name);
   if (index < 0 || index + 1 >= args.length) return fallback;
   return args[index + 1];
+}
+
+function flagValues(name) {
+  const values = [];
+  for (let i = 0; i < args.length - 1; i += 1) {
+    if (args[i] === name) values.push(args[i + 1]);
+  }
+  return values;
 }
 
 function reportSummary(report, files = null) {
@@ -603,6 +616,127 @@ async function runCastingDiscovery({ fixture = false } = {}) {
   }, null, 2));
 }
 
+
+async function writeRealAuditionPlanReports(plan, outDir) {
+  const resolved = path.resolve(outDir);
+  await mkdir(resolved, { recursive: true });
+  const files = {
+    json: path.join(resolved, 'real-audition-plan.json'),
+    markdown: path.join(resolved, 'real-audition-plan.md'),
+    confirmation: path.join(resolved, 'real-audition-confirmation.txt')
+  };
+  await Promise.all([
+    writeFile(files.json, JSON.stringify(plan, null, 2)),
+    writeFile(files.markdown, renderRealAuditionPlanMarkdown(plan)),
+    writeFile(files.confirmation, `${plan.confirmation.token}\nSuggested max USD: ${plan.cost.suggestedMaxUsd.toFixed(2)}\n`)
+  ]);
+  return files;
+}
+
+async function runRealAuditionPlan() {
+  const discoveryPath = args[1];
+  const out = flagValue('--out');
+  if (!discoveryPath || !out) {
+    console.error('Usage: node src/cli.js casting-audition-plan <casting-candidate-discovery.json> --out DIR [--decisions casting-review-decisions.json] [--voice-id ID ...] [--model MODEL]');
+    process.exitCode = 2;
+    return;
+  }
+  const discovery = JSON.parse(await readFile(path.resolve(discoveryPath), 'utf8'));
+  const decisionsPath = flagValue('--decisions');
+  const decisions = decisionsPath ? JSON.parse(await readFile(path.resolve(decisionsPath), 'utf8')) : null;
+  const provider = new ElevenLabsProvider();
+  const plan = await buildRealAuditionPlan({
+    discovery,
+    selectedVoiceIds: flagValues('--voice-id'),
+    decisions,
+    estimator: provider.estimateCost.bind(provider),
+    model: flagValue('--model', 'eleven_multilingual_v2')
+  });
+  const files = await writeRealAuditionPlanReports(plan, out);
+  console.log(JSON.stringify({
+    version: VERSION,
+    realAuditionPlan: 'book-one-single-narrator',
+    status: plan.status,
+    voices: plan.selectedCandidates.map((x) => ({ name: x.name, providerVoiceId: x.providerVoiceId, selectedBecause: x.selectedBecause })),
+    scriptsPerVoice: plan.scripts.length,
+    generationCallsPerformed: 0,
+    estimatedUsd: plan.cost.estimateUsd,
+    protectedMaxUsd: plan.cost.suggestedMaxUsd,
+    confirmationToken: plan.confirmation.token,
+    nextAction: `Review ${files.markdown}. Rendering remains blocked until you explicitly run casting-audition-render with --approve-spend ${plan.confirmation.token} and --max-usd ${plan.cost.suggestedMaxUsd.toFixed(2)}.`,
+    files
+  }, null, 2));
+}
+
+async function runRealAuditionRender() {
+  const planPath = args[1];
+  const out = flagValue('--out');
+  const approvalToken = flagValue('--approve-spend');
+  const maxUsd = flagValue('--max-usd');
+  if (!planPath || !out || !approvalToken || maxUsd === null) {
+    console.error('Usage: node src/cli.js casting-audition-render <real-audition-plan.json> --out DIR --approve-spend TOKEN --max-usd USD');
+    process.exitCode = 2;
+    return;
+  }
+  const plan = JSON.parse(await readFile(path.resolve(planPath), 'utf8'));
+  const provider = new ElevenLabsProvider();
+  const result = await renderRealAuditions({
+    plan,
+    provider,
+    outDir: out,
+    approvalToken,
+    maxUsd: Number(maxUsd)
+  });
+  console.log(JSON.stringify({
+    version: VERSION,
+    realAuditions: 'book-one-single-narrator',
+    status: result.status,
+    renderedClips: result.rendered.length,
+    providerGenerationCalls: result.providerGenerationCalls,
+    productionGenerationCalls: result.productionGenerationCalls,
+    importedVoices: result.providerVoiceImportsPerformed,
+    estimatedPlanUsd: result.cost.estimateUsd,
+    capturedOrEstimatedBilledUsd: result.cost.capturedUsd,
+    approvedMaxUsd: result.cost.maxUsd,
+    headroomUsd: result.cost.headroomUsd,
+    reviewBoard: path.join(path.resolve(out), 'real-audition-review.html'),
+    nextAction: 'Open real-audition-review.html, listen to every Book One clip, rate each voice, choose Keep/Maybe/Pass, and export real-audition-feedback.json. Production is still unarmed.'
+  }, null, 2));
+}
+
+async function runRealAuditionFeedback() {
+  const feedbackPath = args[1];
+  const out = flagValue('--out');
+  if (!feedbackPath || !out) {
+    console.error('Usage: node src/cli.js casting-audition-feedback <real-audition-feedback.json> --out DIR [--plan real-audition-plan.json]');
+    process.exitCode = 2;
+    return;
+  }
+  const feedback = JSON.parse(await readFile(path.resolve(feedbackPath), 'utf8'));
+  const planPath = flagValue('--plan');
+  const plan = planPath ? JSON.parse(await readFile(path.resolve(planPath), 'utf8')) : null;
+  const summary = summarizeRealAuditionFeedback(feedback, plan);
+  const resolved = path.resolve(out);
+  await mkdir(resolved, { recursive: true });
+  const files = {
+    json: path.join(resolved, 'real-audition-feedback-summary.json'),
+    markdown: path.join(resolved, 'real-audition-feedback-summary.md')
+  };
+  await Promise.all([
+    writeFile(files.json, JSON.stringify(summary, null, 2)),
+    writeFile(files.markdown, renderRealAuditionFeedbackSummaryMarkdown(summary))
+  ]);
+  console.log(JSON.stringify({
+    version: VERSION,
+    realAuditionFeedback: summary.status,
+    counts: summary.counts,
+    rankedHumanChoices: summary.rankedHumanChoices.map((x) => ({ name: x.name, decision: x.decision, averageRating: x.averageRating })),
+    acousticSimilarityInferred: false,
+    identityInferredFromAudio: false,
+    files
+  }, null, 2));
+}
+
 async function runMoneyGuardFixture() {
   const store = new InMemoryStore();
   const ledger = new CostLedger();
@@ -691,6 +825,12 @@ if (args[0] === 'analyze') {
   await runCastingDiscovery();
 } else if (args[0] === 'casting-discover-fixture') {
   await runCastingDiscovery({ fixture: true });
+} else if (args[0] === 'casting-audition-plan') {
+  await runRealAuditionPlan();
+} else if (args[0] === 'casting-audition-render') {
+  await runRealAuditionRender();
+} else if (args[0] === 'casting-audition-feedback') {
+  await runRealAuditionFeedback();
 } else if (args[0] === 'money-guard-fixture') {
   await runMoneyGuardFixture();
 } else {
@@ -713,6 +853,9 @@ if (args[0] === 'analyze') {
     bookOneAudioBiblePrepCommand: 'node src/cli.js audio-bible-prep <file> --out <directory>',
     castingLaunchCommand: 'node src/cli.js casting-launch <book-one-audio-bible-prep.json> --out <directory>',
     castingDiscoveryCommand: 'node src/cli.js casting-discover <casting-launch.json> --prep <book-one-audio-bible-prep.json> --manuscript <book_1.docx> --out <directory>',
+    realAuditionPlanCommand: 'node src/cli.js casting-audition-plan <casting-candidate-discovery.json> --voice-id <id> --out <directory>',
+    realAuditionRenderCommand: 'node src/cli.js casting-audition-render <real-audition-plan.json> --approve-spend <token> --max-usd <usd> --out <directory>',
+    realAuditionFeedbackCommand: 'node src/cli.js casting-audition-feedback <real-audition-feedback.json> --plan <real-audition-plan.json> --out <directory>',
     seriesContinuitySeedCommand: 'node src/cli.js series-continuity-seed <book-one-audio-bible-prep.json> [--existing <series-continuity.json>] --out <directory>',
     seriesContinuityCompareCommand: 'node src/cli.js series-continuity-compare <series-continuity.json> <next-book-audio-bible-prep.json>',
     seriesRelationshipLockCommand: 'node src/cli.js series-continuity-lock-group <series-continuity.json> --members key1,key2,key3 --kind partner --out <file>',

@@ -21,7 +21,7 @@ function unique(values) {
 }
 
 function confidenceLabel(value) {
-  if (value >= 0.95) return 'confirmed';
+  // Only operator-confirmed canon may use the word "confirmed".
   if (value >= 0.9) return 'high';
   if (value >= 0.78) return 'medium-high';
   if (value >= 0.65) return 'medium';
@@ -32,11 +32,17 @@ function confidenceLabel(value) {
 // Identity is NEVER translated into an acoustic race/ethnicity score.
 const BOOK_ONE_OPERATOR_CANON = Object.freeze({
   'Juan Delgado': Object.freeze({
+    regionRuleAllowlist: Object.freeze(['florida']),
+    allowedOccupationRuleIds: Object.freeze(['dj']),
     facts: Object.freeze([
-      Object.freeze({ kind: 'identity', ruleId: 'canon-latino', label: 'Latino American', confidence: 1, acousticTrait: false })
+      Object.freeze({ kind: 'identity', ruleId: 'canon-latino', label: 'Latino American', confidence: 1, acousticTrait: false }),
+      Object.freeze({ kind: 'region', ruleId: 'canon-florida', label: 'Florida', confidence: 1, relation: 'origin', acousticTrait: true,
+        searchTerms: Object.freeze(['florida american']), accentHints: Object.freeze(['american']) })
     ])
   }),
   'Michael Rawlins': Object.freeze({
+    regionRuleAllowlist: Object.freeze(['oklahoma']),
+    allowedOccupationRuleIds: Object.freeze([]),
     facts: Object.freeze([
       Object.freeze({ kind: 'region', ruleId: 'canon-oklahoma', label: 'Oklahoma', confidence: 1, relation: 'origin', acousticTrait: true,
         searchTerms: Object.freeze(['oklahoma', 'country american', 'rural american', 'southern american']),
@@ -50,6 +56,8 @@ const BOOK_ONE_OPERATOR_CANON = Object.freeze({
     ])
   }),
   'Christopher Lancaster': Object.freeze({
+    regionRuleAllowlist: Object.freeze(['bay-area']),
+    allowedOccupationRuleIds: Object.freeze([]),
     facts: Object.freeze([
       Object.freeze({ kind: 'identity', ruleId: 'canon-asian-american', label: 'Asian American', confidence: 1, acousticTrait: false }),
       Object.freeze({ kind: 'region', ruleId: 'canon-bay-area', label: 'San Francisco Bay Area', confidence: 1, relation: 'residence', acousticTrait: true,
@@ -206,6 +214,13 @@ function speakerMap(prepRun) {
 function evidenceOwner(rule, row, target, aliases, speaker) {
   const direct = containsAlias(row.text, aliases);
   const spokenByTarget = speaker === target.canonicalName;
+  const canonPolicy = BOOK_ONE_OPERATOR_CANON[target.canonicalName] ?? null;
+
+  // For Book One leads, operator canon is authoritative for casting-relevant region
+  // and known occupation. Manuscript facts may corroborate but may not silently
+  // overwrite the established character truth.
+  if (rule.kind === 'region' && Array.isArray(canonPolicy?.regionRuleAllowlist) && !canonPolicy.regionRuleAllowlist.includes(rule.id)) return null;
+  if (rule.kind === 'occupation' && Array.isArray(canonPolicy?.allowedOccupationRuleIds) && !canonPolicy.allowedOccupationRuleIds.includes(rule.id)) return null;
 
   if (rule.kind === 'region') {
     const relation = regionRelation(row.text);
@@ -433,6 +448,8 @@ export function buildCharacterCastingBiographiesFromPrepRun(prepRun, launch) {
     identityInferenceFromName: false,
     identityInferenceFromAudio: false,
     identityUsedAsAcousticTrait: false,
+    canonAuthorityApplied: true,
+    machineEvidenceMayUseConfirmedLabel: false,
     profiles: freeze(profiles)
   });
 }

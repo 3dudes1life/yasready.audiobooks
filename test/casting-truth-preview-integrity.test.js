@@ -70,8 +70,8 @@ function biographyPrepFixture() {
   };
 }
 
-test('0.14.3.5 is current application provenance', () => {
-  assert.equal(YASREADY_AUDIOBOOKS_VERSION, '0.14.3.5');
+test('0.14.3.6 is current application provenance', () => {
+  assert.equal(YASREADY_AUDIOBOOKS_VERSION, '0.14.3.6');
 });
 
 test('travel and conversation locations do not become character origin/residence truth', () => {
@@ -82,7 +82,9 @@ test('travel and conversation locations do not become character origin/residence
   assert.equal(juan.evidence.some((row) => row.ruleId === 'bay-area' && row.source === 'manuscript-semantic-attribution'), false);
   assert.equal(juan.evidence.some((row) => row.ruleId === 'florida' && row.source === 'manuscript-semantic-attribution'), false);
   assert.equal(juan.evidence.some((row) => row.ruleId === 'oklahoma' && row.source === 'manuscript-semantic-attribution'), false);
-  assert.doesNotMatch(juan.castingProfile.summary, /Oklahoma|Florida|Bay Area/);
+  assert.match(juan.castingProfile.summary, /Region: Florida/);
+  assert.doesNotMatch(juan.castingProfile.summary, /Oklahoma|Bay Area/);
+  assert.ok(juan.evidence.some((row) => row.ruleId === 'canon-florida' && row.source === 'operator-confirmed-canon' && row.confidenceLabel === 'confirmed'));
 });
 
 test('nearby DJ language cannot leak occupation onto Michael', () => {
