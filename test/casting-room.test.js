@@ -49,7 +49,7 @@ test('ElevenLabs search maps filters to shared voice API without spending', asyn
 });
 
 test('provider refuses paid render without an API key', async () => {
-  const provider = new ElevenLabsProvider({ fetchImpl: async () => { throw new Error('must not fetch'); } });
+  const provider = new ElevenLabsProvider({ apiKey: null, fetchImpl: async () => { throw new Error('must not fetch'); } });
   await assert.rejects(() => provider.render({ voiceId: 'v', text: 'hello' }), /API_KEY/);
 });
 

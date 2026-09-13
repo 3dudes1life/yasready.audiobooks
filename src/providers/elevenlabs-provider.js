@@ -112,6 +112,18 @@ export class ElevenLabsProvider extends AudioProvider {
     return { ok: response.ok, provider: this.name, status: response.status };
   }
 
+  async getSubscription() {
+    const response = await this.fetch(`${this.baseUrl}/v1/user/subscription`, {
+      headers: this.headers({ requireKey: true })
+    });
+    const data = await jsonOrThrow(response, 'ElevenLabs subscription lookup');
+    return {
+      ...data,
+      tier: data.tier ?? data.plan ?? data.subscription?.tier ?? null,
+      status: data.status ?? data.subscription?.status ?? null
+    };
+  }
+
   async searchVoices({
     search = null, language = 'en', locale = null, accent = null, gender = null, age = null,
     category = 'professional', useCases = null, descriptives = null, minNoticePeriodDays = 180,

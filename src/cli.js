@@ -23,7 +23,12 @@ import {
   renderRealAuditionPlanMarkdown,
   renderRealAuditions,
   summarizeRealAuditionFeedback,
-  renderRealAuditionFeedbackSummaryMarkdown
+  renderRealAuditionFeedbackSummaryMarkdown,
+  buildPerformanceDirectionPlan,
+  renderPerformanceDirectionPlanMarkdown,
+  renderPerformanceDirectionRound,
+  summarizePerformanceDirectionFeedback,
+  renderPerformanceDirectionLearningMarkdown
 } from './index.js';
 import { YASREADY_AUDIOBOOKS_VERSION } from './release.js';
 
@@ -737,6 +742,131 @@ async function runRealAuditionFeedback() {
   }, null, 2));
 }
 
+
+async function writePerformanceDirectionPlanReports(plan, outDir) {
+  const resolved = path.resolve(outDir);
+  await mkdir(resolved, { recursive: true });
+  const files = {
+    json: path.join(resolved, 'performance-direction-plan.json'),
+    markdown: path.join(resolved, 'performance-direction-plan.md'),
+    learning: path.join(resolved, 'human-taste-learning-profile.json'),
+    confirmation: path.join(resolved, 'performance-direction-confirmation.txt')
+  };
+  await Promise.all([
+    writeFile(files.json, JSON.stringify(plan, null, 2)),
+    writeFile(files.markdown, renderPerformanceDirectionPlanMarkdown(plan)),
+    writeFile(files.learning, JSON.stringify(plan.learningProfile, null, 2)),
+    writeFile(files.confirmation, `${plan.confirmation.token}\nSuggested max USD: ${plan.cost.suggestedMaxUsd.toFixed(2)}\n`)
+  ]);
+  return files;
+}
+
+async function runPerformanceDirectionPlan() {
+  const sourcePlanPath = args[1];
+  const feedbackPath = flagValue('--feedback');
+  const out = flagValue('--out');
+  if (!sourcePlanPath || !feedbackPath || !out) {
+    console.error('Usage: node src/cli.js casting-performance-plan <real-audition-plan.json> --feedback <real-audition-feedback.json> --out DIR [--model eleven_v3]');
+    process.exitCode = 2;
+    return;
+  }
+  const [sourcePlan, feedback] = await Promise.all([
+    readFile(path.resolve(sourcePlanPath), 'utf8').then(JSON.parse),
+    readFile(path.resolve(feedbackPath), 'utf8').then(JSON.parse)
+  ]);
+  const provider = new ElevenLabsProvider();
+  const plan = await buildPerformanceDirectionPlan({
+    sourcePlan,
+    feedback,
+    estimator: provider.estimateCost.bind(provider),
+    model: flagValue('--model', 'eleven_v3')
+  });
+  const files = await writePerformanceDirectionPlanReports(plan, out);
+  console.log(JSON.stringify({
+    version: VERSION,
+    performanceDirectionPlan: 'book-one-single-narrator',
+    status: plan.status,
+    primaryHumanChoice: plan.learningProfile.primaryVoice,
+    variants: plan.variants.map((v) => ({ voice: v.candidateName, variant: v.label, sourceDecision: v.sourceDecision })),
+    generationCallsPerformed: 0,
+    estimatedUsd: plan.cost.estimateUsd,
+    protectedMaxUsd: plan.cost.suggestedMaxUsd,
+    confirmationToken: plan.confirmation.token,
+    nextAction: `Review ${files.markdown}. Rendering remains blocked until casting-performance-render is explicitly called with --approve-spend ${plan.confirmation.token} --max-usd ${plan.cost.suggestedMaxUsd.toFixed(2)}.`,
+    files
+  }, null, 2));
+}
+
+async function runPerformanceDirectionRender() {
+  const planPath = args[1];
+  const out = flagValue('--out');
+  const approvalToken = flagValue('--approve-spend');
+  const maxUsd = flagValue('--max-usd');
+  if (!planPath || !out || !approvalToken || maxUsd === null) {
+    console.error('Usage: node src/cli.js casting-performance-render <performance-direction-plan.json> --out DIR --approve-spend TOKEN --max-usd USD');
+    process.exitCode = 2;
+    return;
+  }
+  const plan = JSON.parse(await readFile(path.resolve(planPath), 'utf8'));
+  const provider = new ElevenLabsProvider();
+  const result = await renderPerformanceDirectionRound({
+    plan,
+    provider,
+    outDir: out,
+    approvalToken,
+    maxUsd: Number(maxUsd)
+  });
+  console.log(JSON.stringify({
+    version: VERSION,
+    performanceDirection: result.status,
+    model: result.model,
+    renderedClips: result.rendered.length,
+    providerGenerationCalls: result.providerGenerationCalls,
+    productionGenerationCalls: result.productionGenerationCalls,
+    castLocksCreated: result.castLocksCreated,
+    capturedOrEstimatedBilledUsd: result.cost.capturedUsd,
+    approvedMaxUsd: result.cost.maxUsd,
+    reviewBoard: path.join(path.resolve(out), 'performance-direction-review.html'),
+    nextAction: 'Open performance-direction-review.html, compare variants, choose Best/Maybe/Pass, add ratings/notes, and export performance-direction-feedback.json. Production remains unarmed.'
+  }, null, 2));
+}
+
+async function runPerformanceDirectionLearn() {
+  const feedbackPath = args[1];
+  const planPath = flagValue('--plan');
+  const out = flagValue('--out');
+  if (!feedbackPath || !planPath || !out) {
+    console.error('Usage: node src/cli.js casting-performance-learn <performance-direction-feedback.json> --plan <performance-direction-plan.json> --out DIR');
+    process.exitCode = 2;
+    return;
+  }
+  const [feedback, plan] = await Promise.all([
+    readFile(path.resolve(feedbackPath), 'utf8').then(JSON.parse),
+    readFile(path.resolve(planPath), 'utf8').then(JSON.parse)
+  ]);
+  const summary = summarizePerformanceDirectionFeedback({ feedback, plan });
+  const resolved = path.resolve(out);
+  await mkdir(resolved, { recursive: true });
+  const files = {
+    json: path.join(resolved, 'performance-direction-learning-summary.json'),
+    markdown: path.join(resolved, 'performance-direction-learning-summary.md')
+  };
+  await Promise.all([
+    writeFile(files.json, JSON.stringify(summary, null, 2)),
+    writeFile(files.markdown, renderPerformanceDirectionLearningMarkdown(summary))
+  ]);
+  console.log(JSON.stringify({
+    version: VERSION,
+    performanceDirectionLearning: summary.status,
+    winner: summary.winner,
+    nextHumanTasteProfile: summary.nextHumanTasteProfile,
+    productionArmed: false,
+    castLockArmed: false,
+    nextAction: summary.nextAction,
+    files
+  }, null, 2));
+}
+
 async function runMoneyGuardFixture() {
   const store = new InMemoryStore();
   const ledger = new CostLedger();
@@ -831,6 +961,12 @@ if (args[0] === 'analyze') {
   await runRealAuditionRender();
 } else if (args[0] === 'casting-audition-feedback') {
   await runRealAuditionFeedback();
+} else if (args[0] === 'casting-performance-plan') {
+  await runPerformanceDirectionPlan();
+} else if (args[0] === 'casting-performance-render') {
+  await runPerformanceDirectionRender();
+} else if (args[0] === 'casting-performance-learn') {
+  await runPerformanceDirectionLearn();
 } else if (args[0] === 'money-guard-fixture') {
   await runMoneyGuardFixture();
 } else {
@@ -856,6 +992,9 @@ if (args[0] === 'analyze') {
     realAuditionPlanCommand: 'node src/cli.js casting-audition-plan <casting-candidate-discovery.json> --voice-id <id> --out <directory>',
     realAuditionRenderCommand: 'node src/cli.js casting-audition-render <real-audition-plan.json> --approve-spend <token> --max-usd <usd> --out <directory>',
     realAuditionFeedbackCommand: 'node src/cli.js casting-audition-feedback <real-audition-feedback.json> --plan <real-audition-plan.json> --out <directory>',
+    performanceDirectionPlanCommand: 'node src/cli.js casting-performance-plan <real-audition-plan.json> --feedback <real-audition-feedback.json> --out <directory>',
+    performanceDirectionRenderCommand: 'node src/cli.js casting-performance-render <performance-direction-plan.json> --approve-spend <token> --max-usd <usd> --out <directory>',
+    performanceDirectionLearnCommand: 'node src/cli.js casting-performance-learn <performance-direction-feedback.json> --plan <performance-direction-plan.json> --out <directory>',
     seriesContinuitySeedCommand: 'node src/cli.js series-continuity-seed <book-one-audio-bible-prep.json> [--existing <series-continuity.json>] --out <directory>',
     seriesContinuityCompareCommand: 'node src/cli.js series-continuity-compare <series-continuity.json> <next-book-audio-bible-prep.json>',
     seriesRelationshipLockCommand: 'node src/cli.js series-continuity-lock-group <series-continuity.json> --members key1,key2,key3 --kind partner --out <file>',

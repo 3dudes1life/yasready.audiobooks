@@ -457,6 +457,14 @@ export async function renderRealAuditions({
   await mkdir(resolved, { recursive: true });
   await mkdir(path.join(resolved, 'audio'), { recursive: true });
 
+  if (typeof provider.getSubscription === 'function') {
+    const subscription = await provider.getSubscription();
+    const tier = String(subscription?.tier ?? subscription?.plan ?? subscription?.subscription?.tier ?? '').trim().toLowerCase();
+    if (tier === 'free') {
+      throw new Error('ElevenLabs Voice Library API auditions require a paid subscription. Account tier is Free. No audio was generated and no spend occurred.');
+    }
+  }
+
   const health = typeof provider.healthCheck === 'function' ? await provider.healthCheck() : { ok: true };
   if (health?.ok === false) throw new Error(`ElevenLabs health check failed: ${health.reason ?? health.status ?? 'unknown'}`);
 
