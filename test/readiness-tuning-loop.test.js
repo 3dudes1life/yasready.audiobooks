@@ -173,8 +173,8 @@ function providerFixture({tier='creator',failOnCall=null}={}) {
   };
 }
 
-test('0.14.3.16 is current application provenance',()=>{
-  assert.equal(YASREADY_AUDIOBOOKS_VERSION,'0.14.3.16');
+test('0.14.3.18 is current application provenance',()=>{
+  assert.equal(YASREADY_AUDIOBOOKS_VERSION,'0.14.3.18');
 });
 
 test('human readiness note becomes narrow pace/emotion signals without identity inference',()=>{

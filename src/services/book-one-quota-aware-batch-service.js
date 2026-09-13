@@ -9,10 +9,10 @@ import { safeSectionFileName, evaluateMasterAgainstProfile, getMasteringProfile 
 import { getDistributionProfile } from '../distribution/profiles.js';
 
 export const BOOK_ONE_BATCH_ACCEPTED_PLAN_RELEASES = Object.freeze([
-  '0.14.3.13', '0.14.3.14', '0.14.3.14.1', '0.14.3.14.2', '0.14.3.15', '0.14.3.16'
+  '0.14.3.13', '0.14.3.14', '0.14.3.14.1', '0.14.3.14.2', '0.14.3.15', '0.14.3.16', '0.14.3.17', '0.14.3.18'
 ]);
-export const BOOK_ONE_BATCH_ACCEPTED_RECIPE_RELEASES = Object.freeze(['0.14.3.15', '0.14.3.16']);
-export const BOOK_ONE_BATCH_ACCEPTED_PREFLIGHT_RELEASES = Object.freeze(['0.14.3.15', '0.14.3.16']);
+export const BOOK_ONE_BATCH_ACCEPTED_RECIPE_RELEASES = Object.freeze(['0.14.3.15', '0.14.3.16', '0.14.3.17', '0.14.3.18']);
+export const BOOK_ONE_BATCH_ACCEPTED_PREFLIGHT_RELEASES = Object.freeze(['0.14.3.15', '0.14.3.16', '0.14.3.17', '0.14.3.18']);
 export const BOOK_ONE_BATCH_RETRY_RESERVE_RATIO = 0.20;
 export const BOOK_ONE_BATCH_MAX_CHAPTERS = 10;
 export const BOOK_ONE_BATCH_MIN_STORAGE_GIB = 2;
@@ -142,6 +142,17 @@ export function buildBookOneDistributionOutputContract() {
     }),
     targets: freeze([
       freeze({
+        id: 'direct-owned-2026',
+        label: 'Direct Edition',
+        route: 'direct-to-consumer-primary',
+        chapterAsset: 'verified chapter MP3 plus lossless archive source; final chapterized M4B is created only after the full audiobook is complete',
+        eligibility: 'PRIMARY_OWNED_CUSTOMER_RELATIONSHIP_CHANNEL',
+        coreBusinessRule: 'Retailers give us reach. Direct gives us the relationship.',
+        finalPackageRequirements: freeze(['complete audiobook', 'chapter MP3 package', 'chapterized M4B', 'cover art', 'metadata', 'direct entitlement record', 'verified purchase restore flow']),
+        batchChapterFilesCanBeTechnicallyReady: true,
+        finalSubmissionCompleteInBatch: false
+      }),
+      freeze({
         id: acx.id,
         label: acx.label,
         route: acx.route,
@@ -184,6 +195,7 @@ export function buildBookOneDistributionOutputContract() {
       applePartnerRulesRemainAuthoritative: true,
       acxDigitalNarrationEligibilityMustBeConfirmed: true,
       spotifyDigitalVoiceDisclosureRequired: true,
+      directIsPrimaryCustomerRelationshipChannel: true,
       spokenChapterOrSectionHeadingRequiredForRetailerSafeMaster: true
     })
   };
@@ -721,7 +733,7 @@ export async function renderBookOneQuotaAwareBatch({
   const consistentChannelConfiguration=channelSignatures.size<=1&&!channelSignatures.has('unknown:unknown');
   const anyQaFailure=chapters.some((ch)=>!ch.qa.archive.passed||!ch.qa.acx.passed||!ch.qa.spotify.passed)||!consistentChannelConfiguration;
   const capturedUsd=round(Object.values(state.chunks).reduce((sum,row)=>sum+Number(row?.capturedOrEstimatedBilledUsd??0),0),6);if(capturedUsd>cap+1e-9)throw new Error(`Batch captured/estimated spend $${capturedUsd.toFixed(6)} exceeded approved max $${cap.toFixed(2)}; future paid work blocked`);
-  const distribution=freeze({contract:arm.outputContract,finalPackageComplete:false,batchChapterAssetsReady:!anyQaFailure,channelConfiguration:freeze({consistent:consistentChannelConfiguration,signatures:freeze([...channelSignatures])}),acx:freeze({technicalChapterFilesReady:chapters.every((ch)=>ch.qa.acx.passed)&&consistentChannelConfiguration,eligibility:'BLOCKED_UNLESS_ACX_AUDIBLE_EXPLICITLY_AUTHORIZES_DIGITAL_NARRATION',finalPackageMissing:freeze(['opening credits','closing credits','retail sample','cover art','metadata','explicit ACX/Audible digital narration authorization'])}),spotify:freeze({technicalChapterFilesReady:chapters.every((ch)=>ch.qa.spotify.passed)&&consistentChannelConfiguration,eligibility:'DIGITAL_NARRATION_ACCEPTED_WITH_DISCLOSURE',finalPackageMissing:freeze(['opening/front matter','closing/back matter','sample','cover art','title/author/narrator/language','audiobook ISBN-13 if supplied (must be unique to audiobook edition)','BISAC','territories','USD pricing','digital voice disclosure'])}),apple:freeze({losslessPartnerSourceFilesReady:chapters.every((ch)=>ch.qa.archive.passed)&&consistentChannelConfiguration,eligibility:'PREFERRED_PARTNER_AND_DIGITAL_NARRATION_POLICY_VALIDATION_REQUIRED',finalPackageMissing:freeze(['selected preferred partner','partner-specific validation','cover art','metadata','digital narration eligibility confirmation'])})});
+  const distribution=freeze({contract:arm.outputContract,finalPackageComplete:false,batchChapterAssetsReady:!anyQaFailure,channelConfiguration:freeze({consistent:consistentChannelConfiguration,signatures:freeze([...channelSignatures])}),direct:freeze({technicalChapterFilesReady:chapters.every((ch)=>ch.qa.archive.passed&&ch.qa.spotify.passed)&&consistentChannelConfiguration,eligibility:'PRIMARY_OWNED_CUSTOMER_RELATIONSHIP_CHANNEL',coreBusinessRule:'Retailers give us reach. Direct gives us the relationship.',finalPackageMissing:freeze(['complete remaining chapters','chapter MP3 package','chapterized M4B','cover art','metadata','direct entitlement service connection','verified purchase restore flow'])}),acx:freeze({technicalChapterFilesReady:chapters.every((ch)=>ch.qa.acx.passed)&&consistentChannelConfiguration,eligibility:'BLOCKED_UNLESS_ACX_AUDIBLE_EXPLICITLY_AUTHORIZES_DIGITAL_NARRATION',finalPackageMissing:freeze(['opening credits','closing credits','retail sample','cover art','metadata','explicit ACX/Audible digital narration authorization'])}),spotify:freeze({technicalChapterFilesReady:chapters.every((ch)=>ch.qa.spotify.passed)&&consistentChannelConfiguration,eligibility:'DIGITAL_NARRATION_ACCEPTED_WITH_DISCLOSURE',finalPackageMissing:freeze(['opening/front matter','closing/back matter','sample','cover art','title/author/narrator/language','audiobook ISBN-13 if supplied (must be unique to audiobook edition)','BISAC','territories','USD pricing','digital voice disclosure'])}),apple:freeze({losslessPartnerSourceFilesReady:chapters.every((ch)=>ch.qa.archive.passed)&&consistentChannelConfiguration,eligibility:'PREFERRED_PARTNER_AND_DIGITAL_NARRATION_POLICY_VALIDATION_REQUIRED',finalPackageMissing:freeze(['selected preferred partner','partner-specific validation','cover art','metadata','digital narration eligibility confirmation'])})});
   const base={schemaVersion:1,release:YASREADY_AUDIOBOOKS_VERSION,artifact:'book-one-batch-production-result',status:anyQaFailure?'TECHNICAL_QA_REVIEW_REQUIRED':'READY_FOR_HUMAN_BATCH_REVIEW',book:productionPlan.book,armDigest:arm.integrity.armDigest,recipeDigest:recipeLock.integrity.recipeDigest,batch:freeze({ordinal:1,wholeChaptersOnly:true,chapterCount:chapters.length,firstChapterOrder:arm.batchScope.firstChapterOrder,lastChapterOrder:arm.batchScope.lastChapterOrder}),provider:freeze({providerGenerationCallsThisRun:providerCallsThisRun,importedPilotPaidCallsThisRun:importedPilotCallsThisRun,reusedPaidProviderChunks:Object.values(state.chunks).filter((row)=>row.status==='COMPLETE'&&row.historicalPaidProviderReuse).length,requestIdsObservedThisRun:freeze(requests),liveQuotaRecheckedBeforePaidWork:true}),cost:freeze({approvedMaxUsd:cap,capturedOrEstimatedBilledUsd:capturedUsd,headroomUsd:round(cap-capturedUsd,6),localProcessingUsd:0}),chapters:freeze(chapters.map((ch)=>freeze(ch))),distribution,guardrails:freeze({batchOneCompleted:true,nextBatchArmed:false,productionArmed:false,fullBookGenerationArmed:false,chaptersOutsideBatchGenerated:false,automaticScaleUp:false,humanReviewRequiredBeforeNextBatch:true,retailerSubmissionNotClaimed:true})};
   const resultDigest=sha256(stableJson(resultCore(base)));const result=freeze({...base,integrity:freeze({resultDigest}),nextAction:anyQaFailure?'Resolve technical QA issues before approving Batch One or arming any next batch.':'Human-listen to Batch One chapter masters. Do not arm the next batch until review is complete.'});verifyBookOneBatchProductionResult(result);
   const manifest=freeze({schemaVersion:1,release:YASREADY_AUDIOBOOKS_VERSION,artifact:'book-one-batch-distribution-manifest',resultDigest,finalPackageComplete:false,contractDigest:arm.outputContract.integrity.contractDigest,chapters:freeze(chapters.map((ch)=>freeze({order:ch.order,title:ch.title,archiveWav:ch.outputs.archiveWav,acxMp3:ch.outputs.acxMp3,spotifyMp3:ch.outputs.spotifyMp3,applePartnerWav:ch.outputs.applePartnerWav,qa:ch.qa}))),targets:distribution});
@@ -824,7 +836,7 @@ export function renderBookOneBatchReviewHtml(result) {
       <div class="muted">YasReady Audiobooks ${escapeHtml(result.release)}</div>
       <h1>Batch One Review</h1>
       <p>${result.batch.chapterCount} whole chapter(s). Full-book generation is still OFF.</p>
-      <div class="warn"><strong>Retailer packaging guardrail:</strong> these are chapter masters, not a completed retailer submission. ACX/Audible currently prohibits unauthorized TTS/AI, so this digital narration must not be submitted there without explicit authorization; Spotify requires digital-voice disclosure; Apple requires preferred-partner validation.</div>
+      <div class="warn"><strong>Direct Edition:</strong> Retailers give us reach. Direct gives us the relationship. These chapter masters feed the owned Direct Edition first. Retailer syndication remains separate: ACX/Audible currently requires explicit authorization for this digital narration; Spotify requires digital-voice disclosure; Apple requires preferred-partner validation.</div>
     </div>
     ${cards}
   </div>

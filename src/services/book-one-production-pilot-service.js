@@ -7,8 +7,8 @@ import { verifyBookOneProductionPlan } from './book-one-production-plan-service.
 import { evaluateMasterAgainstProfile } from '../mastering/profiles.js';
 
 export const BOOK_ONE_PILOT_MASTERING_PROFILE = 'acx-2026';
-export const BOOK_ONE_PILOT_ACCEPTED_PLAN_RELEASES = Object.freeze(['0.14.3.13', '0.14.3.14', '0.14.3.14.1', '0.14.3.14.2', '0.14.3.15', '0.14.3.16']);
-export const BOOK_ONE_PILOT_ACCEPTED_ARM_RELEASES = Object.freeze(['0.14.3.14', '0.14.3.14.1', '0.14.3.14.2', '0.14.3.15', '0.14.3.16']);
+export const BOOK_ONE_PILOT_ACCEPTED_PLAN_RELEASES = Object.freeze(['0.14.3.13', '0.14.3.14', '0.14.3.14.1', '0.14.3.14.2', '0.14.3.15', '0.14.3.16', '0.14.3.17', '0.14.3.18']);
+export const BOOK_ONE_PILOT_ACCEPTED_ARM_RELEASES = Object.freeze(['0.14.3.14', '0.14.3.14.1', '0.14.3.14.2', '0.14.3.15', '0.14.3.16', '0.14.3.17', '0.14.3.18']);
 
 function freeze(value) {
   if (Array.isArray(value)) {
