@@ -31,5 +31,6 @@
 - ✅ 0.14.2.1 Catalog Auth Fallback & Discovery UX Hotfix
 - ✅ 0.14.2.2 Anonymous Catalog Pagination & Auth UX
 - ✅ 0.14.3 Casting Fit & Audition Script Hardening
+- ✅ 0.14.3.1 Character Cultural Fit Hardening
 - ⏭️ 0.14.x Book One audition approval / Casting Room execution
 - ⏭️ 1.0.0 YasReady Audiobooks

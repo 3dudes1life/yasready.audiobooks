@@ -2,7 +2,7 @@
 
 Professional audiobook production infrastructure for YasReady Publishing.
 
-**Current build: 0.14.3 — Casting Fit & Audition Script Hardening**
+**Current build: 0.14.3.1 — Character Cultural Fit Hardening**
 
 YasReady Audiobooks is being developed as a standalone service first so audiobook experimentation cannot destabilize YasReady Publishing. The product goal is professional long-form audiobook production with strong continuity, human approval gates, cost protection, quality control, mastering and retailer-ready packaging.
 
@@ -39,6 +39,7 @@ YasReady Audiobooks is being developed as a standalone service first so audioboo
 - 0.14.2.1 Catalog Auth Fallback & Discovery UX Hotfix — retries logged-out ElevenLabs filtered-catalog failures against the public unfiltered catalog, reapplies all safety filters locally, reports auth mode honestly, and preserves the zero-spend boundary
 - 0.14.2.2 Anonymous Catalog Pagination & Auth UX — detects ElevenLabs' logged-out 3-voice page limit, paginates the public catalog in safe 3-voice pages, counts fallback HTTP calls honestly, and recommends API-key discovery only if anonymous browsing cannot fill Wave 1
 - 0.14.3 Casting Fit & Audition Script Hardening — makes Book One role fit outweigh generic catalog safety, blocks hard-fit mismatches from audition recommendations, removes print-only front matter from Narrator audition scripts, tightens metadata distinctiveness, and adds a local Casting Review Board with preview players plus Keep / Maybe / Pass export
+- 0.14.3.1 Character Cultural Fit Hardening — adds explicit-metadata cultural fit for Juan Delgado and regional/context fit for Christopher Lancaster, reserves scarce culturally fitting voices for constrained roles, and performs authenticated zero-spend cultural catalog searches
 
 ## Book One Superman
 

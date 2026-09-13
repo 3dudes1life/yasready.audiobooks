@@ -34,8 +34,8 @@ function voice(index, overrides = {}) {
   };
 }
 
-test('0.14.3 is current application provenance', () => {
-  assert.equal(YASREADY_AUDIOBOOKS_VERSION, '0.14.3');
+test('0.14.3.1 is current application provenance', () => {
+  assert.equal(YASREADY_AUDIOBOOKS_VERSION, '0.14.3.1');
 });
 
 test('logged-out filter 401 plus public >3 401 automatically falls back to page_size=3', async () => {
@@ -111,7 +111,9 @@ test('anonymous 3-voice pagination can fill the complete Wave 1 shortlist safely
           provider: 'elevenlabs',
           providerVoiceId: `public-${i}`,
           name: `Public ${i}`,
-          description: 'warm natural conversational audiobook storytelling voice',
+          description: i % 4 === 0
+            ? 'Latino American warm natural conversational audiobook storytelling voice'
+            : 'warm natural conversational audiobook storytelling voice Bay Area California',
           category: 'professional',
           accent: 'american',
           gender: 'male',
