@@ -69,15 +69,15 @@ function voice(overrides = {}) {
   };
 }
 
-test('0.14.3.2 is current application provenance', () => {
-  assert.equal(YASREADY_AUDIOBOOKS_VERSION, '0.14.3.2');
+test('0.14.3.3 is current application provenance', () => {
+  assert.equal(YASREADY_AUDIOBOOKS_VERSION, '0.14.3.3');
 });
 
 test('full-manuscript biography discovers Michael Oklahoma + farm evidence and derives mild country target', () => {
   const data = prepRunFixture();
   const biographies = buildCharacterCastingBiographiesFromPrepRun(data.prep, data.launch);
   const michael = biographies.profiles.find((row) => row.character === 'Michael Rawlins');
-  assert.equal(michael.sourceScope, 'full-manuscript');
+  assert.equal(michael.sourceScope, 'full-manuscript-plus-operator-canon');
   assert.ok(michael.evidence.some((row) => row.ruleId === 'oklahoma'));
   assert.ok(michael.evidence.some((row) => row.ruleId === 'farm'));
   assert.match(michael.castingProfile.regionalFlavor.label, /Oklahoma|country/i);

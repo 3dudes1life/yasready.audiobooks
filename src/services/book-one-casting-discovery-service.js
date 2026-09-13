@@ -34,12 +34,13 @@ const BOOK_ONE_CASTING_INTENTS = Object.freeze({
     })
   }),
   'Michael Rawlins': Object.freeze({
-    label: 'Grounded, warm, emotionally natural lead',
+    label: 'Young, grounded Oklahoma ranch-background lead',
+    characterContext: 'Michael is a young adult white man from an Oklahoma ranch/farm background. Prefer mild contemporary Oklahoma/Plains/country coloration when supported by the selected English profile; avoid cowboy caricature. White identity is canon, not an acoustic trait.',
     preferredGender: 'male',
-    preferredAccents: Object.freeze(['american', 'neutral', 'standard', 'californian']),
-    preferredAges: Object.freeze(['young', 'middle aged', 'adult']),
+    preferredAccents: Object.freeze(['american', 'neutral', 'oklahoma', 'plains', 'midwest', 'country', 'southern']),
+    preferredAges: Object.freeze(['young', 'young adult']),
     preferredUseCases: Object.freeze(['conversational', 'narrative story']),
-    keywords: Object.freeze(['grounded', 'warm', 'natural', 'emotional', 'calm', 'conversational', 'intimate'])
+    keywords: Object.freeze(['grounded', 'warm', 'natural', 'emotional', 'calm', 'conversational', 'intimate', 'country', 'oklahoma', 'rural'])
   }),
   'Christopher Lancaster': Object.freeze({
     label: 'Confident, polished, warm Asian American Bay Area lead',
@@ -116,6 +117,11 @@ function normalizedVoice(raw) {
       descriptives: freeze([...(raw.descriptives ?? [])]),
       verifiedLanguages: freeze([...(raw.verifiedLanguages ?? [])]),
       previewUrl: raw.previewUrl ?? null,
+      selectedEnglishProfile: raw.selectedEnglishProfile ? freeze({ ...raw.selectedEnglishProfile }) : null,
+      previewIntegrity: raw.previewIntegrity ? freeze({ ...raw.previewIntegrity }) : null,
+      catalogPrimaryLanguage: raw.catalogPrimaryLanguage ?? raw.language ?? null,
+      catalogPrimaryLocale: raw.catalogPrimaryLocale ?? raw.locale ?? null,
+      catalogPrimaryAccent: raw.catalogPrimaryAccent ?? raw.accent ?? null,
       noticePeriodDays: Number(raw.noticePeriodDays ?? 0) || 0,
       disableAtUnix: raw.disableAtUnix ?? null,
       customRate: raw.customRate ?? null,
@@ -133,8 +139,109 @@ function metadataText(voice) {
   return [
     voice.name, voice.description, voice.category, voice.accent, voice.gender, voice.age, voice.language,
     voice.locale, voice.useCase, ...(voice.descriptives ?? []),
-    ...(voice.verifiedLanguages ?? []).flatMap((row) => [row.language, row.locale, row.accent])
+    voice.selectedEnglishProfile?.accent, voice.selectedEnglishProfile?.locale
   ].filter(Boolean).join(' ').toLowerCase();
+}
+
+function englishAccentLabel(accent, locale = null) {
+  const raw = normalizedTrait(accent);
+  if (!raw && /^en-us\b/i.test(String(locale ?? ''))) return 'american';
+  if (/^en us (.+)$/.test(raw)) {
+    const tail = raw.replace(/^en us /, '').trim();
+    if (!tail || tail === 'standard') return 'american';
+    if (tail === 'other') return 'other';
+    return `american ${tail}`;
+  }
+  if (/^en (arabic|indian|chinese|korean|spanish|latin|russian|french|german)\b/.test(raw)) {
+    return `${raw.replace(/^en /, '')}-accented english`;
+  }
+  return raw || null;
+}
+
+export function selectEnglishCastingProfile(rawVoice, { model = 'eleven_multilingual_v2' } = {}) {
+  const voice = normalizedVoice(rawVoice);
+  const primaryLanguage = lower(voice.catalogPrimaryLanguage ?? voice.language);
+  const primaryLocale = clean(voice.catalogPrimaryLocale ?? voice.locale);
+  const primaryEnglish = primaryLanguage === 'en' || /^en(?:-|$)/i.test(primaryLocale);
+  const primaryLanguageExplicit = Boolean(primaryLanguage);
+
+  const englishRows = (voice.verifiedLanguages ?? [])
+    .filter((row) => lower(row.language) === 'en' && clean(row.previewUrl))
+    .map((row) => ({
+      language: 'en',
+      locale: row.locale ?? null,
+      accent: englishAccentLabel(row.accent, row.locale),
+      rawAccent: row.accent ?? null,
+      modelId: row.modelId ?? null,
+      previewUrl: row.previewUrl
+    }))
+    .sort((a, b) => {
+      const exactA = a.modelId === model ? 1 : 0;
+      const exactB = b.modelId === model ? 1 : 0;
+      if (exactA !== exactB) return exactB - exactA;
+      const specific = (row) => row.accent && !['american', 'standard', 'other'].includes(normalizedTrait(row.accent)) ? 1 : 0;
+      if (specific(a) !== specific(b)) return specific(b) - specific(a);
+      return String(a.locale ?? '').localeCompare(String(b.locale ?? ''));
+    });
+
+  let selected = englishRows[0] ?? null;
+  if (!selected && primaryEnglish && clean(voice.previewUrl)) {
+    selected = {
+      language: 'en',
+      locale: voice.locale ?? null,
+      accent: englishAccentLabel(voice.accent, voice.locale),
+      rawAccent: voice.accent ?? null,
+      modelId: null,
+      previewUrl: voice.previewUrl
+    };
+  }
+
+  const ready = Boolean(selected?.previewUrl);
+  const coreAuditionEligible = Boolean(ready && (!primaryLanguageExplicit || primaryEnglish));
+  return freeze({
+    ready,
+    desiredLanguage: 'en',
+    primaryLanguage: primaryLanguage || null,
+    primaryLocale: primaryLocale || null,
+    primaryAccent: voice.catalogPrimaryAccent ?? voice.accent ?? null,
+    primaryEnglish,
+    primaryLanguageExplicit,
+    coreAuditionEligible,
+    selectionSource: selected ? (englishRows.length ? 'verified-english-profile' : 'catalog-primary') : 'missing',
+    model,
+    language: selected?.language ?? null,
+    locale: selected?.locale ?? null,
+    accent: selected?.accent ?? null,
+    rawAccent: selected?.rawAccent ?? null,
+    modelId: selected?.modelId ?? null,
+    previewUrl: selected?.previewUrl ?? null,
+    score: !ready ? 0 : primaryEnglish || !primaryLanguageExplicit ? 100 : 62
+  });
+}
+
+export function projectEnglishCastingVoice(rawVoice, { model = 'eleven_multilingual_v2' } = {}) {
+  const voice = normalizedVoice(rawVoice);
+  const previewIntegrity = selectEnglishCastingProfile(voice, { model });
+  if (!previewIntegrity.ready) return null;
+  return freeze({
+    ...voice,
+    catalogPrimaryLanguage: voice.catalogPrimaryLanguage ?? voice.language ?? null,
+    catalogPrimaryLocale: voice.catalogPrimaryLocale ?? voice.locale ?? null,
+    catalogPrimaryAccent: voice.catalogPrimaryAccent ?? voice.accent ?? null,
+    language: 'en',
+    locale: previewIntegrity.locale,
+    accent: previewIntegrity.accent,
+    previewUrl: previewIntegrity.previewUrl,
+    selectedEnglishProfile: freeze({
+      language: 'en',
+      locale: previewIntegrity.locale,
+      accent: previewIntegrity.accent,
+      rawAccent: previewIntegrity.rawAccent,
+      modelId: previewIntegrity.modelId,
+      previewUrl: previewIntegrity.previewUrl
+    }),
+    previewIntegrity
+  });
 }
 
 function roleIntent(target) {
@@ -289,15 +396,23 @@ export function scoreBookOneCastingFit(rawVoice, target) {
     else if (target.role !== 'narrator' && /old|senior|elder/.test(normalizedTrait(voice.age))) {
       score -= 15;
       stretchFlags.push(freeze({ code: 'age-stretch', severity: 'strong', note: `Catalog age ${voice.age} is an obvious stretch for this Book One lead.` }));
+    } else if (target.canonicalName === 'Michael Rawlins' && /middle aged|middle_aged/.test(normalizedTrait(voice.age))) {
+      score -= 12;
+      stretchFlags.push(freeze({ code: 'age-stretch', severity: 'strong', note: `Catalog age ${voice.age} is older than Michael's operator-confirmed young-adult target.` }));
     } else {
       score -= 4;
       stretchFlags.push(freeze({ code: 'age-stretch', severity: 'soft', note: `Catalog age ${voice.age} is outside the current Book One soft age preference.` }));
     }
   }
 
+  if (voice.previewIntegrity?.primaryLanguageExplicit && !voice.previewIntegrity.primaryEnglish) {
+    score -= 18;
+    stretchFlags.push(freeze({ code: 'catalog-primary-language-stretch', severity: 'strong', note: `Catalog-primary language ${voice.previewIntegrity.primaryLanguage} is not English; core Book One audition requires an English-primary/unspecified catalog voice.` }));
+  }
+
   score += Math.min(30, matchedKeywords.length * 5);
   if (voice.previewUrl) score += 3;
-  const englishVerified = lower(voice.language) === 'en' || (voice.verifiedLanguages ?? []).some((row) => lower(row.language) === 'en');
+  const englishVerified = lower(voice.language) === 'en' && Boolean(voice.previewUrl);
   if (englishVerified) score += 4;
 
   const finalScore = clamp(Math.round(score), 0, 100);
@@ -334,6 +449,13 @@ function compactVoice(voice) {
     descriptives: freeze([...(voice.descriptives ?? [])]),
     verifiedLanguages: freeze([...(voice.verifiedLanguages ?? [])]),
     previewUrl: voice.previewUrl ?? null,
+    selectedEnglishProfile: voice.selectedEnglishProfile ? freeze({ ...voice.selectedEnglishProfile }) : null,
+    previewLanguage: voice.selectedEnglishProfile?.language ?? voice.language ?? null,
+    previewLocale: voice.selectedEnglishProfile?.locale ?? voice.locale ?? null,
+    previewAccent: voice.selectedEnglishProfile?.accent ?? voice.accent ?? null,
+    catalogPrimaryLanguage: voice.catalogPrimaryLanguage ?? null,
+    catalogPrimaryLocale: voice.catalogPrimaryLocale ?? null,
+    catalogPrimaryAccent: voice.catalogPrimaryAccent ?? null,
     noticePeriodDays: Number(voice.noticePeriodDays ?? 0),
     disableAtUnix: voice.disableAtUnix ?? null,
     hasCustomRate: Boolean(voice.hasCustomRate),
@@ -343,6 +465,7 @@ function compactVoice(voice) {
 }
 
 function candidateScore(voice, target, biography = null) {
+  const previewIntegrity = voice.previewIntegrity ?? selectEnglishCastingProfile(voice);
   const safety = scoreSeriesSafety(voice, { desiredLanguage: 'en' });
   const fit = scoreBookOneCastingFit(voice, target);
   const culturalFit = scoreBookOneCulturalFit(voice, target);
@@ -357,7 +480,9 @@ function candidateScore(voice, target, biography = null) {
   } else {
     combined = Number((safety.score * 0.35 + fit.score * 0.65).toFixed(1));
   }
+  combined = Number((combined * 0.88 + previewIntegrity.score * 0.12).toFixed(1));
   const strengths = [...safety.reasons];
+  if (previewIntegrity.ready) strengths.push(`English preview selected (${previewIntegrity.locale ?? 'locale not listed'}${previewIntegrity.accent ? ` / ${previewIntegrity.accent}` : ''})`);
   if (fit.matchedKeywords.length) strengths.push(`casting-fit metadata: ${fit.matchedKeywords.join(', ')}`);
   if (culturalFit.matchedSignals.length) strengths.push(`explicit cultural/regional metadata: ${culturalFit.matchedSignals.join(', ')}`);
   if (biographyFit.matchedTerms?.length) strengths.push(`full-book biography match: ${biographyFit.matchedTerms.join(', ')}`);
@@ -365,21 +490,21 @@ function candidateScore(voice, target, biography = null) {
     ...safety.warnings,
     ...fit.stretchFlags.map((row) => row.note),
     ...culturalFit.flags.map((row) => row.note),
-    ...(biographyFit.concerns ?? [])
+    ...(biographyFit.concerns ?? []),
+    ...(!previewIntegrity.coreAuditionEligible ? [`Catalog-primary language ${previewIntegrity.primaryLanguage ?? 'unknown'} is not eligible for English-first core audition recommendation.`] : [])
   ];
   if (!fit.matchedKeywords.length) concerns.push('limited role-specific descriptive metadata; audition matters more than metadata fit');
-  return freeze({ voice, safety, fit, culturalFit, biographyFit, combined, strengths: freeze(strengths), concerns: freeze(concerns) });
+  return freeze({ voice, safety, fit, culturalFit, biographyFit, previewIntegrity, combined, strengths: freeze(strengths), concerns: freeze(concerns) });
 }
 
-function meetsBookOneDiscoveryPolicy(raw) {
+function meetsBookOneDiscoveryPolicy(raw, { model = 'eleven_multilingual_v2' } = {}) {
   const voice = normalizedVoice(raw);
   const category = lower(voice.category);
-  const englishCapable =
-    lower(voice.language) === 'en' ||
-    (voice.verifiedLanguages ?? []).some((row) => lower(row.language) === 'en');
+  const english = selectEnglishCastingProfile(voice, { model });
   return Boolean(
     voice.providerVoiceId &&
-    englishCapable &&
+    english.ready &&
+    english.coreAuditionEligible &&
     ['professional', 'high_quality'].includes(category) &&
     Number(voice.noticePeriodDays ?? 0) >= 180 &&
     !voice.hasCustomRate &&
@@ -430,6 +555,7 @@ function buildDistinctiveness(shortlists) {
 }
 
 function recommendationFor(candidate, rank, auditionTop) {
+  if (!candidate.previewIntegrity?.ready || !candidate.previewIntegrity?.coreAuditionEligible) return 'PASS';
   if (candidate.fit.hardMismatch || candidate.fit.score < 72) return 'PASS';
   if (candidate.culturalFit?.requiredForAudition && !candidate.culturalFit.requirementMet) return 'ALTERNATE';
   if (candidate.biographyFit?.preferredAuditionRequirement && !candidate.biographyFit.requirementMet) return 'ALTERNATE';
@@ -458,8 +584,16 @@ function chooseUniqueShortlists(waveOne, voices, { perRole = 6, auditionTop = 3,
   const used = new Set();
   const leaders = [];
   const chosen = new Map(waveOne.map((target) => [target.canonicalName, []]));
+  const constraintPriority = (target) => {
+    const biography = biographyByCharacter.get(target.canonicalName) ?? null;
+    let priority = 0;
+    if (roleIntent(target).cultural?.requiredForAudition) priority += 5;
+    if (biography?.castingProfile?.regionalFlavor?.requiredForPreferredAudition) priority += 3;
+    if ((biography?.castingProfile?.preferredAges ?? []).length) priority += 1;
+    return priority;
+  };
   const allocationOrder = [...waveOne].sort((a, b) =>
-    Number(Boolean(roleIntent(b).cultural?.requiredForAudition)) - Number(Boolean(roleIntent(a).cultural?.requiredForAudition))
+    constraintPriority(b) - constraintPriority(a)
   );
   for (let slot = 0; slot < perRole; slot += 1) {
     for (const target of allocationOrder) {
@@ -576,8 +710,9 @@ function isPrintOnlyNarrationRow(row) {
   const order = Number(row.chapter?.order);
   const text = lower(row.segment?.text);
   if (Number.isFinite(order) && order <= 0) return true;
-  if (/front matter|copyright|title page|table of contents|contents|dedication|acknowledg|about the author/.test(title)) return true;
+  if (/front matter|copyright|title page|table of contents|contents|dedication|acknowledg|about the author|author.?s note|afterword|epilogue note|reader note/.test(title)) return true;
   if (/copyright|all rights reserved|no part of this book|isbn|library of congress|published by|publisher|edition|cover design|www\.|https?:\/\//.test(text)) return true;
+  if (/thank you for (?:reading|listening|being a part)|this isn.?t just our story|dear reader|author.?s note|please (?:review|rate|follow)|follow (?:me|us)|newsletter|join (?:my|our) mailing list|the end\b/.test(text)) return true;
   return false;
 }
 
@@ -703,6 +838,7 @@ function compactShortlists(shortlists, prep, launch) {
         roleFit: candidate.fit,
         culturalFit: candidate.culturalFit,
         biographyFit: candidate.biographyFit,
+        previewIntegrity: candidate.previewIntegrity,
         combinedScore: candidate.combined,
         strengths: candidate.strengths,
         concerns: candidate.concerns
@@ -744,6 +880,8 @@ export function renderCastingDiscoveryMarkdown(discovery) {
         `   - Role fit: ${candidate.roleFit.score}/100 (${candidate.roleFit.grade ?? 'ungraded'})`,
         ...(candidate.culturalFit?.applicable ? [`   - Cultural fit: ${candidate.culturalFit.score}/100 (${candidate.culturalFit.requirementMet ? 'metadata signal satisfied' : 'explicit signal missing'})`] : []),
         ...(candidate.biographyFit?.applicable ? [`   - Full-book biography fit: ${candidate.biographyFit.score}/100 (${candidate.biographyFit.requirementMet ? 'preferred evidence target met' : 'preferred evidence target missing'})`] : []),
+        `   - Selected English preview: ${v.previewLanguage ?? 'not listed'} / ${v.previewLocale ?? 'not listed'} / ${v.previewAccent ?? 'not listed'}`,
+        `   - Catalog-primary language: ${v.catalogPrimaryLanguage ?? 'not listed'}`,
         `   - Accent / age / gender: ${v.accent ?? 'not listed'} / ${v.age ?? 'not listed'} / ${v.gender ?? 'not listed'}`,
         `   - Notice protection: ${v.noticePeriodDays} day(s)`,
         `   - Use case: ${v.useCase ?? 'not listed'}`,
@@ -870,8 +1008,9 @@ for(const role of DISCOVERY.shortlists){
    left.append(el('div','rank','#'+c.rank+' • '+c.recommendation)); left.append(el('div','name',c.voice.name));
    top.append(left); top.append(el('div','rec',c.recommendation)); card.append(top);
    const meta=el('div','meta');
-   for(const v of [c.voice.accent,c.voice.age,c.voice.gender,c.voice.useCase].filter(Boolean))meta.append(el('span','',v));
+   for(const v of [('Preview: '+(c.voice.previewLanguage||'unknown')),c.voice.previewAccent,c.voice.age,c.voice.gender,c.voice.useCase].filter(Boolean))meta.append(el('span','',v));
    card.append(meta);
+   if(c.voice.catalogPrimaryLanguage&&c.voice.catalogPrimaryLanguage!=='en')card.append(el('div','concerns','Catalog-primary language: '+c.voice.catalogPrimaryLanguage+' — this voice should not be in the English-first core shortlist.'));
    if(c.voice.previewUrl){const audio=document.createElement('audio');audio.controls=true;audio.preload='none';audio.src=c.voice.previewUrl;card.append(audio)}
    const scores=el('div','scores');
    const scoreRows=[['Overall',c.combinedScore],['Role fit',c.roleFit.score],['Safety',c.seriesSafety.score]];
@@ -904,14 +1043,14 @@ updateSummary();
 }
 
 export function renderCastingDiscoveryCsv(discovery) {
-  const header = ['character', 'rank', 'recommendation', 'candidate_id', 'character_id', 'provider', 'voice_name', 'voice_id', 'combined_score', 'series_safety_score', 'series_safety_grade', 'role_fit_score', 'cultural_fit_score', 'cultural_requirement_met', 'biography_fit_score', 'biography_requirement_met', 'accent', 'age', 'gender', 'use_case', 'notice_days', 'preview_url', 'candidate_status', 'audition_status', 'operator_decision', 'notes'];
+  const header = ['character', 'rank', 'recommendation', 'candidate_id', 'character_id', 'provider', 'voice_name', 'voice_id', 'combined_score', 'series_safety_score', 'series_safety_grade', 'role_fit_score', 'cultural_fit_score', 'cultural_requirement_met', 'biography_fit_score', 'biography_requirement_met', 'preview_language', 'preview_locale', 'preview_accent', 'catalog_primary_language', 'accent', 'age', 'gender', 'use_case', 'notice_days', 'preview_url', 'candidate_status', 'audition_status', 'operator_decision', 'notes'];
   const lines = [header.map(csvCell).join(',')];
   for (const row of discovery.shortlists) for (const candidate of row.candidates) {
     const v = candidate.voice;
     lines.push([
       row.character, candidate.rank, candidate.recommendation, candidate.id, candidate.characterId,
       v.provider, v.name, v.providerVoiceId, candidate.combinedScore, candidate.seriesSafety.score,
-      candidate.seriesSafety.grade, candidate.roleFit.score, candidate.culturalFit?.applicable ? candidate.culturalFit.score : '', candidate.culturalFit?.requirementMet ?? true, candidate.biographyFit?.applicable ? candidate.biographyFit.score : '', candidate.biographyFit?.requirementMet ?? true, v.accent, v.age, v.gender, v.useCase,
+      candidate.seriesSafety.grade, candidate.roleFit.score, candidate.culturalFit?.applicable ? candidate.culturalFit.score : '', candidate.culturalFit?.requirementMet ?? true, candidate.biographyFit?.applicable ? candidate.biographyFit.score : '', candidate.biographyFit?.requirementMet ?? true, v.previewLanguage, v.previewLocale, v.previewAccent, v.catalogPrimaryLanguage, v.accent, v.age, v.gender, v.useCase,
       v.noticePeriodDays, v.previewUrl, candidate.candidateStatus, candidate.auditionStatus, '', ''
     ].map(csvCell).join(','));
   }
@@ -935,8 +1074,9 @@ export class BookOneCastingDiscoveryService {
     const uniquePool = [];
     const seen = new Set();
     for (const raw of voices ?? []) {
-      const voice = normalizedVoice(raw);
-      if (!clean(voice.providerVoiceId)) continue;
+      if (!meetsBookOneDiscoveryPolicy(raw, { model })) continue;
+      const voice = projectEnglishCastingVoice(raw, { model });
+      if (!voice || !clean(voice.providerVoiceId)) continue;
       const key = `${voice.provider}:${voice.providerVoiceId}`;
       if (seen.has(key)) continue;
       seen.add(key);
@@ -1002,7 +1142,9 @@ export class BookOneCastingDiscoveryService {
         localSafetyPolicyEnforced: true,
         supplementalSearchesPerformed: freeze([...(supplementalSearchesPerformed ?? [])]),
         culturalFitSource: 'explicit-provider-catalog-metadata-only',
-        biographyFitSource: characterBiographies ? 'full-manuscript-evidence-plus-provider-metadata' : 'not-supplied'
+        biographyFitSource: characterBiographies ? 'full-manuscript-semantic-truth-plus-selected-english-profile' : 'not-supplied',
+        previewLanguagePolicy: 'english-primary-or-unspecified-with-selected-english-preview',
+        multilingualMetadataLeakageBlocked: true
       }),
       shortlists,
       distinctiveness,
@@ -1029,6 +1171,13 @@ export class BookOneCastingDiscoveryService {
         fullManuscriptBiographyUsedForCasting: Boolean(characterBiographies),
         biographyIdentityInferenceFromName: false,
         biographyIdentityInferenceFromAudio: false,
+        biographyProximityOnlyAttributionAllowed: false,
+        identityUsedAsAcousticTrait: false,
+        selectedEnglishPreviewRequired: true,
+        nonEnglishPrimaryCoreVoiceBlocked: true,
+        unrelatedVerifiedLanguageAccentsExcludedFromFit: true,
+        readerFacingBackMatterAuditionBlocked: true,
+        constrainedRoleScarcityProtection: true,
         paidProviderCallsPerformed: 0,
         generationCallsPerformed: 0,
         auditionRenderingArmed: false,
@@ -1111,8 +1260,9 @@ export class BookOneCastingDiscoveryService {
       const before = eligibleVoices.length;
 
       for (const raw of rows) {
-        if (!meetsBookOneDiscoveryPolicy(raw)) continue;
-        const voice = normalizedVoice(raw);
+        if (!meetsBookOneDiscoveryPolicy(raw, { model })) continue;
+        const voice = projectEnglishCastingVoice(raw, { model });
+        if (!voice) continue;
         const key = `${voice.provider}:${voice.providerVoiceId}`;
         if (eligibleSeen.has(key)) continue;
         eligibleSeen.add(key);
@@ -1171,8 +1321,9 @@ export class BookOneCastingDiscoveryService {
           voicesReturned: (result.voices ?? []).length
         }));
         for (const raw of result.voices ?? []) {
-          if (!meetsBookOneDiscoveryPolicy(raw)) continue;
-          const voice = normalizedVoice(raw);
+          if (!meetsBookOneDiscoveryPolicy(raw, { model })) continue;
+          const voice = projectEnglishCastingVoice(raw, { model });
+          if (!voice) continue;
           const key = `${voice.provider}:${voice.providerVoiceId}`;
           if (eligibleSeen.has(key)) continue;
           eligibleSeen.add(key);
