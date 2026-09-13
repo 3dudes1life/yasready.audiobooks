@@ -55,6 +55,11 @@ import {
   verifyBookOneProductionPlan,
   renderBookOneProductionPlanMarkdown,
   renderBookOneProductionBudgetCsv,
+  buildBookOneChapterOnePilotArm,
+  renderBookOneChapterOnePilotArmMarkdown,
+  renderBookOneChapterOnePilot,
+  finalizeBookOneChapterOnePilot,
+  renderBookOneChapterOnePilotFinalizationMarkdown,
   FfmpegAdapter
 } from './index.js';
 import { YASREADY_AUDIOBOOKS_VERSION } from './release.js';
@@ -1585,6 +1590,118 @@ async function runBookOneProductionPlan() {
   }, null, 2));
 }
 
+async function runBookOneProductionPilotArm() {
+  const planPath = args[1];
+  const manuscriptPath = args[2];
+  const out = flagValue('--out');
+  if (!planPath || !manuscriptPath || !out) {
+    console.error('Usage: node src/cli.js production-pilot-arm <book-one-production-plan.json> <manuscript.docx> --out DIR');
+    process.exitCode = 2;
+    return;
+  }
+  const plan = JSON.parse(await readFile(path.resolve(planPath), 'utf8'));
+  const extracted = extractManuscriptFile(path.resolve(manuscriptPath));
+  const analysis = analyzeManuscript(extracted, { title: plan.book?.title ?? null, author: plan.book?.author ?? null });
+  const provider = new ElevenLabsProvider();
+  const ffmpeg = new FfmpegAdapter();
+  const arm = await buildBookOneChapterOnePilotArm({ productionPlan: plan, manuscriptAnalysis: analysis, provider, ffmpeg });
+  const resolved = path.resolve(out);
+  await mkdir(resolved, { recursive: true });
+  const files = {
+    json: path.join(resolved, 'chapter-one-pilot-arm.json'),
+    markdown: path.join(resolved, 'chapter-one-pilot-arm.md'),
+    confirmation: path.join(resolved, 'chapter-one-pilot-confirmation.txt')
+  };
+  await Promise.all([
+    writeFile(files.json, JSON.stringify(arm, null, 2)),
+    writeFile(files.markdown, renderBookOneChapterOnePilotArmMarkdown(arm)),
+    writeFile(files.confirmation, [arm.confirmation.token, 'Chapter One only', 'Protected / hard max: $' + arm.budget.suggestedMaxUsd.toFixed(2), 'PLAN token cannot authorize spend', 'Full-book generation armed: NO', ''].join('\n'))
+  ]);
+  console.log(JSON.stringify({
+    version: VERSION,
+    productionPilotArm: arm.status,
+    chapter: arm.pilotScope.chapterTitle,
+    providerCallsPlanned: arm.pilotScope.providerGenerationCalls,
+    providerCharactersPlanned: arm.pilotScope.providerCharacters,
+    providerReportedQuotaRemaining: arm.providerPreflight.quota.providerReportedRemaining,
+    providerCreditsInferred: false,
+    estimatedUsd: arm.budget.estimateUsd,
+    retryReserveUsd: arm.budget.retryReserveUsd,
+    protectedMaxUsd: arm.budget.suggestedMaxUsd,
+    armProviderTtsCalls: 0,
+    armSpendUsd: 0,
+    approvalToken: arm.confirmation.token,
+    pilotArmed: true,
+    productionArmed: false,
+    fullBookGenerationArmed: false,
+    files
+  }, null, 2));
+}
+
+async function runBookOneProductionPilotRender() {
+  const armPath = args[1];
+  const planPath = flagValue('--plan');
+  const manuscriptPath = flagValue('--manuscript');
+  const out = flagValue('--out');
+  const approvalToken = flagValue('--approve-spend');
+  const maxUsd = flagValue('--max-usd');
+  if (!armPath || !planPath || !manuscriptPath || !out || !approvalToken || maxUsd === null) {
+    console.error('Usage: node src/cli.js production-pilot-render <chapter-one-pilot-arm.json> --plan <book-one-production-plan.json> --manuscript <book_1.docx> --out DIR --approve-spend PILOT-... --max-usd USD');
+    process.exitCode = 2;
+    return;
+  }
+  const [arm, plan] = await Promise.all([
+    readFile(path.resolve(armPath), 'utf8').then(JSON.parse),
+    readFile(path.resolve(planPath), 'utf8').then(JSON.parse)
+  ]);
+  const extracted = extractManuscriptFile(path.resolve(manuscriptPath));
+  const analysis = analyzeManuscript(extracted, { title: plan.book?.title ?? null, author: plan.book?.author ?? null });
+  const provider = new ElevenLabsProvider();
+  const ffmpeg = new FfmpegAdapter();
+  const result = await renderBookOneChapterOnePilot({ arm, productionPlan: plan, manuscriptAnalysis: analysis, provider, ffmpeg, outDir: out, approvalToken, maxUsd: Number(maxUsd) });
+  console.log(JSON.stringify({
+    version: VERSION,
+    productionPilot: result.status,
+    chapter: result.chapter.title,
+    narrator: result.narrator.narratorName,
+    providerSpeed: result.lockedRecipe.paceProfile.providerNativeSpeed,
+    effectiveSpeed: result.lockedRecipe.paceProfile.effectiveSpeed,
+    totalPaidBaseChunks: result.provider.totalPaidBaseChunks,
+    currentRunProviderGenerationCalls: result.provider.currentRunProviderGenerationCalls,
+    reusedPaidBaseChunks: result.provider.reusedPaidBaseChunks,
+    capturedOrEstimatedBilledUsd: result.cost.capturedOrEstimatedBilledUsd,
+    approvedMaxUsd: result.cost.approvedMaxUsd,
+    technicalQaPassed: result.technicalQa.passed,
+    reviewBoard: path.join(path.resolve(out), result.outputs.reviewBoard),
+    productionArmed: false,
+    fullBookGenerationArmed: false,
+    nextAction: result.nextAction
+  }, null, 2));
+}
+
+async function runBookOneProductionPilotFinalize() {
+  const feedbackPath = args[1];
+  const armPath = flagValue('--arm');
+  const renderPath = flagValue('--render');
+  const out = flagValue('--out');
+  if (!feedbackPath || !armPath || !renderPath || !out) {
+    console.error('Usage: node src/cli.js production-pilot-finalize <chapter-one-pilot-feedback.json> --arm <chapter-one-pilot-arm.json> --render <chapter-one-pilot-result.json> --out DIR');
+    process.exitCode = 2;
+    return;
+  }
+  const [feedback, arm, renderResult] = await Promise.all([
+    readFile(path.resolve(feedbackPath), 'utf8').then(JSON.parse),
+    readFile(path.resolve(armPath), 'utf8').then(JSON.parse),
+    readFile(path.resolve(renderPath), 'utf8').then(JSON.parse)
+  ]);
+  const result = finalizeBookOneChapterOnePilot({ arm, renderResult, feedback });
+  const resolved = path.resolve(out);
+  await mkdir(resolved, { recursive: true });
+  const files = { json: path.join(resolved, 'chapter-one-pilot-finalization.json'), markdown: path.join(resolved, 'chapter-one-pilot-finalization.md') };
+  await Promise.all([writeFile(files.json, JSON.stringify(result, null, 2)), writeFile(files.markdown, renderBookOneChapterOnePilotFinalizationMarkdown(result))]);
+  console.log(JSON.stringify({ version: VERSION, productionPilotFinalization: result.status, decision: result.decision, pilotValidated: result.pilotValidated, technicalQaPassed: result.technicalQaPassed, productionArmed: false, fullBookGenerationArmed: false, nextAction: result.nextAction, files }, null, 2));
+}
+
 async function runMoneyGuardFixture() {
   const store = new InMemoryStore();
   const ledger = new CostLedger();
@@ -1711,6 +1828,12 @@ if (args[0] === 'analyze') {
   await runPaceCeilingFinalize();
 } else if (args[0] === 'production-plan' || args[0] === 'book-one-production-plan') {
   await runBookOneProductionPlan();
+} else if (args[0] === 'production-pilot-arm') {
+  await runBookOneProductionPilotArm();
+} else if (args[0] === 'production-pilot-render') {
+  await runBookOneProductionPilotRender();
+} else if (args[0] === 'production-pilot-finalize') {
+  await runBookOneProductionPilotFinalize();
 } else if (args[0] === 'money-guard-fixture') {
   await runMoneyGuardFixture();
 } else {
@@ -1751,6 +1874,9 @@ if (args[0] === 'analyze') {
     paceCeilingPlanCommand: 'node src/cli.js casting-pace-ceiling-plan <emotional-lift-feedback.json> --emotional-plan <emotional-lift-plan.json> --out <directory>',
     paceCeilingRenderCommand: 'node src/cli.js casting-pace-ceiling-render <pace-ceiling-plan.json> --approve-spend <token> --max-usd <usd> --out <directory>',
     paceCeilingFinalizeCommand: 'node src/cli.js casting-pace-ceiling-finalize <pace-ceiling-feedback.json> --plan <pace-ceiling-plan.json> --out <directory>',
+    productionPilotArmCommand: 'node src/cli.js production-pilot-arm <book-one-production-plan.json> <book_1.docx> --out <directory>',
+    productionPilotRenderCommand: 'node src/cli.js production-pilot-render <chapter-one-pilot-arm.json> --plan <book-one-production-plan.json> --manuscript <book_1.docx> --out <directory> --approve-spend <PILOT-token> --max-usd <usd>',
+    productionPilotFinalizeCommand: 'node src/cli.js production-pilot-finalize <chapter-one-pilot-feedback.json> --arm <chapter-one-pilot-arm.json> --render <chapter-one-pilot-result.json> --out <directory>',
     seriesContinuitySeedCommand: 'node src/cli.js series-continuity-seed <book-one-audio-bible-prep.json> [--existing <series-continuity.json>] --out <directory>',
     seriesContinuityCompareCommand: 'node src/cli.js series-continuity-compare <series-continuity.json> <next-book-audio-bible-prep.json>',
     seriesRelationshipLockCommand: 'node src/cli.js series-continuity-lock-group <series-continuity.json> --members key1,key2,key3 --kind partner --out <file>',

@@ -103,6 +103,8 @@ function buildManifest({ manuscriptAnalysis, lock, model, chunkSafetyRatio, expl
 
   for (let chapterIndex = 0; chapterIndex < manuscriptAnalysis.chapters.length; chapterIndex += 1) {
     const chapter = manuscriptAnalysis.chapters[chapterIndex];
+    const resolvedChapterTitle = chapterLabel(chapter, chapterIndex);
+    if (/^front matter$/i.test(resolvedChapterTitle)) continue;
     const chapterChunks = [];
     let chapterWords = 0;
     let chapterCharacters = 0;
@@ -154,7 +156,7 @@ function buildManifest({ manuscriptAnalysis, lock, model, chunkSafetyRatio, expl
 
     chapters.push(freeze({
       order: chapterIndex,
-      title: chapterLabel(chapter, chapterIndex),
+      title: resolvedChapterTitle,
       sourceTextHash: chapter.textHash ?? null,
       sceneCount: chapter.scenes.length,
       providerGenerationCalls: chapterChunks.length,
@@ -229,9 +231,9 @@ function planCore(plan) {
   };
 }
 
-export function verifyBookOneProductionPlan(plan) {
+export function verifyBookOneProductionPlan(plan, { acceptedReleases = [YASREADY_AUDIOBOOKS_VERSION] } = {}) {
   if (!plan || plan.artifact !== 'book-one-production-plan') throw new Error('Invalid Book One production plan');
-  if (plan.release !== YASREADY_AUDIOBOOKS_VERSION) throw new Error('Production plan release does not match application release');
+  if (!Array.isArray(acceptedReleases) || !acceptedReleases.includes(plan.release)) throw new Error('Production plan release is not accepted by this operation');
   if (plan.status !== 'READY_FOR_SEPARATE_PRODUCTION_ARM') throw new Error('Production plan is not in the expected planning-only state');
   if (plan.guardrails?.planningProviderGenerationCalls !== 0) throw new Error('Production planning must perform zero provider generation calls');
   if (plan.guardrails?.productionArmed !== false || plan.guardrails?.fullBookGenerationArmed !== false) {
@@ -496,7 +498,7 @@ export function renderBookOneProductionPlanMarkdown(plan) {
   }
   lines.push(
     '', '## Safety gate', '',
-    '**0.14.3.13 cannot generate production audio.** The plan token is reference-only and is not a spend authorization.',
+    `**${YASREADY_AUDIOBOOKS_VERSION} cannot generate production audio.** The plan token is reference-only and is not a spend authorization.`,
     '', `Plan reference: \`${plan.confirmation.token}\``,
     '', '## Next action', '', plan.nextAction, ''
   );

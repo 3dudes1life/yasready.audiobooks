@@ -223,8 +223,8 @@ function tempoFixture({healthy=true,failOnCall=null}={}) {
   };
 }
 
-test('0.14.3.13 is current application provenance',()=>{
-  assert.equal(YASREADY_AUDIOBOOKS_VERSION,'0.14.3.13');
+test('0.14.3.14 is current application provenance',()=>{
+  assert.equal(YASREADY_AUDIOBOOKS_VERSION,'0.14.3.14');
 });
 
 test('human 1.25 request is recognized while provider ceiling stays 1.20',()=>{
