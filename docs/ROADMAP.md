@@ -47,3 +47,5 @@
 - ✅ 0.14.3.10 Readiness Tuning Loop
 
 - ✅ 0.14.3.11 Emotional Lift Tuning
+
+- ✅ 0.14.3.12 Pace Ceiling Calibration

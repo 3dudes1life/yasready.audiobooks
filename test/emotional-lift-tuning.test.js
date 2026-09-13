@@ -235,8 +235,8 @@ function providerFixture({tier='creator',failOnCall=null}={}) {
   };
 }
 
-test('0.14.3.11 is current application provenance',()=>{
-  assert.equal(YASREADY_AUDIOBOOKS_VERSION,'0.14.3.11');
+test('0.14.3.12 is current application provenance',()=>{
+  assert.equal(YASREADY_AUDIOBOOKS_VERSION,'0.14.3.12');
 });
 
 test('prior human feedback becomes fine-line emotional signals',()=>{

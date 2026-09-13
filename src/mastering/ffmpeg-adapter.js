@@ -136,6 +136,30 @@ export class FfmpegAdapter {
     }
   }
 
+  async tempo(inputPath, outputPath, multiplier) {
+    if (!inputPath || !outputPath) throw new Error('tempo requires inputPath and outputPath');
+    const value = Number(multiplier);
+    if (!Number.isFinite(value) || value < 0.5 || value > 2) {
+      throw new Error('tempo multiplier must be between 0.5 and 2.0');
+    }
+    const normalized = Number(value.toFixed(6));
+    await this.execFile(this.ffmpegPath, [
+      '-y', '-hide_banner', '-loglevel', 'error',
+      '-i', inputPath,
+      '-af', `atempo=${normalized.toFixed(6)}`,
+      '-c:a', 'libmp3lame',
+      '-ar', '44100',
+      '-b:a', '128k',
+      outputPath
+    ], { maxBuffer: 8 * 1024 * 1024 });
+    return freeze({
+      outputPath,
+      tempoMultiplier: normalized,
+      pitchPreserving: true,
+      filter: `atempo=${normalized.toFixed(6)}`
+    });
+  }
+
   async master(inputPath, outputPath, profileInput) {
     const profile = getMasteringProfile(profileInput);
     const loudness = profile.loudness ?? {};

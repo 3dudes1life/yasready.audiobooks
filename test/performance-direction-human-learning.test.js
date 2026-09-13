@@ -76,7 +76,7 @@ function fakeProvider({ tier='creator' }={}) {
   };
 }
 
-test('0.14.3.11 is current application provenance',()=>assert.equal(YASREADY_AUDIOBOOKS_VERSION,'0.14.3.11'));
+test('0.14.3.12 is current application provenance',()=>assert.equal(YASREADY_AUDIOBOOKS_VERSION,'0.14.3.12'));
 
 test('real human notes become delivery signals without identity inference', async()=>{
   const plan=await sourcePlan();

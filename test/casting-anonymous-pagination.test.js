@@ -34,8 +34,8 @@ function voice(index, overrides = {}) {
   };
 }
 
-test('0.14.3.11 is current application provenance', () => {
-  assert.equal(YASREADY_AUDIOBOOKS_VERSION,'0.14.3.11');
+test('0.14.3.12 is current application provenance', () => {
+  assert.equal(YASREADY_AUDIOBOOKS_VERSION,'0.14.3.12');
 });
 
 test('logged-out filter 401 plus public >3 401 automatically falls back to page_size=3', async () => {

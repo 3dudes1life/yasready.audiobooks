@@ -45,7 +45,13 @@ import {
   renderEmotionalLiftPlanMarkdown,
   renderEmotionalLiftRound,
   finalizeEmotionalLift,
-  renderEmotionalLiftFinalizationMarkdown
+  renderEmotionalLiftFinalizationMarkdown,
+  buildPaceCeilingCalibrationPlan,
+  renderPaceCeilingPlanMarkdown,
+  renderPaceCeilingCalibration,
+  finalizePaceCeilingCalibration,
+  renderPaceCeilingFinalizationMarkdown,
+  FfmpegAdapter
 } from './index.js';
 import { YASREADY_AUDIOBOOKS_VERSION } from './release.js';
 
@@ -1328,6 +1334,169 @@ async function runEmotionalLiftFinalize() {
   }, null, 2));
 }
 
+
+async function writePaceCeilingPlanReports(plan, outDir) {
+  const resolved = path.resolve(outDir);
+  await mkdir(resolved, { recursive: true });
+  const files = {
+    json: path.join(resolved, 'pace-ceiling-plan.json'),
+    markdown: path.join(resolved, 'pace-ceiling-plan.md'),
+    confirmation: path.join(resolved, 'pace-ceiling-confirmation.txt')
+  };
+  await Promise.all([
+    writeFile(files.json, JSON.stringify(plan, null, 2)),
+    writeFile(files.markdown, renderPaceCeilingPlanMarkdown(plan)),
+    writeFile(files.confirmation, `${plan.confirmation.token}\nSuggested max USD: ${plan.cost.suggestedMaxUsd.toFixed(2)}\n`)
+  ]);
+  return files;
+}
+
+async function runPaceCeilingPlan() {
+  const feedbackPath = args[1];
+  const emotionalPlanPath = flagValue('--emotional-plan');
+  const out = flagValue('--out');
+  if (!feedbackPath || !emotionalPlanPath || !out) {
+    console.error('Usage: node src/cli.js casting-pace-ceiling-plan <emotional-lift-feedback.json> --emotional-plan <emotional-lift-plan.json> --out DIR [--model eleven_v3]');
+    process.exitCode = 2;
+    return;
+  }
+  const [emotionalFeedback, emotionalPlan] = await Promise.all([
+    readFile(path.resolve(feedbackPath), 'utf8').then(JSON.parse),
+    readFile(path.resolve(emotionalPlanPath), 'utf8').then(JSON.parse)
+  ]);
+  const provider = new ElevenLabsProvider();
+  const plan = await buildPaceCeilingCalibrationPlan({
+    emotionalPlan,
+    emotionalFeedback,
+    estimator: provider.estimateCost.bind(provider),
+    model: flagValue('--model', emotionalPlan.model ?? 'eleven_v3')
+  });
+  const files = await writePaceCeilingPlanReports(plan, out);
+  console.log(JSON.stringify({
+    version: VERSION,
+    paceCeilingPlan: plan.status,
+    narrator: plan.narrator.candidateName,
+    voiceId: plan.narrator.providerVoiceId,
+    baselineDirection: plan.baselineDirection.directionLabel,
+    requestedEffectiveSpeed: plan.requestedPace.requestedEffectiveSpeed,
+    providerNativeSpeedCeiling: plan.requestedPace.providerNativeSpeed,
+    localTempoMultiplier: plan.requestedPace.postProcessTempoMultiplier,
+    emotionalCandidates: plan.emotionalCandidates.map((x) => ({
+      variantId: x.emotionalVariantId,
+      label: x.emotionalVariantLabel,
+      stability: x.stability,
+      note: x.priorHumanNote
+    })),
+    reviewVariants: plan.reviewVariants.map((x) => ({
+      id: x.id,
+      label: x.label,
+      effectiveSpeed: x.effectiveSpeed,
+      isDerived: x.isDerived
+    })),
+    generationCallsPerformed: 0,
+    estimatedProviderGenerationCallsIfApproved: plan.cost.estimatedProviderGenerationCalls,
+    localDerivedComparisons: plan.cost.localDerivedAudioCount,
+    estimatedUsd: plan.cost.estimateUsd,
+    protectedMaxUsd: plan.cost.suggestedMaxUsd,
+    confirmationToken: plan.confirmation.token,
+    productionArmed: false,
+    narratorProductionLockCreated: false,
+    fullBookGenerationArmed: false,
+    nextAction: `Review ${files.markdown}. Rendering remains blocked until casting-pace-ceiling-render is called with --approve-spend ${plan.confirmation.token} --max-usd ${plan.cost.suggestedMaxUsd.toFixed(2)}.`,
+    files
+  }, null, 2));
+}
+
+async function runPaceCeilingRender() {
+  const planPath = args[1];
+  const out = flagValue('--out');
+  const approvalToken = flagValue('--approve-spend');
+  const maxUsd = flagValue('--max-usd');
+  if (!planPath || !out || !approvalToken || maxUsd === null) {
+    console.error('Usage: node src/cli.js casting-pace-ceiling-render <pace-ceiling-plan.json> --out DIR --approve-spend TOKEN --max-usd USD');
+    process.exitCode = 2;
+    return;
+  }
+  const plan = JSON.parse(await readFile(path.resolve(planPath), 'utf8'));
+  const provider = new ElevenLabsProvider();
+  const ffmpeg = new FfmpegAdapter();
+  const tempoProcessor = {
+    healthCheck: () => ffmpeg.healthCheck(),
+    process: (inputPath, outputPath, multiplier) => ffmpeg.tempo(inputPath, outputPath, multiplier)
+  };
+  const result = await renderPaceCeilingCalibration({
+    plan,
+    provider,
+    tempoProcessor,
+    outDir: out,
+    approvalToken,
+    maxUsd: Number(maxUsd)
+  });
+  console.log(JSON.stringify({
+    version: VERSION,
+    paceCeiling: result.status,
+    narrator: result.narrator.candidateName,
+    providerGenerationCalls: result.providerGenerationCalls,
+    currentRunProviderGenerationCalls: result.currentRunProviderGenerationCalls,
+    reusedPaidBaseClips: result.reusedPaidBaseClips,
+    localDerivedAudioCount: result.localDerivedAudioCount,
+    localDerivativesBuiltThisRun: result.localDerivativesBuiltThisRun,
+    productionGenerationCalls: result.productionGenerationCalls,
+    narratorProductionLockCreated: result.narratorProductionLockCreated,
+    fullBookGenerationArmed: result.fullBookGenerationArmed,
+    capturedOrEstimatedBilledUsd: result.cost.capturedUsd,
+    approvedMaxUsd: result.cost.maxUsd,
+    reviewBoard: path.join(path.resolve(out), 'pace-ceiling-review.html'),
+    nextAction: 'Open pace-ceiling-review.html. Compare native 1.20 with pitch-preserved effective 1.25 for the surviving emotional directions. PASS — Lock at most one version, MAYBE to keep tuning, or FAIL. Full-book production remains unarmed.'
+  }, null, 2));
+}
+
+async function runPaceCeilingFinalize() {
+  const feedbackPath = args[1];
+  const planPath = flagValue('--plan');
+  const out = flagValue('--out');
+  if (!feedbackPath || !planPath || !out) {
+    console.error('Usage: node src/cli.js casting-pace-ceiling-finalize <pace-ceiling-feedback.json> --plan <pace-ceiling-plan.json> --out DIR');
+    process.exitCode = 2;
+    return;
+  }
+  const [feedback, plan] = await Promise.all([
+    readFile(path.resolve(feedbackPath), 'utf8').then(JSON.parse),
+    readFile(path.resolve(planPath), 'utf8').then(JSON.parse)
+  ]);
+  const result = finalizePaceCeilingCalibration({ plan, feedback });
+  const resolved = path.resolve(out);
+  await mkdir(resolved, { recursive: true });
+  const files = {
+    json: path.join(resolved, 'pace-ceiling-finalization.json'),
+    markdown: path.join(resolved, 'pace-ceiling-finalization.md'),
+    narratorLock: result.narratorProductionLock ? path.join(resolved, 'narrator-production-lock.json') : null,
+    performanceProfile: result.narratorProductionLock ? path.join(resolved, 'production-performance-profile.json') : null
+  };
+  const writes = [
+    writeFile(files.json, JSON.stringify(result, null, 2)),
+    writeFile(files.markdown, renderPaceCeilingFinalizationMarkdown(result))
+  ];
+  if (result.narratorProductionLock) {
+    writes.push(writeFile(files.narratorLock, JSON.stringify(result.narratorProductionLock, null, 2)));
+    writes.push(writeFile(files.performanceProfile, JSON.stringify(result.narratorProductionLock.performanceProfile, null, 2)));
+  }
+  await Promise.all(writes);
+  console.log(JSON.stringify({
+    version: VERSION,
+    paceCeilingFinalization: result.status,
+    decision: result.decision,
+    winner: result.winner ?? null,
+    narratorProductionLockCreated: result.narratorProductionLockCreated,
+    productionArmed: result.productionArmed,
+    fullBookGenerationArmed: result.fullBookGenerationArmed,
+    narrator: result.narratorProductionLock?.narrator ?? null,
+    performanceProfile: result.narratorProductionLock?.performanceProfile ?? null,
+    nextAction: result.nextAction,
+    files
+  }, null, 2));
+}
+
 async function runMoneyGuardFixture() {
   const store = new InMemoryStore();
   const ledger = new CostLedger();
@@ -1446,6 +1615,12 @@ if (args[0] === 'analyze') {
   await runEmotionalLiftRender();
 } else if (args[0] === 'casting-emotional-lift-finalize') {
   await runEmotionalLiftFinalize();
+} else if (args[0] === 'casting-pace-ceiling-plan') {
+  await runPaceCeilingPlan();
+} else if (args[0] === 'casting-pace-ceiling-render') {
+  await runPaceCeilingRender();
+} else if (args[0] === 'casting-pace-ceiling-finalize') {
+  await runPaceCeilingFinalize();
 } else if (args[0] === 'money-guard-fixture') {
   await runMoneyGuardFixture();
 } else {
@@ -1483,6 +1658,9 @@ if (args[0] === 'analyze') {
     emotionalLiftPlanCommand: 'node src/cli.js casting-emotional-lift-plan <readiness-tuning-finalization.json> --tuning-plan <readiness-tuning-plan.json> --out <directory>',
     emotionalLiftRenderCommand: 'node src/cli.js casting-emotional-lift-render <emotional-lift-plan.json> --approve-spend <token> --max-usd <usd> --out <directory>',
     emotionalLiftFinalizeCommand: 'node src/cli.js casting-emotional-lift-finalize <emotional-lift-feedback.json> --plan <emotional-lift-plan.json> --out <directory>',
+    paceCeilingPlanCommand: 'node src/cli.js casting-pace-ceiling-plan <emotional-lift-feedback.json> --emotional-plan <emotional-lift-plan.json> --out <directory>',
+    paceCeilingRenderCommand: 'node src/cli.js casting-pace-ceiling-render <pace-ceiling-plan.json> --approve-spend <token> --max-usd <usd> --out <directory>',
+    paceCeilingFinalizeCommand: 'node src/cli.js casting-pace-ceiling-finalize <pace-ceiling-feedback.json> --plan <pace-ceiling-plan.json> --out <directory>',
     seriesContinuitySeedCommand: 'node src/cli.js series-continuity-seed <book-one-audio-bible-prep.json> [--existing <series-continuity.json>] --out <directory>',
     seriesContinuityCompareCommand: 'node src/cli.js series-continuity-compare <series-continuity.json> <next-book-audio-bible-prep.json>',
     seriesRelationshipLockCommand: 'node src/cli.js series-continuity-lock-group <series-continuity.json> --members key1,key2,key3 --kind partner --out <file>',
