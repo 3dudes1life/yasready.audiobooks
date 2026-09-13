@@ -24,8 +24,8 @@ function qaResult({ valueArchive = 499.909, valueAcx = 999.409, extraIssue = nul
   };
 }
 
-test('0.14.3.18.2 is current application provenance', () => {
-  assert.equal(YASREADY_AUDIOBOOKS_VERSION, '0.14.3.18.2');
+test('0.14.3.19 is current application provenance', () => {
+  assert.equal(YASREADY_AUDIOBOOKS_VERSION, '0.14.3.19');
 });
 
 test('mastering keeps retailer silence targets unchanged but tolerates <=1 ms measurement boundary', () => {

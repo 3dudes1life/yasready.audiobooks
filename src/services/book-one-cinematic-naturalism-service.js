@@ -17,8 +17,9 @@ export const BOOK_ONE_CINEMATIC_ARCHIVE_PROFILE = 'archive-wav-2026';
 export const BOOK_ONE_CINEMATIC_MP3_PROFILE = 'acx-2026';
 export const BOOK_ONE_CINEMATIC_PROFILE_ID = 'cinematic-naturalism-a-v1';
 export const BOOK_ONE_CINEMATIC_ALLOWED_PLAN_RELEASES = Object.freeze([
-  '0.14.3.13', '0.14.3.14', '0.14.3.14.1', '0.14.3.14.2', '0.14.3.15', '0.14.3.16', '0.14.3.17', '0.14.3.18', '0.14.3.18.1', '0.14.3.18.2'
+  '0.14.3.13', '0.14.3.14', '0.14.3.14.1', '0.14.3.14.2', '0.14.3.15', '0.14.3.16', '0.14.3.17', '0.14.3.18', '0.14.3.18.1', '0.14.3.18.2', '0.14.3.19'
 ]);
+export const BOOK_ONE_CINEMATIC_COMPATIBLE_RELEASES = Object.freeze(['0.14.3.18', '0.14.3.18.1', '0.14.3.18.2', '0.14.3.19']);
 
 const PROVIDER_SETTLED = new Set([
   'PROVIDER_COMPLETE',
@@ -145,7 +146,7 @@ export function buildBookOneCinematicNaturalismLock({ productionPlan, recipeLock
 
 export function verifyBookOneCinematicNaturalismLock(lock) {
   if (!lock || lock.artifact !== 'book-one-cinematic-naturalism-lock') throw new Error('Invalid Cinematic Naturalism lock');
-  if (lock.release !== YASREADY_AUDIOBOOKS_VERSION) throw new Error('Cinematic Naturalism lock release mismatch');
+  if (!BOOK_ONE_CINEMATIC_COMPATIBLE_RELEASES.includes(lock.release)) throw new Error('Cinematic Naturalism lock release mismatch');
   if (lock.status !== 'LOCKED_FOR_BATCH_ONE_CINEMATIC_REBUILD') throw new Error('Cinematic Naturalism lock status invalid');
   if (lock.profileId !== BOOK_ONE_CINEMATIC_PROFILE_ID) throw new Error('Cinematic Naturalism profile id drifted');
   if (lock.humanDecision?.selectedComparison !== 'A_CURRENT_CINEMATIC' || lock.humanDecision?.rejectedEscalation !== 'B_CINEMATIC_PLUS2') throw new Error('Cinematic Naturalism human A/B decision drifted');
@@ -739,7 +740,7 @@ function resultCore(result) {
 
 export function verifyBookOneCinematicRebuildResult(result) {
   if (!result || result.artifact !== 'book-one-cinematic-rebuild-result') throw new Error('Invalid cinematic rebuild result');
-  if (result.release !== YASREADY_AUDIOBOOKS_VERSION) throw new Error('Cinematic rebuild result release mismatch');
+  if (!BOOK_ONE_CINEMATIC_COMPATIBLE_RELEASES.includes(result.release)) throw new Error('Cinematic rebuild result release mismatch');
   if (!['PARTIAL_CINEMATIC_REBUILD_COMPLETE', 'READY_FOR_HUMAN_TEN_CHAPTER_REVIEW', 'TECHNICAL_QA_REVIEW_REQUIRED'].includes(result.status)) throw new Error('Cinematic rebuild result status invalid');
   if (!result.integrity?.resultDigest || sha256(stableJson(resultCore(result))) !== result.integrity.resultDigest) throw new Error('Cinematic rebuild result integrity digest mismatch');
   if (result.guardrails?.chapterElevenMayBeGenerated !== false || result.guardrails?.nextBatchArmed !== false || result.guardrails?.fullBookGenerationArmed !== false) throw new Error('Cinematic rebuild result guardrails invalid');
@@ -752,7 +753,7 @@ export function renderCinematicRebuildReviewHtml(result) {
     <section class="card">
       <div class="eyebrow">Chapter ${chapter.chapterNumber} of ${result.progress.targetChapterCount}</div>
       <h2>${escapeHtml(chapter.title)}</h2>
-      <p class="muted">Cinematic Naturalism A · ${chapter.cueCount} restrained scene cue(s)</p>
+      <p class="muted">Cinematic Naturalism A · ${chapter.cueCount} subtle performance direction(s)</p>
       <audio id="track-${index}" controls preload="metadata" src="${escapeHtml(chapter.outputs.directMp3)}"></audio>
       <div class="pills"><span>Archive ${chapter.qa.archive.passed ? 'PASS' : 'REVIEW'}</span><span>MP3 ${chapter.qa.mp3.passed ? 'PASS' : 'REVIEW'}</span></div>
     </section>`).join('');
@@ -1150,7 +1151,7 @@ export function renderCinematicRebuildArmMarkdown(arm) {
     `- Protected HARD max: **$${Number(arm.budget.protectedMaxUsd).toFixed(2)}**`,
     ''
   ];
-  for (const chapter of arm.batchScope.chapters) lines.push(`- Chapter ${chapter.chapterNumber}: ${chapter.title} — ${chapter.providerCharacters.toLocaleString()} chars / ${chapter.providerCalls} calls / ${chapter.cueCount} scene cue(s)`);
+  for (const chapter of arm.batchScope.chapters) lines.push(`- Chapter ${chapter.chapterNumber}: ${chapter.title} — ${chapter.providerCharacters.toLocaleString()} chars / ${chapter.providerCalls} calls / ${chapter.cueCount} subtle performance direction(s)`);
   lines.push('', '## Spend authorization', '');
   if (arm.confirmation) lines.push(`\`${arm.confirmation.token}\` authorizes **only the exact chapters above** up to **$${Number(arm.budget.protectedMaxUsd).toFixed(2)}**.`);
   else if (arm.status === 'BLOCKED_INSUFFICIENT_QUOTA_FOR_NEXT_WHOLE_CHAPTER') lines.push('No token was created because current live quota cannot safely fit the next whole chapter plus retry reserve.');

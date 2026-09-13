@@ -8,8 +8,8 @@ import {
   YASREADY_AUDIOBOOKS_VERSION
 } from '../src/index.js';
 
-test('0.14.3.18.2 is current application provenance', () => {
-  assert.equal(YASREADY_AUDIOBOOKS_VERSION,'0.14.3.18.2');
+test('0.14.3.19 is current application provenance', () => {
+  assert.equal(YASREADY_AUDIOBOOKS_VERSION,'0.14.3.19');
 });
 
 test('hard gender mismatch cannot masquerade as a strong Christopher fit', () => {
