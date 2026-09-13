@@ -35,7 +35,12 @@ import {
   renderProductionReadinessPlanMarkdown,
   renderProductionReadinessSample,
   finalizeProductionReadiness,
-  renderProductionReadinessFinalizationMarkdown
+  renderProductionReadinessFinalizationMarkdown,
+  buildReadinessTuningPlan,
+  renderReadinessTuningPlanMarkdown,
+  renderReadinessTuningRound,
+  finalizeReadinessTuning,
+  renderReadinessTuningFinalizationMarkdown
 } from './index.js';
 import { YASREADY_AUDIOBOOKS_VERSION } from './release.js';
 
@@ -1015,6 +1020,152 @@ async function runProductionReadinessFinalize() {
   }, null, 2));
 }
 
+
+async function writeReadinessTuningPlanReports(plan, outDir) {
+  const resolved = path.resolve(outDir);
+  await mkdir(resolved, { recursive: true });
+  const files = {
+    json: path.join(resolved, 'readiness-tuning-plan.json'),
+    markdown: path.join(resolved, 'readiness-tuning-plan.md'),
+    confirmation: path.join(resolved, 'readiness-tuning-confirmation.txt')
+  };
+  await Promise.all([
+    writeFile(files.json, JSON.stringify(plan, null, 2)),
+    writeFile(files.markdown, renderReadinessTuningPlanMarkdown(plan)),
+    writeFile(files.confirmation, `${plan.confirmation.token}\nSuggested max USD: ${plan.cost.suggestedMaxUsd.toFixed(2)}\n`)
+  ]);
+  return files;
+}
+
+async function runReadinessTuningPlan() {
+  const finalizationPath = args[1];
+  const readinessPlanPath = flagValue('--readiness-plan');
+  const out = flagValue('--out');
+  if (!finalizationPath || !readinessPlanPath || !out) {
+    console.error('Usage: node src/cli.js casting-readiness-tuning-plan <production-readiness-finalization.json> --readiness-plan <production-readiness-plan.json> --out DIR [--model eleven_v3]');
+    process.exitCode = 2;
+    return;
+  }
+  const [readinessFinalization, readinessPlan] = await Promise.all([
+    readFile(path.resolve(finalizationPath), 'utf8').then(JSON.parse),
+    readFile(path.resolve(readinessPlanPath), 'utf8').then(JSON.parse)
+  ]);
+  const provider = new ElevenLabsProvider();
+  const plan = await buildReadinessTuningPlan({
+    readinessPlan,
+    readinessFinalization,
+    estimator: provider.estimateCost.bind(provider),
+    model: flagValue('--model', readinessPlan.model ?? 'eleven_v3')
+  });
+  const files = await writeReadinessTuningPlanReports(plan, out);
+  console.log(JSON.stringify({
+    version: VERSION,
+    readinessTuningPlan: plan.status,
+    narrator: plan.narrator.candidateName,
+    voiceId: plan.narrator.providerVoiceId,
+    baselineDirection: plan.baselineDirection.directionLabel,
+    sourceHumanNote: plan.operatorTuning.note,
+    tuningSignals: plan.operatorTuning.signals,
+    sameChapter: plan.sample.chapterTitle,
+    sameScene: plan.sample.sceneOrder,
+    variants: plan.variants.map((v) => ({ id: v.id, label: v.label, voiceSettings: v.voiceSettings })),
+    generationCallsPerformed: 0,
+    estimatedGenerationCallsIfApproved: plan.cost.estimatedGenerationCalls,
+    estimatedUsd: plan.cost.estimateUsd,
+    protectedMaxUsd: plan.cost.suggestedMaxUsd,
+    confirmationToken: plan.confirmation.token,
+    productionArmed: false,
+    narratorProductionLockCreated: false,
+    fullBookGenerationArmed: false,
+    nextAction: `Review ${files.markdown}. Rendering remains blocked until casting-readiness-tuning-render is explicitly called with --approve-spend ${plan.confirmation.token} --max-usd ${plan.cost.suggestedMaxUsd.toFixed(2)}.`,
+    files
+  }, null, 2));
+}
+
+async function runReadinessTuningRender() {
+  const planPath = args[1];
+  const out = flagValue('--out');
+  const approvalToken = flagValue('--approve-spend');
+  const maxUsd = flagValue('--max-usd');
+  if (!planPath || !out || !approvalToken || maxUsd === null) {
+    console.error('Usage: node src/cli.js casting-readiness-tuning-render <readiness-tuning-plan.json> --out DIR --approve-spend TOKEN --max-usd USD');
+    process.exitCode = 2;
+    return;
+  }
+  const plan = JSON.parse(await readFile(path.resolve(planPath), 'utf8'));
+  const provider = new ElevenLabsProvider();
+  const result = await renderReadinessTuningRound({
+    plan,
+    provider,
+    outDir: out,
+    approvalToken,
+    maxUsd: Number(maxUsd)
+  });
+  console.log(JSON.stringify({
+    version: VERSION,
+    readinessTuning: result.status,
+    narrator: result.narrator.candidateName,
+    baselineDirection: result.baselineDirection.directionLabel,
+    renderedVariants: result.rendered.map((x) => ({ variantId: x.variantId, variantLabel: x.variantLabel, voiceSettings: x.voiceSettings })),
+    providerGenerationCalls: result.providerGenerationCalls,
+    currentRunProviderGenerationCalls: result.currentRunProviderGenerationCalls,
+    reusedClips: result.reusedClips,
+    productionGenerationCalls: result.productionGenerationCalls,
+    narratorProductionLockCreated: result.narratorProductionLockCreated,
+    fullBookGenerationArmed: result.fullBookGenerationArmed,
+    capturedOrEstimatedBilledUsd: result.cost.capturedUsd,
+    approvedMaxUsd: result.cost.maxUsd,
+    reviewBoard: path.join(path.resolve(out), 'readiness-tuning-review.html'),
+    nextAction: 'Open readiness-tuning-review.html. Choose PASS — Lock on at most one variant, MAYBE to keep tuning, or FAIL. Export readiness-tuning-feedback.json. Full-book production remains unarmed.'
+  }, null, 2));
+}
+
+async function runReadinessTuningFinalize() {
+  const feedbackPath = args[1];
+  const planPath = flagValue('--plan');
+  const out = flagValue('--out');
+  if (!feedbackPath || !planPath || !out) {
+    console.error('Usage: node src/cli.js casting-readiness-tuning-finalize <readiness-tuning-feedback.json> --plan <readiness-tuning-plan.json> --out DIR');
+    process.exitCode = 2;
+    return;
+  }
+  const [feedback, plan] = await Promise.all([
+    readFile(path.resolve(feedbackPath), 'utf8').then(JSON.parse),
+    readFile(path.resolve(planPath), 'utf8').then(JSON.parse)
+  ]);
+  const result = finalizeReadinessTuning({ plan, feedback });
+  const resolved = path.resolve(out);
+  await mkdir(resolved, { recursive: true });
+  const files = {
+    json: path.join(resolved, 'readiness-tuning-finalization.json'),
+    markdown: path.join(resolved, 'readiness-tuning-finalization.md'),
+    narratorLock: result.narratorProductionLock ? path.join(resolved, 'narrator-production-lock.json') : null,
+    performanceProfile: result.narratorProductionLock ? path.join(resolved, 'production-performance-profile.json') : null
+  };
+  const writes = [
+    writeFile(files.json, JSON.stringify(result, null, 2)),
+    writeFile(files.markdown, renderReadinessTuningFinalizationMarkdown(result))
+  ];
+  if (result.narratorProductionLock) {
+    writes.push(writeFile(files.narratorLock, JSON.stringify(result.narratorProductionLock, null, 2)));
+    writes.push(writeFile(files.performanceProfile, JSON.stringify(result.narratorProductionLock.performanceProfile, null, 2)));
+  }
+  await Promise.all(writes);
+  console.log(JSON.stringify({
+    version: VERSION,
+    readinessTuningFinalization: result.status,
+    decision: result.decision,
+    winner: result.winner ?? null,
+    narratorProductionLockCreated: result.narratorProductionLockCreated,
+    productionArmed: result.productionArmed,
+    fullBookGenerationArmed: result.fullBookGenerationArmed,
+    narrator: result.narratorProductionLock?.narrator ?? null,
+    performanceProfile: result.narratorProductionLock?.performanceProfile ?? null,
+    nextAction: result.nextAction,
+    files
+  }, null, 2));
+}
+
 async function runMoneyGuardFixture() {
   const store = new InMemoryStore();
   const ledger = new CostLedger();
@@ -1121,6 +1272,12 @@ if (args[0] === 'analyze') {
   await runProductionReadinessRender();
 } else if (args[0] === 'casting-readiness-finalize') {
   await runProductionReadinessFinalize();
+} else if (args[0] === 'casting-readiness-tuning-plan') {
+  await runReadinessTuningPlan();
+} else if (args[0] === 'casting-readiness-tuning-render') {
+  await runReadinessTuningRender();
+} else if (args[0] === 'casting-readiness-tuning-finalize') {
+  await runReadinessTuningFinalize();
 } else if (args[0] === 'money-guard-fixture') {
   await runMoneyGuardFixture();
 } else {
@@ -1152,6 +1309,9 @@ if (args[0] === 'analyze') {
     productionReadinessPlanCommand: 'node src/cli.js casting-readiness-plan <performance-direction-learning-summary.json> --manuscript <book.docx> --out <directory>',
     productionReadinessRenderCommand: 'node src/cli.js casting-readiness-render <production-readiness-plan.json> --approve-spend <token> --max-usd <usd> --out <directory>',
     productionReadinessFinalizeCommand: 'node src/cli.js casting-readiness-finalize <production-readiness-feedback.json> --plan <production-readiness-plan.json> --out <directory>',
+    readinessTuningPlanCommand: 'node src/cli.js casting-readiness-tuning-plan <production-readiness-finalization.json> --readiness-plan <production-readiness-plan.json> --out <directory>',
+    readinessTuningRenderCommand: 'node src/cli.js casting-readiness-tuning-render <readiness-tuning-plan.json> --approve-spend <token> --max-usd <usd> --out <directory>',
+    readinessTuningFinalizeCommand: 'node src/cli.js casting-readiness-tuning-finalize <readiness-tuning-feedback.json> --plan <readiness-tuning-plan.json> --out <directory>',
     seriesContinuitySeedCommand: 'node src/cli.js series-continuity-seed <book-one-audio-bible-prep.json> [--existing <series-continuity.json>] --out <directory>',
     seriesContinuityCompareCommand: 'node src/cli.js series-continuity-compare <series-continuity.json> <next-book-audio-bible-prep.json>',
     seriesRelationshipLockCommand: 'node src/cli.js series-continuity-lock-group <series-continuity.json> --members key1,key2,key3 --kind partner --out <file>',
