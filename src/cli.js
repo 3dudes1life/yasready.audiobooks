@@ -5,6 +5,10 @@ import {
   BookOneSupermanService,
   CastingLaunchService,
   buildCastingLaunchFixture,
+  BookOneCastingDiscoveryService,
+  buildAuditionSamplePackFromPrepRun,
+  buildCastingDiscoveryFixture,
+  ElevenLabsProvider,
   ExternalBookSupermanService,
   CostLedger,
   GenerationRegistry,
@@ -460,6 +464,120 @@ async function runCastingLaunch({ fixture = false } = {}) {
   }, null, 2));
 }
 
+async function writeCastingDiscoveryReports(result, outDir) {
+  const resolved = path.resolve(outDir);
+  await mkdir(resolved, { recursive: true });
+  const files = {
+    json: path.join(resolved, 'casting-candidate-discovery.json'),
+    markdown: path.join(resolved, 'casting-candidate-discovery.md'),
+    shortlist: path.join(resolved, 'casting-shortlist.csv'),
+    scripts: path.join(resolved, 'audition-scripts.csv'),
+    auditionPreview: path.join(resolved, 'audition-plan-preview.json')
+  };
+  await Promise.all([
+    writeFile(files.json, JSON.stringify(result.discovery, null, 2)),
+    writeFile(files.markdown, result.markdown),
+    writeFile(files.shortlist, result.shortlistCsv),
+    writeFile(files.scripts, result.scriptsCsv),
+    writeFile(files.auditionPreview, JSON.stringify(result.discovery.auditionPlanPreview, null, 2))
+  ]);
+  return files;
+}
+
+async function runCastingDiscovery({ fixture = false } = {}) {
+  const service = new BookOneCastingDiscoveryService();
+  let result;
+  if (fixture) {
+    const data = buildCastingDiscoveryFixture();
+    result = await service.build({
+      launch: data.launch,
+      prep: data.prep,
+      voices: data.voices,
+      auditionSamples: data.auditionSamples,
+      costEstimator: data.estimateCost,
+      perRole: 5,
+      auditionTop: 3,
+      catalogProvider: 'fixture'
+    });
+  } else {
+    const launchPath = args[1];
+    const prepPath = flagValue('--prep');
+    if (!launchPath || !prepPath) {
+      console.error('Usage: node src/cli.js casting-discover <casting-launch.json> --prep <book-one-audio-bible-prep.json> [--manuscript FILE] [--voice-pool FILE] [--out DIR] [--per-role 1-8] [--audition-top N] [--pages N] [--page-size N] [--model MODEL]');
+      process.exitCode = 2;
+      return;
+    }
+    const [launch, prep] = await Promise.all([
+      readFile(path.resolve(launchPath), 'utf8').then(JSON.parse),
+      readFile(path.resolve(prepPath), 'utf8').then(JSON.parse)
+    ]);
+    let auditionSamples = null;
+    const manuscriptPath = flagValue('--manuscript');
+    if (manuscriptPath) {
+      const sampleStore = new InMemoryStore();
+      const freshPrep = await new BookOneAudioBiblePrepService(sampleStore).runFile(path.resolve(manuscriptPath), {
+        title: launch.book?.title,
+        author: launch.book?.author,
+        model: flagValue('--model', 'eleven_multilingual_v2')
+      });
+      auditionSamples = buildAuditionSamplePackFromPrepRun(freshPrep, launch);
+    }
+    const model = flagValue('--model', 'eleven_multilingual_v2');
+    const perRole = Number(flagValue('--per-role', 6));
+    const auditionTop = Number(flagValue('--audition-top', 3));
+    const voicePoolPath = flagValue('--voice-pool');
+    if (voicePoolPath) {
+      const payload = JSON.parse(await readFile(path.resolve(voicePoolPath), 'utf8'));
+      const voices = Array.isArray(payload) ? payload : payload.voices;
+      if (!Array.isArray(voices)) throw new Error('--voice-pool must contain a JSON array or {"voices": [...]}');
+      const provider = new ElevenLabsProvider();
+      result = await service.build({
+        launch, prep, voices, auditionSamples,
+        costEstimator: provider.estimateCost.bind(provider),
+        perRole, auditionTop, model,
+        catalogCallsPerformed: 0,
+        catalogProvider: 'local-voice-pool'
+      });
+    } else {
+      const provider = new ElevenLabsProvider();
+      result = await service.discoverFromProvider({
+        launch, prep, provider, auditionSamples, perRole, auditionTop, model,
+        maxPages: Number(flagValue('--pages', 2)),
+        pageSize: Number(flagValue('--page-size', 100))
+      });
+    }
+  }
+  const out = flagValue('--out');
+  const files = out ? await writeCastingDiscoveryReports(result, out) : null;
+  console.log(JSON.stringify({
+    version: VERSION,
+    castingDiscovery: 'book-one-wave-1',
+    status: result.discovery.status,
+    book: result.discovery.book.title,
+    catalogProvider: result.discovery.catalog.provider,
+    catalogCallsPerformed: result.discovery.catalog.catalogCallsPerformed,
+    uniqueCatalogVoices: result.discovery.catalog.uniqueVoices,
+    perRole: result.discovery.catalog.requestedPerRole,
+    shortlists: result.discovery.shortlists.map((row) => ({
+      character: row.character,
+      staged: row.candidates.length,
+      top: row.candidates.slice(0, 3).map((candidate) => ({ name: candidate.voice.name, score: candidate.combinedScore, safety: candidate.seriesSafety.score }))
+    })),
+    distinctiveness: result.discovery.distinctiveness.status,
+    auditionSamples: result.discovery.auditionSamples?.status ?? 'not-provided',
+    recommendedAuditionUsd: result.discovery.auditionCost.recommendedAuditionUsd,
+    fullShortlistUsd: result.discovery.auditionCost.fullShortlistUsd,
+    paidProviderCallsPerformed: result.discovery.guardrails.paidProviderCallsPerformed,
+    generationCallsPerformed: result.discovery.guardrails.generationCallsPerformed,
+    auditionRenderingArmed: result.discovery.guardrails.auditionRenderingArmed,
+    paidGenerationArmed: result.discovery.guardrails.paidGenerationArmed,
+    productionArmed: result.discovery.guardrails.productionArmed,
+    artifactFingerprint: result.discovery.artifactFingerprint,
+    nextAction: result.discovery.nextAction,
+    files
+  }, null, 2));
+}
+
 async function runMoneyGuardFixture() {
   const store = new InMemoryStore();
   const ledger = new CostLedger();
@@ -544,6 +662,10 @@ if (args[0] === 'analyze') {
   await runCastingLaunch();
 } else if (args[0] === 'casting-launch-fixture') {
   await runCastingLaunch({ fixture: true });
+} else if (args[0] === 'casting-discover') {
+  await runCastingDiscovery();
+} else if (args[0] === 'casting-discover-fixture') {
+  await runCastingDiscovery({ fixture: true });
 } else if (args[0] === 'money-guard-fixture') {
   await runMoneyGuardFixture();
 } else {
@@ -565,6 +687,7 @@ if (args[0] === 'analyze') {
     externalBookSupermanCommand: 'node src/cli.js external-superman <unrelated-file> --out <directory>',
     bookOneAudioBiblePrepCommand: 'node src/cli.js audio-bible-prep <file> --out <directory>',
     castingLaunchCommand: 'node src/cli.js casting-launch <book-one-audio-bible-prep.json> --out <directory>',
+    castingDiscoveryCommand: 'node src/cli.js casting-discover <casting-launch.json> --prep <book-one-audio-bible-prep.json> --manuscript <book_1.docx> --out <directory>',
     seriesContinuitySeedCommand: 'node src/cli.js series-continuity-seed <book-one-audio-bible-prep.json> [--existing <series-continuity.json>] --out <directory>',
     seriesContinuityCompareCommand: 'node src/cli.js series-continuity-compare <series-continuity.json> <next-book-audio-bible-prep.json>',
     seriesRelationshipLockCommand: 'node src/cli.js series-continuity-lock-group <series-continuity.json> --members key1,key2,key3 --kind partner --out <file>',
@@ -574,7 +697,7 @@ if (args[0] === 'analyze') {
       manuscriptBrain: 'ready', audioBible: 'ready', castingRoom: 'ready', audiobookDirector: 'ready',
       productionEngine: 'ready', reviewStudio: 'ready', continuityQa: 'ready', masteringLab: 'ready',
       distributionBrain: 'ready', operatorFlowAudit: 'ready', bookOneSuperman: 'ready', externalBookSuperman: 'ready',
-      bookOneAudioBiblePrep: 'ready', castingLaunch: 'ready', seriesContinuity: 'ready', moneyGuard: 'ready', finalSaasBoundaryClosure: 'ready'
+      bookOneAudioBiblePrep: 'ready', castingLaunch: 'ready', castingDiscovery: 'ready', seriesContinuity: 'ready', moneyGuard: 'ready', finalSaasBoundaryClosure: 'ready'
     },
     distributionProfiles: ['acx-2026', 'spotify-direct-2026', 'apple-partner-2026', 'w3c-audiobook-2020'],
     duplicateProtection: generation.request.fingerprint,

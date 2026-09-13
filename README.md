@@ -2,7 +2,7 @@
 
 Professional audiobook production infrastructure for YasReady Publishing.
 
-**Current build: 0.14.1 — Production Provenance & Casting Launch**
+**Current build: 0.14.2 — Book One Casting Candidate Discovery**
 
 YasReady Audiobooks is being developed as a standalone service first so audiobook experimentation cannot destabilize YasReady Publishing. The product goal is professional long-form audiobook production with strong continuity, human approval gates, cost protection, quality control, mastering and retailer-ready packaging.
 
@@ -35,6 +35,7 @@ YasReady Audiobooks is being developed as a standalone service first so audioboo
 - 0.13.3 Casting Scope Integrity Closure — fails closed when a character is not actually visible to the requested book/series, requires `bookId` for book-scoped locks, and preserves valid series-Bible inheritance
 - 0.14.0 External Book Superman — disables Book One identity assumptions, detects prior-book truth leakage, optionally verifies a distinct source hash, and runs an unrelated book through a zero-spend full-stack wiring probe from Audio Bible through W3C distribution packaging
 - 0.14.1 Production Provenance & Casting Launch — separates current application/artifact release from subsystem engine provenance and converts a locked Book One Audio Bible Prep artifact into a zero-spend, book-scoped Casting Room launch pack
+- 0.14.2 Book One Casting Candidate Discovery — searches the shared professional voice catalog, ranks and uniquely stages Wave 1 candidates, extracts canonical audition samples, previews audition cost, and preserves a hard zero-generation boundary
 
 ## Book One Superman
 
@@ -72,6 +73,21 @@ node src/cli.js casting-launch "/path/to/book-one-audio-bible-prep.json" --out "
 ```
 
 0.14.1 launches Narrator + primary characters first, then supporting and later permanent roles. Scene-local extras remain on-demand and outside permanent casting. Candidate discovery and audition planning are allowed, but audition rendering and production remain unarmed until an explicit Money Guard action. Book One locks remain book-scoped until Series Continuity provides a real series ID.
+
+
+## Casting Candidate Discovery
+
+After `casting-launch.json` is ready, discover and rank real Wave 1 voice candidates without rendering audio:
+
+```bash
+node src/cli.js casting-discover \
+  "/path/to/casting-launch.json" \
+  --prep "/path/to/book-one-audio-bible-prep.json" \
+  --manuscript "/path/to/book_1.docx" \
+  --out "$HOME/Desktop/Book-One-Casting-Discovery"
+```
+
+0.14.2 searches professional English shared voices, applies existing series-safety scoring plus explicit Book One casting-fit defaults, blocks exact voice reuse across the four core Wave 1 shortlists, and warns about metadata similarity without pretending it has measured acoustic similarity. Supplying the exact manuscript reruns the zero-spend Audio Bible intelligence only to extract canonical narration/dialogue audition samples; the source hash must match the Casting Launch. Catalog metadata calls are reported separately from paid/generation calls. Audition rendering, cast locking and production remain unarmed, and `ARM AUDITIONS` is intentionally not available in this build.
 
 ## Series Continuity
 
@@ -146,9 +162,10 @@ npm run boundary:fixture
 npm run closure:fixture
 npm run casting:fixture
 npm run casting:launch:fixture
+npm run casting:discover:fixture
 node src/cli.js audio-bible-prep <file> --out <directory>
 ```
 
 ## Roadmap
 
-Next: **0.14.x Book One production rehearsal / Casting Room execution**, then **1.0.0 — YasReady Audiobooks production boundary** after real Book One casting/director/production gates are proven.
+Next: **0.14.x Book One audition approval / Casting Room execution**, then **1.0.0 — YasReady Audiobooks production boundary** after real Book One casting/director/production gates are proven.
