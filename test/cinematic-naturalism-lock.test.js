@@ -36,7 +36,7 @@ function plan(){return buildBookOneProductionPlan({paceCeilingFinalization:final
 function finishLock(){const p=plan();const core={schemaVersion:1,release:'0.14.3.14.2',artifact:'book-one-local-voice-finish-lock',status:'LOCKED_FOR_PRODUCTION_PLANNING_ONLY',sourcePilotRenderDigest:'pilot-render',narrator:{provider:'elevenlabs',providerVoiceId:p.productionRecipe.providerVoiceId,narratorName:p.productionRecipe.narratorName},performanceUnchanged:true,providerVoiceSettingsUnchanged:p.productionRecipe.providerVoiceSettings,paceProfileUnchanged:p.productionRecipe.paceProfile,selectedVariant:{id:'warm-slightly-deeper',label:'Warm + Slightly Deeper',kind:'local-tone-and-pitch',eq:{bodyHz:180,bodyDb:1.2,presenceHz:3000,presenceDb:-1.6,airHz:5200,airDb:-0.8},semitones:-.5,pitchFactor:.971531941,durationCompensation:1.029302237,formantPreservationClaimed:false},productionArmed:false,fullBookGenerationArmed:false};return{...core,finishDigest:sha256(stableJson(core))};}
 function recipe(){return buildBookOneProductionRecipeLock({productionPlan:plan(),localVoiceFinishLock:finishLock()});}
 
-test('0.14.3.20 is current application provenance',()=>assert.equal(YASREADY_AUDIOBOOKS_VERSION,'0.14.3.20'));
+test('0.14.3.20.1 is current application provenance',()=>assert.equal(YASREADY_AUDIOBOOKS_VERSION,'0.14.3.20.1'));
 
 test('human-selected A is locked and +2 is explicitly rejected',()=>{
   const lock=buildBookOneCinematicNaturalismLock({productionPlan:plan(),recipeLock:recipe()});

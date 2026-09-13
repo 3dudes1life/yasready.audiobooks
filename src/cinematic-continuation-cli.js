@@ -9,6 +9,7 @@ import {
   extractElevenLabsQuota,
   buildBookOneCinematicContinuationBlueprint,
   buildBookOneCinematicContinuationPreview,
+  reconcileBookOneContinuationManuscriptIdentity,
   renderBookOneCinematicContinuationBlueprintMarkdown,
   renderBookOneCinematicContinuationPreviewMarkdown,
   renderBookOneCinematicContinuationDashboardHtml
@@ -23,6 +24,53 @@ function flag(name, fallback = null) {
 }
 function hasFlag(name) { return args.includes(name); }
 async function json(file) { return JSON.parse(await readFile(path.resolve(file), 'utf8')); }
+
+async function identity() {
+  const productionPlanPath = args[1];
+  const manuscriptPath = flag('--manuscript');
+  const cinematicResultPath = flag('--result');
+  const cinematicLockPath = flag('--lock');
+
+  if (!productionPlanPath || !manuscriptPath || !cinematicResultPath || !cinematicLockPath) {
+    throw new Error('Usage: node src/cinematic-continuation-cli.js identity <production-plan.json> --manuscript FILE --result FILE --lock FILE');
+  }
+
+  const [productionPlan, cinematicResult, cinematicLock] = await Promise.all([
+    json(productionPlanPath),
+    json(cinematicResultPath),
+    json(cinematicLockPath)
+  ]);
+  const extracted = extractManuscriptFile(path.resolve(manuscriptPath));
+  const manuscriptAnalysis = analyzeManuscript(extracted);
+
+  const identity = reconcileBookOneContinuationManuscriptIdentity({
+    productionPlan,
+    manuscriptAnalysis,
+    cinematicResult,
+    cinematicLock
+  });
+
+  console.log(JSON.stringify({
+    version: YASREADY_AUDIOBOOKS_VERSION,
+    status: 'CANONICAL_MANUSCRIPT_IDENTITY_VERIFIED',
+    lockedContainerSourceHash: identity.lockedContainerSourceHash,
+    currentContainerSourceHash: identity.currentContainerSourceHash,
+    containerHashMatchesLocked: identity.containerHashMatchesLocked,
+    planNormalizedTextHash: identity.planNormalizedTextHash,
+    currentNormalizedTextHash: identity.currentNormalizedTextHash,
+    normalizedTextHashMatches: identity.normalizedTextHashMatches,
+    chapterCount: identity.chapterCount,
+    chapterHashesVerified: identity.chapterHashesVerified,
+    chapterHashMismatches: identity.chapterHashMismatches,
+    canonicalTextVerified: identity.canonicalTextVerified,
+    reconciliationPolicy: identity.reconciliationPolicy,
+    providerTtsCallsPerformed: 0,
+    providerSpendUsd: 0,
+    chapterElevenArmed: false,
+    nextBatchArmed: false,
+    fullBookGenerationArmed: false
+  }, null, 2));
+}
 
 async function plan() {
   const productionPlanPath = args[1];
@@ -150,9 +198,10 @@ async function preview() {
 }
 
 try {
-  if (command === 'plan') await plan();
+  if (command === 'identity') await identity();
+  else if (command === 'plan') await plan();
   else if (command === 'preview') await preview();
-  else throw new Error('Usage: node src/cinematic-continuation-cli.js <plan|preview> ...');
+  else throw new Error('Usage: node src/cinematic-continuation-cli.js <identity|plan|preview> ...');
 } catch (error) {
   console.error(`\n❌ ${error?.message ?? error}`);
   process.exitCode = 1;

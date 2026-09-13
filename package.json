@@ -1,9 +1,9 @@
 {
   "name": "@yasready/audiobooks",
-  "version": "0.14.3.20",
+  "version": "0.14.3.20.1",
   "private": true,
   "type": "module",
-  "description": "YasReady Audiobooks cinematic continuation engine with closed human gate, resumability contract, live quota previews, Direct Edition foundation, QA, Mastering and Distribution",
+  "description": "YasReady Audiobooks canonical manuscript identity reconciliation hotfix for the gate-closed cinematic continuation engine, resumability, live quota previews, Direct Edition, QA, Mastering and Distribution",
   "engines": {
     "node": ">=20"
   },
@@ -63,6 +63,7 @@
     "production:cinematic-review": "node src/cinematic-review-gate-cli.js",
     "production:cinematic-continuation:fixture": "node --test test/cinematic-continuation-gate-closed.test.js",
     "production:cinematic-continuation:plan": "node src/cinematic-continuation-cli.js plan",
-    "production:cinematic-continuation:preview": "node src/cinematic-continuation-cli.js preview"
+    "production:cinematic-continuation:preview": "node src/cinematic-continuation-cli.js preview",
+    "production:cinematic-continuation:identity:fixture": "node --test test/cinematic-continuation-canonical-identity-hotfix.test.js"
   }
 }

@@ -109,6 +109,92 @@ function assertProductionPlanShape(productionPlan) {
   return true;
 }
 
+export function reconcileBookOneContinuationManuscriptIdentity({
+  productionPlan,
+  manuscriptAnalysis,
+  cinematicResult,
+  cinematicLock
+} = {}) {
+  assertProductionPlanShape(productionPlan);
+  if (!manuscriptAnalysis?.source?.sourceHash || !manuscriptAnalysis?.source?.normalizedTextHash) {
+    throw new Error('Continuation manuscript identity requires raw and normalized manuscript hashes');
+  }
+
+  const lockedContainerHashes = [
+    productionPlan.source?.sourceHash,
+    cinematicLock?.source?.manuscriptSourceHash,
+    cinematicResult?.source?.manuscriptSourceHash
+  ].filter(Boolean);
+
+  if (lockedContainerHashes.length !== 3 || new Set(lockedContainerHashes).size !== 1) {
+    throw new Error('Continuation locked manuscript evidence disagrees before current manuscript comparison');
+  }
+
+  const lockedContainerSourceHash = productionPlan.source.sourceHash;
+  const currentContainerSourceHash = manuscriptAnalysis.source.sourceHash;
+  const planNormalizedTextHash = productionPlan.source?.normalizedTextHash ?? null;
+  const currentNormalizedTextHash = manuscriptAnalysis.source.normalizedTextHash;
+
+  if (!planNormalizedTextHash) {
+    throw new Error('Continuation production plan is missing normalized manuscript text identity');
+  }
+
+  const plannedChapters = [...(productionPlan.manifest?.chapters ?? [])]
+    .sort((a, b) => Number(a.order) - Number(b.order));
+  const currentChapters = manuscriptAnalysis.chapters ?? [];
+
+  if (currentChapters.length !== plannedChapters.length) {
+    throw new Error(`Continuation canonical manuscript structure drifted: planned ${plannedChapters.length} chapter(s), current ${currentChapters.length}`);
+  }
+
+  const chapterMismatches = [];
+  for (const planned of plannedChapters) {
+    const order = Number(planned.order);
+    const current = currentChapters[order];
+    if (!current) {
+      chapterMismatches.push(freeze({ order, chapterNumber: order + 1, reason: 'missing-current-chapter' }));
+      continue;
+    }
+    if (planned.sourceTextHash && current.textHash !== planned.sourceTextHash) {
+      chapterMismatches.push(freeze({
+        order,
+        chapterNumber: order + 1,
+        reason: 'chapter-text-hash-mismatch',
+        plannedTextHash: planned.sourceTextHash,
+        currentTextHash: current.textHash
+      }));
+    }
+  }
+
+  if (currentNormalizedTextHash !== planNormalizedTextHash) {
+    throw new Error(
+      `Continuation canonical manuscript text drifted: normalized text hash mismatch; ${chapterMismatches.length} chapter hash mismatch(es)`
+    );
+  }
+
+  if (chapterMismatches.length) {
+    throw new Error(
+      `Continuation canonical manuscript chapter identity drifted despite normalized-text match: ${chapterMismatches.length} chapter mismatch(es)`
+    );
+  }
+
+  return freeze({
+    lockedContainerSourceHash,
+    currentContainerSourceHash,
+    containerHashMatchesLocked: currentContainerSourceHash === lockedContainerSourceHash,
+    planNormalizedTextHash,
+    currentNormalizedTextHash,
+    normalizedTextHashMatches: true,
+    chapterCount: plannedChapters.length,
+    chapterHashesVerified: plannedChapters.length,
+    chapterHashMismatches: 0,
+    canonicalTextVerified: true,
+    reconciliationPolicy: currentContainerSourceHash === lockedContainerSourceHash
+      ? 'exact-container-and-canonical-text-match'
+      : 'docx-container-drift-accepted-only-because-normalized-text-and-every-planned-chapter-hash-match'
+  });
+}
+
 function assertTenComplete(cinematicResult, cinematicLock) {
   verifyBookOneCinematicRebuildResult(cinematicResult);
   verifyBookOneCinematicNaturalismLock(cinematicLock);
@@ -214,11 +300,12 @@ export function buildBookOneCinematicContinuationBlueprint({
       productionPlan.integrity.productionPlanDigest !== cinematicResult.source?.productionPlanDigest) {
     throw new Error('Continuation production plan digest drifted');
   }
-  if (manuscriptAnalysis?.source?.sourceHash !== productionPlan.source.sourceHash ||
-      manuscriptAnalysis?.source?.sourceHash !== cinematicLock.source?.manuscriptSourceHash ||
-      manuscriptAnalysis?.source?.sourceHash !== cinematicResult.source?.manuscriptSourceHash) {
-    throw new Error('Continuation manuscript source hash drifted');
-  }
+  const manuscriptIdentity = reconcileBookOneContinuationManuscriptIdentity({
+    productionPlan,
+    manuscriptAnalysis,
+    cinematicResult,
+    cinematicLock
+  });
 
   const batchCap = Number(maxChaptersPerPlannedBatch);
   if (!Number.isInteger(batchCap) || batchCap < 1 || batchCap > BOOK_ONE_CINEMATIC_CONTINUATION_MAX_CHAPTERS_PER_BATCH) {
@@ -279,7 +366,10 @@ export function buildBookOneCinematicContinuationBlueprint({
       productionPlanDigest: productionPlan.integrity.productionPlanDigest,
       cinematicResultDigest: cinematicResult.integrity.resultDigest,
       cinematicLockDigest: cinematicLock.integrity.lockDigest,
-      manuscriptSourceHash: manuscriptAnalysis.source.sourceHash
+      manuscriptSourceHash: productionPlan.source.sourceHash,
+      normalizedTextHash: productionPlan.source.normalizedTextHash,
+      currentManuscriptContainerHash: manuscriptAnalysis.source.sourceHash,
+      manuscriptIdentity
     }),
     profile: freeze({
       profileId: cinematicLock.profileId,
@@ -370,6 +460,11 @@ export function verifyBookOneCinematicContinuationBlueprint(blueprint) {
   if (!blueprint || blueprint.artifact !== 'book-one-cinematic-continuation-blueprint') throw new Error('Invalid cinematic continuation blueprint');
   if (blueprint.status !== 'GATE_CLOSED_PENDING_TEN_CHAPTER_HUMAN_APPROVAL') throw new Error('Continuation blueprint must remain gate closed');
   if (Number(blueprint.progress?.completedCinematicChapters) !== 10) throw new Error('Continuation blueprint must preserve the first ten completed chapters');
+  if (blueprint.source?.manuscriptIdentity?.canonicalTextVerified !== true ||
+      blueprint.source?.manuscriptIdentity?.normalizedTextHashMatches !== true ||
+      Number(blueprint.source?.manuscriptIdentity?.chapterHashMismatches) !== 0) {
+    throw new Error('Continuation blueprint canonical manuscript identity is not verified');
+  }
   if (Number(blueprint.progress?.firstPendingChapterNumber) !== 11) throw new Error('Continuation blueprint must begin at Chapter 11');
   if (blueprint.guardrails?.providerTtsCallsPerformed !== 0 ||
       blueprint.guardrails?.providerSpendUsd !== 0 ||
@@ -623,6 +718,8 @@ export function renderBookOneCinematicContinuationBlueprintMarkdown(blueprint) {
     `- Cinematic chapters complete: **${blueprint.progress.completedCinematicChapters}/${blueprint.progress.totalNarrativeChapters}**`,
     `- Remaining: **${blueprint.progress.remainingCinematicChapters}**`,
     `- Prepared continuation: **Chapter ${blueprint.progress.firstPendingChapterNumber} → Chapter ${blueprint.progress.lastPendingChapterNumber}**`,
+    `- Canonical manuscript verified: **YES**`,
+    `- DOCX container hash exact match: **${blueprint.source.manuscriptIdentity.containerHashMatchesLocked ? 'YES' : 'NO — reconciled by canonical text + chapter hashes'}**`,
     '',
     '## Remainder production model',
     '',
@@ -702,7 +799,7 @@ export function renderBookOneCinematicContinuationDashboardHtml(blueprint) {
 
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Book One Cinematic Continuation</title><style>
   :root{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",Inter,system-ui,sans-serif;background:#f5f5f7;color:#111}*{box-sizing:border-box}body{margin:0;padding:28px}.wrap{max-width:1060px;margin:auto}.hero,.panel{background:#fff;border:1px solid #e5e5ea;border-radius:26px;box-shadow:0 12px 36px rgba(0,0,0,.06)}.hero{padding:32px}.panel{padding:22px;margin-top:18px}h1{font-size:38px;letter-spacing:-.04em;margin:4px 0 8px}h2{margin:0 0 14px}.eyebrow,.muted{color:#6e6e73}.eyebrow{text-transform:uppercase;font-size:12px;font-weight:800;letter-spacing:.09em}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:20px}.stat{background:#f5f5f7;padding:15px;border-radius:18px}.stat strong{display:block;font-size:24px}.gate{margin-top:18px;background:#fff3cd;border-radius:18px;padding:16px}.batch{display:flex;justify-content:space-between;gap:16px;padding:13px 0;border-bottom:1px solid #eee}.batch span{color:#6e6e73;text-align:right}.chapter{display:flex;gap:15px;padding:15px 0;border-bottom:1px solid #eee}.number{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;font-weight:800;background:#f5f5f7}.done .number{background:#e9f8ee}.locked .number{background:#fff3cd}.copy h3{margin:0;font-size:16px}.copy p{margin:4px 0;font-size:12px;font-weight:800}.copy span{color:#6e6e73;font-size:13px}@media(max-width:700px){body{padding:14px}.stats{grid-template-columns:1fr 1fr}.batch{display:block}.batch span{display:block;text-align:left;margin-top:4px}}
-  </style></head><body><main class="wrap"><section class="hero"><div class="eyebrow">YasReady Audiobooks ${escapeHtml(blueprint.release)}</div><h1>Cinematic Continuation Engine</h1><p class="muted">The rest of Book One is mapped with the exact approved Cinematic Naturalism A production recipe. Real Chapter 11+ generation remains locked behind your ten-chapter human review.</p><div class="stats"><div class="stat"><strong>10/${blueprint.progress.totalNarrativeChapters}</strong><span>cinematic complete</span></div><div class="stat"><strong>${blueprint.progress.remainingCinematicChapters}</strong><span>prepared chapters</span></div><div class="stat"><strong>${blueprint.workload.providerCalls}</strong><span>planned provider calls</span></div><div class="stat"><strong>$${blueprint.workload.protectedRemainderMaxUsd.toFixed(2)}</strong><span>planning max</span></div></div><div class="gate"><strong>Human gate CLOSED.</strong> Provider TTS calls: 0 · Spend: $0.00 · Chapter 11 generation: OFF · No production token exists.</div></section><section class="panel"><h2>Planned production windows</h2>${batches}</section><section class="panel"><h2>Book progress</h2>${rows}</section></main></body></html>`;
+  </style></head><body><main class="wrap"><section class="hero"><div class="eyebrow">YasReady Audiobooks ${escapeHtml(blueprint.release)}</div><h1>Cinematic Continuation Engine</h1><p class="muted">The rest of Book One is mapped with the exact approved Cinematic Naturalism A production recipe. Real Chapter 11+ generation remains locked behind your ten-chapter human review.</p><div class="stats"><div class="stat"><strong>10/${blueprint.progress.totalNarrativeChapters}</strong><span>cinematic complete</span></div><div class="stat"><strong>${blueprint.progress.remainingCinematicChapters}</strong><span>prepared chapters</span></div><div class="stat"><strong>${blueprint.workload.providerCalls}</strong><span>planned provider calls</span></div><div class="stat"><strong>$${blueprint.workload.protectedRemainderMaxUsd.toFixed(2)}</strong><span>planning max</span></div></div><div class="gate"><strong>Human gate CLOSED.</strong> Provider TTS calls: 0 · Spend: $0.00 · Chapter 11 generation: OFF · No production token exists.</div><p class="muted">Canonical manuscript identity: VERIFIED · DOCX container hash: ${blueprint.source.manuscriptIdentity.containerHashMatchesLocked ? 'exact match' : 'changed container, canonical text unchanged and every chapter hash verified'}</p></section><section class="panel"><h2>Planned production windows</h2>${batches}</section><section class="panel"><h2>Book progress</h2>${rows}</section></main></body></html>`;
 }
 
 function escapeHtml(value) {

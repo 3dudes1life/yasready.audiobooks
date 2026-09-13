@@ -6,8 +6,8 @@ import {
   YASREADY_AUDIOBOOKS_VERSION
 } from '../src/index.js';
 
-test('0.14.3.20 release constant is current product provenance', () => {
-  assert.equal(YASREADY_AUDIOBOOKS_VERSION,'0.14.3.20');
+test('0.14.3.20.1 release constant is current product provenance', () => {
+  assert.equal(YASREADY_AUDIOBOOKS_VERSION,'0.14.3.20.1');
 });
 
 test('Casting Launch requires a fully locked production-ready Audio Bible', () => {
@@ -54,7 +54,7 @@ test('Casting Launch accepts legacy 0.11.8 prep provenance but emits current lau
   prep.release = '0.11.8';
   prep.audioBible.lockRelease = '0.11.8';
   const { launch } = new CastingLaunchService().build(prep);
-  assert.equal(launch.provenance.applicationRelease, '0.14.3.20');
+  assert.equal(launch.provenance.applicationRelease, '0.14.3.20.1');
   assert.equal(launch.provenance.sourceArtifactApplicationRelease, '0.11.8');
   assert.equal(launch.source.sourcePrepRelease, '0.11.8');
 });
