@@ -1,5 +1,6 @@
 import { YASREADY_AUDIOBOOKS_VERSION } from '../release.js';
 import { sha256, stableJson } from '../core/hash.js';
+import { mapBookOneProductionNarrativeManifest } from './book-one-cinematic-continuation-service.js';
 
 export const BOOK_ONE_PAUSE_FIDELITY_POLICY = Object.freeze({
   headingToBodyMinMs: 900,
@@ -104,16 +105,21 @@ function paragraphRows(extractedManuscript) {
   });
 }
 
-function chapterRowsFromLayout({ extractedManuscript, manuscriptAnalysis, policy }) {
+function chapterRowsFromLayout({ extractedManuscript, manuscriptAnalysis, narrativeManifest, policy }) {
   const rows = paragraphRows(extractedManuscript);
   const titleMap = new Map(
     (manuscriptAnalysis.chapters ?? []).map((chapter) => [clean(chapter.title), Number(chapter.order)])
   );
+  const narrativeBySourceOrder = new Map(
+    narrativeManifest.narrativeRows.map((row) => [row.sourceOrder, row])
+  );
   const chapters = new Map();
-  for (const chapter of manuscriptAnalysis.chapters ?? []) {
-    chapters.set(Number(chapter.order), {
-      order: Number(chapter.order),
-      chapterNumber: Number(chapter.order) + 1,
+  for (const row of narrativeManifest.narrativeRows) {
+    const chapter = row.sourceChapter;
+    if (!chapter) continue;
+    chapters.set(row.sourceOrder, {
+      order: row.sourceOrder,
+      chapterNumber: row.chapterNumber,
       title: chapter.title,
       paragraphCount: 0,
       boundaries: []
@@ -127,7 +133,14 @@ function chapterRowsFromLayout({ extractedManuscript, manuscriptAnalysis, policy
   for (const row of rows) {
     const value = clean(row.value);
     if (titleMap.has(value)) {
-      currentOrder = titleMap.get(value);
+      const sourceOrder = titleMap.get(value);
+      if (!narrativeBySourceOrder.has(sourceOrder)) {
+        currentOrder = null;
+        previousSpoken = null;
+        pendingSceneBreak = false;
+        continue;
+      }
+      currentOrder = sourceOrder;
       previousSpoken = freeze({
         kind: 'heading',
         paragraphOrdinal: row.nonEmptyParagraphOrdinal,
@@ -206,24 +219,27 @@ function chapterRowsFromLayout({ extractedManuscript, manuscriptAnalysis, policy
     pendingSceneBreak = false;
   }
 
-  return [...chapters.values()].map((chapter) => freeze({
-    ...chapter,
-    boundaries: freeze(chapter.boundaries)
-  }));
+  return [...chapters.values()]
+    .sort((a, b) => Number(a.chapterNumber) - Number(b.chapterNumber))
+    .map((chapter) => freeze({
+      ...chapter,
+      boundaries: freeze(chapter.boundaries)
+    }));
 }
 
-function chapterSceneBoundarySupplement(chapters, manuscriptAnalysis, policy) {
-  const byNumber = new Map(chapters.map((chapter) => [chapter.chapterNumber, {
+function chapterSceneBoundarySupplement(chapters, narrativeManifest, policy) {
+  const bySourceOrder = new Map(chapters.map((chapter) => [chapter.order, {
     ...chapter,
     boundaries: [...chapter.boundaries]
   }]));
-  for (const sourceChapter of manuscriptAnalysis.chapters ?? []) {
-    const chapterNumber = Number(sourceChapter.order) + 1;
-    const target = byNumber.get(chapterNumber);
-    if (!target) continue;
+  for (const row of narrativeManifest.narrativeRows) {
+    const sourceChapter = row.sourceChapter;
+    const chapterNumber = row.chapterNumber;
+    const target = bySourceOrder.get(row.sourceOrder);
+    if (!sourceChapter || !target) continue;
     const sceneCount = (sourceChapter.scenes ?? []).length;
     for (let sceneIndex = 1; sceneIndex < sceneCount; sceneIndex += 1) {
-      const already = target.boundaries.some((row) => row.kind === 'SCENE_BOUNDARY');
+      const already = target.boundaries.some((boundary) => boundary.kind === 'SCENE_BOUNDARY');
       if (already) continue;
       target.boundaries.push(freeze({
         boundaryOrdinal: target.boundaries.length,
@@ -242,10 +258,12 @@ function chapterSceneBoundarySupplement(chapters, manuscriptAnalysis, policy) {
       }));
     }
   }
-  return [...byNumber.values()].map((chapter) => freeze({
-    ...chapter,
-    boundaries: freeze(chapter.boundaries.sort((a, b) => Number(a.boundaryOrdinal) - Number(b.boundaryOrdinal)))
-  }));
+  return [...bySourceOrder.values()]
+    .sort((a, b) => Number(a.chapterNumber) - Number(b.chapterNumber))
+    .map((chapter) => freeze({
+      ...chapter,
+      boundaries: freeze(chapter.boundaries.sort((a, b) => Number(a.boundaryOrdinal) - Number(b.boundaryOrdinal)))
+    }));
 }
 
 export function buildBookOnePauseFidelityPlan({
@@ -277,8 +295,9 @@ export function buildBookOnePauseFidelityPlan({
     throw new Error('Pause Fidelity extracted/analyzed source hash mismatch');
   }
 
-  const baseChapters = chapterRowsFromLayout({ extractedManuscript, manuscriptAnalysis, policy });
-  const chapters = chapterSceneBoundarySupplement(baseChapters, manuscriptAnalysis, policy);
+  const narrativeManifest = mapBookOneProductionNarrativeManifest({ productionPlan, manuscriptAnalysis });
+  const baseChapters = chapterRowsFromLayout({ extractedManuscript, manuscriptAnalysis, narrativeManifest, policy });
+  const chapters = chapterSceneBoundarySupplement(baseChapters, narrativeManifest, policy);
   const allBoundaries = chapters.flatMap((chapter) => chapter.boundaries);
   const firstTen = chapters.filter((chapter) => chapter.chapterNumber <= 10);
   const firstTenBoundaries = firstTen.flatMap((chapter) => chapter.boundaries);
@@ -303,7 +322,15 @@ export function buildBookOnePauseFidelityPlan({
       productionPlanDigest: productionPlan.integrity.productionPlanDigest,
       cinematicLockDigest: cinematicLock.integrity.lockDigest,
       cinematicResultDigest: cinematicResult.integrity.resultDigest,
-      paragraphLayoutAvailable: Array.isArray(extractedManuscript.paragraphLayout) && extractedManuscript.paragraphLayout.length > 0
+      paragraphLayoutAvailable: Array.isArray(extractedManuscript.paragraphLayout) && extractedManuscript.paragraphLayout.length > 0,
+      sourceSectionCount: narrativeManifest.currentChapters.length,
+      narrativeChapterCount: narrativeManifest.narrativeRows.length,
+      excludedNonNarrativeSectionCount: narrativeManifest.excludedNonNarrativeSections.length,
+      excludedNonNarrativeSections: freeze(narrativeManifest.excludedNonNarrativeSections.map((row) => ({
+        sourceOrder: row.sourceOrder,
+        title: row.title,
+        textHash: row.textHash
+      })))
     }),
     policy: freeze({ ...policy }),
     reviewEvidence,

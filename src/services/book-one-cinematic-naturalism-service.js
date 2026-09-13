@@ -17,9 +17,9 @@ export const BOOK_ONE_CINEMATIC_ARCHIVE_PROFILE = 'archive-wav-2026';
 export const BOOK_ONE_CINEMATIC_MP3_PROFILE = 'acx-2026';
 export const BOOK_ONE_CINEMATIC_PROFILE_ID = 'cinematic-naturalism-a-v1';
 export const BOOK_ONE_CINEMATIC_ALLOWED_PLAN_RELEASES = Object.freeze([
-  '0.14.3.13', '0.14.3.14', '0.14.3.14.1', '0.14.3.14.2', '0.14.3.15', '0.14.3.16', '0.14.3.17', '0.14.3.18', '0.14.3.18.1', '0.14.3.18.2', '0.14.3.19', '0.14.3.20', '0.14.3.20.1', '0.14.3.20.2'
+  '0.14.3.13', '0.14.3.14', '0.14.3.14.1', '0.14.3.14.2', '0.14.3.15', '0.14.3.16', '0.14.3.17', '0.14.3.18', '0.14.3.18.1', '0.14.3.18.2', '0.14.3.19', '0.14.3.20', '0.14.3.20.1', '0.14.3.20.2', '0.14.3.20.3'
 ]);
-export const BOOK_ONE_CINEMATIC_COMPATIBLE_RELEASES = Object.freeze(['0.14.3.18', '0.14.3.18.1', '0.14.3.18.2', '0.14.3.19', '0.14.3.20', '0.14.3.20.1', '0.14.3.20.2']);
+export const BOOK_ONE_CINEMATIC_COMPATIBLE_RELEASES = Object.freeze(['0.14.3.18', '0.14.3.18.1', '0.14.3.18.2', '0.14.3.19', '0.14.3.20', '0.14.3.20.1', '0.14.3.20.2', '0.14.3.20.3']);
 
 const PROVIDER_SETTLED = new Set([
   'PROVIDER_COMPLETE',

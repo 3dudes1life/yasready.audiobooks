@@ -238,8 +238,8 @@ function cinematicResult(lock) {
   return { ...base, integrity: { resultDigest: sha256(stableJson(resultCore(base))) } };
 }
 
-test('0.14.3.20.2 is current application provenance', () => {
-  assert.equal(YASREADY_AUDIOBOOKS_VERSION, '0.14.3.20.2');
+test('0.14.3.20.3 is current application provenance', () => {
+  assert.equal(YASREADY_AUDIOBOOKS_VERSION, '0.14.3.20.3');
 });
 
 test('DOCX container-byte drift is accepted only when canonical normalized text and every chapter hash match', () => {
@@ -377,4 +377,97 @@ test('present historical cinematic result manuscriptSourceHash still blocks when
     cinematicResult: r,
     cinematicLock: l
   }), /conflicts with the locked production source/i);
+});
+
+
+test('44 narrated chapters + Front Matter reconcile without weakening chapter hashes', () => {
+  const p = plan();
+  const l = cinematicLock();
+  const r = cinematicResult(l);
+  const base = manuscript({
+    sourceHash: 'locked-docx-container-hash',
+    normalizedTextHash: 'normalized-canonical-hash'
+  });
+  const narrative = base.chapters.slice(0, 44);
+  const current = {
+    ...base,
+    metrics: { ...base.metrics, chapters: 45 },
+    chapters: [
+      {
+        order: 0,
+        title: 'Front Matter',
+        textHash: sha256('Print-only front matter.'),
+        scenes: [{ order: 0, textHash: sha256('Print-only front matter.'), segments: [{ order: 0, paragraphIndex: 0, kind: 'narration', text: 'Print-only front matter.', speakerCandidate: null }] }]
+      },
+      ...narrative.map((chapter, index) => ({ ...chapter, order: index + 1 }))
+    ]
+  };
+  p.manifest.chapters = p.manifest.chapters.slice(0, 44).map((chapter, index) => ({
+    ...chapter,
+    order: index + 1
+  }));
+
+  const identity = reconcileBookOneContinuationManuscriptIdentity({
+    productionPlan: p,
+    manuscriptAnalysis: current,
+    cinematicResult: r,
+    cinematicLock: l
+  });
+
+  assert.equal(identity.sourceSectionCount, 45);
+  assert.equal(identity.narrativeChapterCount, 44);
+  assert.equal(identity.excludedNonNarrativeSectionCount, 1);
+  assert.equal(identity.excludedNonNarrativeSections[0].sourceOrder, 0);
+  assert.equal(identity.excludedNonNarrativeSections[0].title, 'Front Matter');
+  assert.equal(identity.chapterHashesVerified, 44);
+  assert.equal(identity.chapterHashMismatches, 0);
+  assert.equal(identity.canonicalTextVerified, true);
+
+  const blueprint = buildBookOneCinematicContinuationBlueprint({
+    productionPlan: p,
+    manuscriptAnalysis: current,
+    cinematicResult: r,
+    cinematicLock: l
+  });
+  assert.equal(blueprint.progress.totalNarrativeChapters, 44);
+  assert.equal(blueprint.progress.completedCinematicChapters, 10);
+  assert.equal(blueprint.progress.remainingCinematicChapters, 34);
+  assert.equal(blueprint.progress.firstPendingChapterNumber, 11);
+  assert.equal(blueprint.progress.lastPendingChapterNumber, 44);
+  assert.equal(blueprint.chapters[0].chapterNumber, 11);
+  assert.equal(blueprint.chapters[0].order, 11);
+});
+
+test('an omitted non-Front-Matter source section still fails closed', () => {
+  const p = plan();
+  const l = cinematicLock();
+  const r = cinematicResult(l);
+  const base = manuscript({
+    sourceHash: 'locked-docx-container-hash',
+    normalizedTextHash: 'normalized-canonical-hash'
+  });
+  const narrative = base.chapters.slice(0, 44);
+  const current = {
+    ...base,
+    chapters: [
+      {
+        order: 0,
+        title: 'Preface',
+        textHash: sha256('Narrative preface.'),
+        scenes: [{ order: 0, textHash: sha256('Narrative preface.'), segments: [{ order: 0, paragraphIndex: 0, kind: 'narration', text: 'Narrative preface.', speakerCandidate: null }] }]
+      },
+      ...narrative.map((chapter, index) => ({ ...chapter, order: index + 1 }))
+    ]
+  };
+  p.manifest.chapters = p.manifest.chapters.slice(0, 44).map((chapter, index) => ({
+    ...chapter,
+    order: index + 1
+  }));
+
+  assert.throws(() => reconcileBookOneContinuationManuscriptIdentity({
+    productionPlan: p,
+    manuscriptAnalysis: current,
+    cinematicResult: r,
+    cinematicLock: l
+  }), /omits .*non-Front-Matter source section/i);
 });

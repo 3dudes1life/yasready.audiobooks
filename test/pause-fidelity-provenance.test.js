@@ -73,6 +73,13 @@ function fixture() {
   const productionPlan = {
     book: { id: 'book-one', title: 'Fixture', author: 'Author' },
     source: { sourceHash, normalizedTextHash },
+    manifest: {
+      chapters: manuscriptAnalysis.chapters.map((chapter) => ({
+        order: chapter.order,
+        title: chapter.title,
+        sourceTextHash: chapter.textHash
+      }))
+    },
     integrity: { productionPlanDigest: 'plan-digest' }
   };
   const cinematicLock = {
@@ -105,8 +112,8 @@ function fixture() {
   return { extractedManuscript, manuscriptAnalysis, productionPlan, cinematicLock, cinematicResult, humanReviewDecisions };
 }
 
-test('0.14.3.20.2 is current application provenance', () => {
-  assert.equal(YASREADY_AUDIOBOOKS_VERSION, '0.14.3.20.2');
+test('0.14.3.20.3 is current application provenance', () => {
+  assert.equal(YASREADY_AUDIOBOOKS_VERSION, '0.14.3.20.3');
 });
 
 test('Pause Fidelity creates minimum silence floors without changing canonical words or spending', () => {
@@ -161,4 +168,48 @@ test('Pause Fidelity plan digest detects tampering', () => {
   const plan = JSON.parse(JSON.stringify(buildBookOnePauseFidelityPlan(f)));
   plan.policy.headingToBodyMinMs = 1;
   assert.throws(() => verifyBookOnePauseFidelityPlan(plan), /digest mismatch/i);
+});
+
+
+test('Pause Fidelity excludes Front Matter from narrative numbering and still analyzes actual Chapters 1-2', () => {
+  const f = fixture();
+  const frontText = 'Copyright and title-page material.';
+  const oldChapters = f.manuscriptAnalysis.chapters;
+  f.manuscriptAnalysis.chapters = [
+    { order: 0, title: 'Front Matter', textHash: sha256(frontText), scenes: [{ order: 0, segments: [{ paragraphIndex: 0, kind: 'narration', text: frontText }] }] },
+    ...oldChapters.map((chapter, index) => ({ ...chapter, order: index + 1 }))
+  ];
+  f.manuscriptAnalysis.metrics.chapters = 3;
+
+  const paragraphs = [
+    'Front Matter', frontText,
+    'Chapter 1', 'First paragraph.', 'Second paragraph.', '***', 'Third paragraph.',
+    'Chapter 2', 'Opening paragraph.', 'Another paragraph.'
+  ];
+  f.extractedManuscript.text = paragraphs.join('\n\n');
+  f.extractedManuscript.paragraphLayout = paragraphs.map((value, index) => ({
+    nonEmptyParagraphOrdinal: index,
+    sourceParagraphOrdinal: index,
+    textHash: sha256(value),
+    blankParagraphsBefore: 0,
+    spacingBeforeTwips: 0,
+    spacingAfterTwips: 0,
+    style: /^(?:Front Matter|Chapter)/.test(value) ? 'Heading1' : 'Body'
+  }));
+  f.manuscriptAnalysis.source.normalizedTextHash = sha256(f.extractedManuscript.text);
+  f.productionPlan.source.normalizedTextHash = f.manuscriptAnalysis.source.normalizedTextHash;
+  f.productionPlan.manifest.chapters = oldChapters.map((chapter, index) => ({
+    order: index + 1,
+    title: chapter.title,
+    sourceTextHash: chapter.textHash
+  }));
+
+  const plan = buildBookOnePauseFidelityPlan(f);
+  assert.equal(plan.summary.narrativeChapterCount, 2);
+  assert.equal(plan.source.sourceSectionCount, 3);
+  assert.equal(plan.source.excludedNonNarrativeSectionCount, 1);
+  assert.equal(plan.source.excludedNonNarrativeSections[0].title, 'Front Matter');
+  assert.deepEqual(plan.chapters.map((chapter) => chapter.chapterNumber), [1, 2]);
+  assert.deepEqual(plan.chapters.map((chapter) => chapter.order), [1, 2]);
+  assert.equal(plan.chapters.some((chapter) => chapter.title === 'Front Matter'), false);
 });

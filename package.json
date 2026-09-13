@@ -1,9 +1,9 @@
 {
   "name": "@yasready/audiobooks",
-  "version": "0.14.3.20.2",
+  "version": "0.14.3.20.3",
   "private": true,
   "type": "module",
-  "description": "YasReady Audiobooks Pause Fidelity and historical provenance reconciliation with gate-closed cinematic continuation, canonical manuscript protection, QA, Mastering and Distribution",
+  "description": "YasReady Audiobooks narrative/source chapter identity reconciliation for Front Matter-aware cinematic continuation and Pause Fidelity, with historical provenance protection, QA, Mastering and Distribution",
   "engines": {
     "node": ">=20"
   },

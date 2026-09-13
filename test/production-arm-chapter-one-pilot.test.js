@@ -107,8 +107,8 @@ async function armFixture({provider=providerFixture(),ffmpeg=ffmpegFixture()}={}
   return {plan,arm,provider,ffmpeg};
 }
 
-test('0.14.3.20.2 is current application provenance',()=>{
-  assert.equal(YASREADY_AUDIOBOOKS_VERSION,'0.14.3.20.2');
+test('0.14.3.20.3 is current application provenance',()=>{
+  assert.equal(YASREADY_AUDIOBOOKS_VERSION,'0.14.3.20.3');
 });
 
 test('Chapter One materialization skips Front Matter and preserves exact generation digests',()=>{

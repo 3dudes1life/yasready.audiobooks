@@ -109,6 +109,98 @@ function assertProductionPlanShape(productionPlan) {
   return true;
 }
 
+
+export function mapBookOneProductionNarrativeManifest({ productionPlan, manuscriptAnalysis } = {}) {
+  const plannedChapters = [...(productionPlan?.manifest?.chapters ?? [])]
+    .sort((a, b) => Number(a.order) - Number(b.order));
+  const currentChapters = manuscriptAnalysis?.chapters ?? [];
+  if (!plannedChapters.length) throw new Error('Narrative manifest mapping requires planned production chapters');
+  if (!Array.isArray(currentChapters) || !currentChapters.length) throw new Error('Narrative manifest mapping requires analyzed manuscript chapters');
+
+  const usedSourceOrders = new Set();
+  const chapterMismatches = [];
+  const narrativeRows = [];
+
+  for (let narrativeOrder = 0; narrativeOrder < plannedChapters.length; narrativeOrder += 1) {
+    const planned = plannedChapters[narrativeOrder];
+    const sourceOrder = Number(planned.order);
+    if (!Number.isInteger(sourceOrder) || sourceOrder < 0) {
+      throw new Error(`Continuation production manifest contains invalid source chapter order: ${planned.order}`);
+    }
+    if (usedSourceOrders.has(sourceOrder)) {
+      throw new Error(`Continuation production manifest repeats source chapter order ${sourceOrder}`);
+    }
+    usedSourceOrders.add(sourceOrder);
+
+    const current = currentChapters[sourceOrder] ?? null;
+    if (!current) {
+      chapterMismatches.push(Object.freeze({
+        sourceOrder,
+        narrativeOrder,
+        chapterNumber: narrativeOrder + 1,
+        reason: 'missing-current-chapter'
+      }));
+    } else {
+      if (Number(current.order) !== sourceOrder) {
+        chapterMismatches.push(Object.freeze({
+          sourceOrder,
+          narrativeOrder,
+          chapterNumber: narrativeOrder + 1,
+          reason: 'source-order-drift',
+          currentOrder: current.order
+        }));
+      }
+      if (planned.sourceTextHash && current.textHash !== planned.sourceTextHash) {
+        chapterMismatches.push(Object.freeze({
+          sourceOrder,
+          narrativeOrder,
+          chapterNumber: narrativeOrder + 1,
+          reason: 'chapter-text-hash-mismatch',
+          plannedTextHash: planned.sourceTextHash,
+          currentTextHash: current.textHash
+        }));
+      }
+    }
+
+    narrativeRows.push(Object.freeze({
+      narrativeOrder,
+      chapterNumber: narrativeOrder + 1,
+      sourceOrder,
+      plannedChapter: planned,
+      sourceChapter: current
+    }));
+  }
+
+  const excludedNonNarrativeSections = [];
+  for (let sourceOrder = 0; sourceOrder < currentChapters.length; sourceOrder += 1) {
+    if (usedSourceOrders.has(sourceOrder)) continue;
+    const chapter = currentChapters[sourceOrder];
+    excludedNonNarrativeSections.push(Object.freeze({
+      sourceOrder,
+      title: chapter?.title ?? null,
+      textHash: chapter?.textHash ?? null
+    }));
+  }
+
+  const invalidExcluded = excludedNonNarrativeSections.filter(
+    (row) => !/^front matter$/i.test(clean(row.title))
+  );
+  if (invalidExcluded.length) {
+    const labels = invalidExcluded.map((row) => `${row.sourceOrder}:${clean(row.title) || 'Untitled'}`).join(', ');
+    throw new Error(
+      `Continuation canonical manuscript structure drifted: production manifest omits ${invalidExcluded.length} non-Front-Matter source section(s): ${labels}`
+    );
+  }
+
+  return Object.freeze({
+    plannedChapters: Object.freeze(plannedChapters),
+    currentChapters,
+    narrativeRows: Object.freeze(narrativeRows),
+    chapterMismatches: Object.freeze(chapterMismatches),
+    excludedNonNarrativeSections: Object.freeze(excludedNonNarrativeSections)
+  });
+}
+
 export function reconcileBookOneContinuationManuscriptIdentity({
   productionPlan,
   manuscriptAnalysis,
@@ -152,32 +244,13 @@ export function reconcileBookOneContinuationManuscriptIdentity({
     throw new Error('Continuation production plan is missing normalized manuscript text identity');
   }
 
-  const plannedChapters = [...(productionPlan.manifest?.chapters ?? [])]
-    .sort((a, b) => Number(a.order) - Number(b.order));
-  const currentChapters = manuscriptAnalysis.chapters ?? [];
-
-  if (currentChapters.length !== plannedChapters.length) {
-    throw new Error(`Continuation canonical manuscript structure drifted: planned ${plannedChapters.length} chapter(s), current ${currentChapters.length}`);
-  }
-
-  const chapterMismatches = [];
-  for (const planned of plannedChapters) {
-    const order = Number(planned.order);
-    const current = currentChapters[order];
-    if (!current) {
-      chapterMismatches.push(freeze({ order, chapterNumber: order + 1, reason: 'missing-current-chapter' }));
-      continue;
-    }
-    if (planned.sourceTextHash && current.textHash !== planned.sourceTextHash) {
-      chapterMismatches.push(freeze({
-        order,
-        chapterNumber: order + 1,
-        reason: 'chapter-text-hash-mismatch',
-        plannedTextHash: planned.sourceTextHash,
-        currentTextHash: current.textHash
-      }));
-    }
-  }
+  const narrativeManifest = mapBookOneProductionNarrativeManifest({
+    productionPlan,
+    manuscriptAnalysis
+  });
+  const plannedChapters = narrativeManifest.plannedChapters;
+  const currentChapters = narrativeManifest.currentChapters;
+  const chapterMismatches = narrativeManifest.chapterMismatches;
 
   if (currentNormalizedTextHash !== planNormalizedTextHash) {
     throw new Error(
@@ -199,6 +272,14 @@ export function reconcileBookOneContinuationManuscriptIdentity({
     currentNormalizedTextHash,
     normalizedTextHashMatches: true,
     chapterCount: plannedChapters.length,
+    sourceSectionCount: currentChapters.length,
+    narrativeChapterCount: narrativeManifest.narrativeRows.length,
+    excludedNonNarrativeSectionCount: narrativeManifest.excludedNonNarrativeSections.length,
+    excludedNonNarrativeSections: freeze(narrativeManifest.excludedNonNarrativeSections.map((row) => ({
+      sourceOrder: row.sourceOrder,
+      title: row.title,
+      textHash: row.textHash
+    }))),
     chapterHashesVerified: plannedChapters.length,
     chapterHashMismatches: 0,
     canonicalTextVerified: true,
@@ -238,7 +319,7 @@ function assertTenComplete(cinematicResult, cinematicLock) {
   return true;
 }
 
-function chapterPlanFromSource({ planned, sourceChapter, cinematicLock, maxChars }) {
+function chapterPlanFromSource({ planned, sourceChapter, cinematicLock, maxChars, chapterNumber = null }) {
   if (!sourceChapter) throw new Error(`Continuation manuscript chapter missing: ${planned.title}`);
   if (planned.sourceTextHash && sourceChapter.textHash !== planned.sourceTextHash) {
     throw new Error(`Continuation canonical manuscript drifted: ${planned.title}`);
@@ -269,9 +350,10 @@ function chapterPlanFromSource({ planned, sourceChapter, cinematicLock, maxChars
 
   const heading = headingText(planned.title);
   const headingCharacters = [...heading].length;
+  const resolvedChapterNumber = Number(chapterNumber ?? (Number(planned.order) + 1));
   return freeze({
     order: Number(planned.order),
-    chapterNumber: Number(planned.order) + 1,
+    chapterNumber: resolvedChapterNumber,
     title: planned.title,
     sourceTextHash: planned.sourceTextHash ?? sourceChapter.textHash ?? null,
     canonicalChapterHash: sourceChapter.textHash ?? null,
@@ -338,15 +420,17 @@ export function buildBookOneCinematicContinuationBlueprint({
   if (!(reserveRatio >= 0 && reserveRatio <= 1)) throw new Error('retryReserveRatio must be between 0 and 1');
 
   const maxChars = Number(productionPlan.manifest.maxCharactersPerProviderCall);
-  const plannedChapters = [...productionPlan.manifest.chapters].sort((a, b) => Number(a.order) - Number(b.order));
-  const remaining = plannedChapters.filter((chapter) => Number(chapter.order) >= 10);
+  const narrativeManifest = mapBookOneProductionNarrativeManifest({ productionPlan, manuscriptAnalysis });
+  const plannedChapters = narrativeManifest.plannedChapters;
+  const remaining = narrativeManifest.narrativeRows.slice(BOOK_ONE_CINEMATIC_CONTINUATION_START_CHAPTER - 1);
   if (!remaining.length) throw new Error('Continuation found no chapters after Chapter 10');
 
-  const chapters = remaining.map((planned) => chapterPlanFromSource({
-    planned,
-    sourceChapter: manuscriptAnalysis.chapters?.[Number(planned.order)],
+  const chapters = remaining.map((row) => chapterPlanFromSource({
+    planned: row.plannedChapter,
+    sourceChapter: row.sourceChapter,
     cinematicLock,
-    maxChars
+    maxChars,
+    chapterNumber: row.chapterNumber
   }));
 
   const rate = Number(productionPlan.budget?.rateUsdPer1kCharacters ?? 0.10);

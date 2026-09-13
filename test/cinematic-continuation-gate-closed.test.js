@@ -137,7 +137,7 @@ function productionPlan() {
   const a = analysis();
   return {
     schemaVersion: 1,
-    release: '0.14.3.20.2',
+    release: '0.14.3.20.3',
     artifact: 'book-one-production-plan',
     status: 'READY_FOR_SEPARATE_PRODUCTION_ARM',
     book: { id: 'book-one', title: 'Fixture Book', author: 'Fixture Author' },
@@ -265,8 +265,8 @@ function approval(cinematicLock, result) {
   return finalizeBookOneCinematicHumanReview({ session, decisions });
 }
 
-test('0.14.3.20.2 is current application provenance', () => {
-  assert.equal(YASREADY_AUDIOBOOKS_VERSION, '0.14.3.20.2');
+test('0.14.3.20.3 is current application provenance', () => {
+  assert.equal(YASREADY_AUDIOBOOKS_VERSION, '0.14.3.20.3');
 });
 
 test('continuation blueprint prepares Chapters 11-45 without spending or arming production', () => {
@@ -354,7 +354,7 @@ test('live quota preview may calculate Chapter 11+ scope while human gate stays 
   assert.equal(preview.guardrails.productionRuntimeConnected, false);
 });
 
-test('approved human gate changes preview readiness only; 0.14.3.20.2 still cannot arm or generate Chapter 11', () => {
+test('approved human gate changes preview readiness only; 0.14.3.20.3 still cannot arm or generate Chapter 11', () => {
   const cinematicLock = lock();
   const result = cinematicResult(cinematicLock);
   const blueprint = buildBookOneCinematicContinuationBlueprint({
