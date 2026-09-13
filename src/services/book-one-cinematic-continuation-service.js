@@ -120,17 +120,30 @@ export function reconcileBookOneContinuationManuscriptIdentity({
     throw new Error('Continuation manuscript identity requires raw and normalized manuscript hashes');
   }
 
-  const lockedContainerHashes = [
-    productionPlan.source?.sourceHash,
-    cinematicLock?.source?.manuscriptSourceHash,
-    cinematicResult?.source?.manuscriptSourceHash
-  ].filter(Boolean);
+  verifyBookOneCinematicNaturalismLock(cinematicLock);
+  verifyBookOneCinematicRebuildResult(cinematicResult);
 
-  if (lockedContainerHashes.length !== 3 || new Set(lockedContainerHashes).size !== 1) {
-    throw new Error('Continuation locked manuscript evidence disagrees before current manuscript comparison');
+  const planDigest = productionPlan.integrity?.productionPlanDigest ?? null;
+  if (!planDigest ||
+      cinematicLock?.source?.productionPlanDigest !== planDigest ||
+      cinematicResult?.source?.productionPlanDigest !== planDigest) {
+    throw new Error('Continuation historical production-plan lineage disagrees before current manuscript comparison');
   }
 
-  const lockedContainerSourceHash = productionPlan.source.sourceHash;
+  const planSourceHash = productionPlan.source?.sourceHash ?? null;
+  const lockSourceHash = cinematicLock?.source?.manuscriptSourceHash ?? null;
+  const resultSourceHash = cinematicResult?.source?.manuscriptSourceHash ?? null;
+
+  if (!planSourceHash || !lockSourceHash || planSourceHash !== lockSourceHash) {
+    throw new Error('Continuation locked manuscript evidence disagrees before current manuscript comparison');
+  }
+  if (resultSourceHash && resultSourceHash !== planSourceHash) {
+    throw new Error('Continuation historical cinematic result manuscript source hash conflicts with the locked production source');
+  }
+
+  const historicalResultSourceHashPresent = Boolean(resultSourceHash);
+  const historicalResultSourceHashInherited = !historicalResultSourceHashPresent;
+  const lockedContainerSourceHash = planSourceHash;
   const currentContainerSourceHash = manuscriptAnalysis.source.sourceHash;
   const planNormalizedTextHash = productionPlan.source?.normalizedTextHash ?? null;
   const currentNormalizedTextHash = manuscriptAnalysis.source.normalizedTextHash;
@@ -189,9 +202,19 @@ export function reconcileBookOneContinuationManuscriptIdentity({
     chapterHashesVerified: plannedChapters.length,
     chapterHashMismatches: 0,
     canonicalTextVerified: true,
-    reconciliationPolicy: currentContainerSourceHash === lockedContainerSourceHash
-      ? 'exact-container-and-canonical-text-match'
-      : 'docx-container-drift-accepted-only-because-normalized-text-and-every-planned-chapter-hash-match'
+    historicalResultSourceHash: resultSourceHash,
+    historicalResultSourceHashPresent,
+    historicalResultSourceHashInherited,
+    historicalResultSourceHashInheritanceBasis: historicalResultSourceHashInherited
+      ? 'integrity-verified historical cinematic result + exact production-plan digest lineage + matching cinematic lock manuscript source'
+      : null,
+    reconciliationPolicy: historicalResultSourceHashInherited
+      ? (currentContainerSourceHash === lockedContainerSourceHash
+          ? 'legacy-cinematic-result-missing-source-hash-reconciled-by-integrity-digest-lineage-and-exact-current-source'
+          : 'legacy-cinematic-result-missing-source-hash-reconciled-by-integrity-digest-lineage-normalized-text-and-all-chapter-hashes')
+      : (currentContainerSourceHash === lockedContainerSourceHash
+          ? 'exact-container-and-canonical-text-match'
+          : 'docx-container-drift-accepted-only-because-normalized-text-and-every-planned-chapter-hash-match')
   });
 }
 
@@ -449,6 +472,8 @@ export function buildBookOneCinematicContinuationBlueprint({
       nextBatchArmed: false,
       fullBookGenerationArmed: false,
       productionRuntimeConnected: false,
+      pauseFidelityProductionRuntimeConnected: false,
+      pauseFidelityPlanRequiredBeforePaidContinuation: true,
       automaticScaleUp: false
     })
   };

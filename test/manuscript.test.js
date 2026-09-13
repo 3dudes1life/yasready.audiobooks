@@ -148,3 +148,25 @@ test('empty manuscripts fail closed', () => {
   const extracted = extractText(Buffer.from('   \n\n'));
   assert.throws(() => analyzeManuscript(extracted), /no readable text/);
 });
+
+
+test('DOCX extractor preserves blank-paragraph and style-spacing layout evidence without changing extracted text', () => {
+  const zip = makeStoredZip({
+    '[Content_Types].xml': '<Types/>',
+    'word/styles.xml': `<w:styles xmlns:w="w">
+      <w:style w:type="paragraph" w:styleId="Body"><w:pPr><w:spacing w:after="160"/></w:pPr></w:style>
+    </w:styles>`,
+    'word/document.xml': `<w:document xmlns:w="w"><w:body>
+      <w:p><w:r><w:t>Chapter 1</w:t></w:r></w:p>
+      <w:p><w:pPr><w:pStyle w:val="Body"/></w:pPr><w:r><w:t>First paragraph.</w:t></w:r></w:p>
+      <w:p></w:p>
+      <w:p><w:pPr><w:pStyle w:val="Body"/></w:pPr><w:r><w:t>Second paragraph.</w:t></w:r></w:p>
+    </w:body></w:document>`
+  });
+  const result = extractDocx(zip);
+  assert.equal(result.text, 'Chapter 1\n\nFirst paragraph.\n\nSecond paragraph.');
+  assert.equal(result.paragraphLayout.length, 3);
+  assert.equal(result.paragraphLayout[1].spacingAfterTwips, 160);
+  assert.equal(result.paragraphLayout[2].blankParagraphsBefore, 1);
+  assert.ok(result.paragraphLayout.every((row) => !Object.prototype.hasOwnProperty.call(row, 'text')));
+});

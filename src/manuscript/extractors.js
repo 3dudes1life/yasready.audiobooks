@@ -70,21 +70,65 @@ export function extractDocx(input, { filename = 'manuscript.docx' } = {}) {
   const buffer = Buffer.isBuffer(input) ? input : Buffer.from(input);
   const entries = readZipEntries(buffer);
   const documentXml = zipText(entries, 'word/document.xml');
+  const stylesXml = zipText(entries, 'word/styles.xml', { required: false }) ?? '';
+  const styleSpacing = new Map();
+
+  for (const match of stylesXml.matchAll(/<w:style\b([^>]*)>([\s\S]*?)<\/w:style>/gi)) {
+    const opening = match[1];
+    const body = match[2];
+    const styleId = opening.match(/w:styleId=["']([^"']+)["']/i)?.[1] ?? null;
+    if (!styleId) continue;
+    const spacing = body.match(/<w:spacing\b([^>]*)\/?\s*>/i)?.[1] ?? '';
+    const before = Number(spacing.match(/w:before=["'](\d+)["']/i)?.[1] ?? 0);
+    const after = Number(spacing.match(/w:after=["'](\d+)["']/i)?.[1] ?? 0);
+    styleSpacing.set(styleId, { before, after });
+  }
+
   const paragraphs = [];
+  let pendingBlankParagraphs = 0;
+  let sourceParagraphOrdinal = 0;
 
   for (const match of documentXml.matchAll(/<w:p\b[^>]*>([\s\S]*?)<\/w:p>/gi)) {
     const paragraphXml = match[1];
     const style = paragraphXml.match(/<w:pStyle\b[^>]*w:val=["']([^"']+)["']/i)?.[1] ?? null;
+    const directSpacing = paragraphXml.match(/<w:spacing\b([^>]*)\/?\s*>/i)?.[1] ?? '';
+    const inherited = style ? (styleSpacing.get(style) ?? { before: 0, after: 0 }) : { before: 0, after: 0 };
+    const spacingBeforeTwips = Number(directSpacing.match(/w:before=["'](\d+)["']/i)?.[1] ?? inherited.before ?? 0);
+    const spacingAfterTwips = Number(directSpacing.match(/w:after=["'](\d+)["']/i)?.[1] ?? inherited.after ?? 0);
     const content = paragraphXml
       .replace(/<w:tab\b[^>]*\/?\s*>/gi, '\t')
       .replace(/<w:(?:br|cr)\b[^>]*\/?\s*>/gi, '\n');
     const pieces = [...content.matchAll(/<w:t\b[^>]*>([\s\S]*?)<\/w:t>/gi)].map((textMatch) => decodeEntities(textMatch[1]));
     const value = pieces.join('').replace(/[ \t]+\n/g, '\n').trim();
-    if (value) paragraphs.push({ value, style });
+
+    if (value) {
+      paragraphs.push({
+        value,
+        style,
+        sourceParagraphOrdinal,
+        blankParagraphsBefore: pendingBlankParagraphs,
+        spacingBeforeTwips,
+        spacingAfterTwips
+      });
+      pendingBlankParagraphs = 0;
+    } else {
+      pendingBlankParagraphs += 1;
+    }
+    sourceParagraphOrdinal += 1;
   }
 
   const text = normalizeExtractedText(paragraphs.map(({ value }) => value).join('\n\n'));
   const core = zipText(entries, 'docProps/core.xml', { required: false }) ?? '';
+  const paragraphLayout = Object.freeze(paragraphs.map((row, index) => Object.freeze({
+    nonEmptyParagraphOrdinal: index,
+    sourceParagraphOrdinal: row.sourceParagraphOrdinal,
+    textHash: sha256(Buffer.from(row.value, 'utf8')),
+    style: row.style,
+    blankParagraphsBefore: row.blankParagraphsBefore,
+    spacingBeforeTwips: row.spacingBeforeTwips,
+    spacingAfterTwips: row.spacingAfterTwips
+  })));
+
   return Object.freeze({
     format: 'docx', filename, text,
     metadata: Object.freeze({
@@ -92,7 +136,9 @@ export function extractDocx(input, { filename = 'manuscript.docx' } = {}) {
       author: firstXmlNodeText(core, 'creator'),
       language: firstXmlNodeText(core, 'language')
     }),
-    sections: Object.freeze([]), sourceHash: sha256(buffer)
+    sections: Object.freeze([]),
+    paragraphLayout,
+    sourceHash: sha256(buffer)
   });
 }
 

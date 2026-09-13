@@ -51,7 +51,7 @@ function decisions(session,{overallDecision='APPROVE_CINEMATIC_RECIPE',failChapt
   return{schemaVersion:1,artifact:'book-one-cinematic-human-review-decisions',source:{reviewSessionDigest:session.integrity.reviewSessionDigest,cinematicResultDigest:session.source.cinematicResultDigest,cinematicLockDigest:session.source.cinematicLockDigest,recipeFingerprint:session.profile.recipeFingerprint},heardAllTen:true,overallDecision,overallNotes:'Human listened straight through.',chapters:Array.from({length:10},(_,i)=>({chapterNumber:i+1,decision:failChapter===i+1?'FAIL':'PASS',notes:''}))};
 }
 
-test('0.14.3.20.1 is current application provenance',()=>assert.equal(YASREADY_AUDIOBOOKS_VERSION,'0.14.3.20.1'));
+test('0.14.3.20.2 is current application provenance',()=>assert.equal(YASREADY_AUDIOBOOKS_VERSION,'0.14.3.20.2'));
 
 test('historical 0.14.3.18.2 cinematic lock remains verifiable for human review evidence',()=>{
   const current=buildBookOneCinematicNaturalismLock({productionPlan:plan(),recipeLock:recipe()});

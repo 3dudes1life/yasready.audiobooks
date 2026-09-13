@@ -238,8 +238,8 @@ function cinematicResult(lock) {
   return { ...base, integrity: { resultDigest: sha256(stableJson(resultCore(base))) } };
 }
 
-test('0.14.3.20.1 is current application provenance', () => {
-  assert.equal(YASREADY_AUDIOBOOKS_VERSION, '0.14.3.20.1');
+test('0.14.3.20.2 is current application provenance', () => {
+  assert.equal(YASREADY_AUDIOBOOKS_VERSION, '0.14.3.20.2');
 });
 
 test('DOCX container-byte drift is accepted only when canonical normalized text and every chapter hash match', () => {
@@ -332,4 +332,49 @@ test('continuation blueprint records reconciled container drift while preserving
   assert.equal(blueprint.progress.firstPendingChapterNumber, 11);
   assert.equal(blueprint.guardrails.providerTtsCallsPerformed, 0);
   assert.equal(blueprint.guardrails.chapterElevenMayBeGenerated, false);
+});
+
+
+test('legacy 0.14.3.18.2 result may omit manuscriptSourceHash when integrity + plan lineage + current canonical source all agree', () => {
+  const p = plan();
+  const l = cinematicLock();
+  const r = cinematicResult(l);
+  delete r.source.manuscriptSourceHash;
+  r.integrity.resultDigest = sha256(stableJson(resultCore(r)));
+  const a = manuscript({
+    sourceHash: 'locked-docx-container-hash',
+    normalizedTextHash: 'normalized-canonical-hash'
+  });
+
+  const identity = reconcileBookOneContinuationManuscriptIdentity({
+    productionPlan: p,
+    manuscriptAnalysis: a,
+    cinematicResult: r,
+    cinematicLock: l
+  });
+
+  assert.equal(identity.canonicalTextVerified, true);
+  assert.equal(identity.historicalResultSourceHash, null);
+  assert.equal(identity.historicalResultSourceHashPresent, false);
+  assert.equal(identity.historicalResultSourceHashInherited, true);
+  assert.match(identity.reconciliationPolicy, /legacy-cinematic-result-missing-source-hash/i);
+});
+
+test('present historical cinematic result manuscriptSourceHash still blocks when it conflicts with locked source', () => {
+  const p = plan();
+  const l = cinematicLock();
+  const r = cinematicResult(l);
+  r.source.manuscriptSourceHash = 'conflicting-historical-source';
+  r.integrity.resultDigest = sha256(stableJson(resultCore(r)));
+  const a = manuscript({
+    sourceHash: 'locked-docx-container-hash',
+    normalizedTextHash: 'normalized-canonical-hash'
+  });
+
+  assert.throws(() => reconcileBookOneContinuationManuscriptIdentity({
+    productionPlan: p,
+    manuscriptAnalysis: a,
+    cinematicResult: r,
+    cinematicLock: l
+  }), /conflicts with the locked production source/i);
 });

@@ -29,6 +29,7 @@ export * from './services/book-one-next-batch-readiness-service.js';
 export * from './services/book-one-cinematic-naturalism-service.js';
 export * from './services/book-one-cinematic-review-gate-service.js';
 export * from './services/book-one-cinematic-continuation-service.js';
+export * from './services/book-one-pause-fidelity-service.js';
 export * from './config/elevenlabs-key.js';
 export * from './production/historical-batch-integrity.js';
 export * from './production/batch-progress.js';
