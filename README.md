@@ -2,7 +2,7 @@
 
 Professional audiobook production infrastructure for YasReady Publishing.
 
-**Current build: 0.14.3.3 — Character Truth Attribution & Preview Integrity**
+**Current build: 0.14.3.4 — Single Narrator Casting Pivot**
 
 YasReady Audiobooks is being developed as a standalone service first so audiobook experimentation cannot destabilize YasReady Publishing. The product goal is professional long-form audiobook production with strong continuity, human approval gates, cost protection, quality control, mastering and retailer-ready packaging.
 
@@ -42,7 +42,7 @@ YasReady Audiobooks is being developed as a standalone service first so audioboo
 - 0.14.3.1 Character Cultural Fit Hardening — adds explicit-metadata cultural fit for Juan Delgado and regional/context fit for Christopher Lancaster, reserves scarce culturally fitting voices for constrained roles, and performs authenticated zero-spend cultural catalog searches
 - 0.14.3.2 Character Biography & Casting Intelligence — reads the full manuscript before casting, derives evidence-backed regional/background voice targets, performs biography-driven zero-spend catalog searches, and adds Book fit to the Casting Review Board
 - 0.14.3.3 Character Truth Attribution & Preview Integrity — semantic character fact ownership, operator-confirmed lead canon, English-first preview selection, verified-language leakage blocking, Michael young/Oklahoma hardening and reader-facing narrator back-matter rejection
-
+- 0.14.3.4 Single Narrator Casting Pivot — defaults Book One to one young, strong Southern California Latino American narrator; character intelligence becomes performance direction; legacy multicast requires --multicast\n
 ## Book One Superman
 
 Run a real manuscript without spending on voice generation:

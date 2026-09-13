@@ -477,7 +477,9 @@ async function writeCastingDiscoveryReports(result, outDir) {
     auditionPreview: path.join(resolved, 'audition-plan-preview.json'),
     biographies: path.join(resolved, 'character-casting-biographies.json'),
     biographiesMarkdown: path.join(resolved, 'character-casting-biographies.md'),
-    reviewBoard: path.join(resolved, 'casting-review.html')
+    reviewBoard: path.join(resolved, 'casting-review.html'),
+    performanceGuide: path.join(resolved, 'single-narrator-performance-guide.json'),
+    performanceGuideMarkdown: path.join(resolved, 'single-narrator-performance-guide.md')
   };
   await Promise.all([
     writeFile(files.json, JSON.stringify(result.discovery, null, 2)),
@@ -487,7 +489,9 @@ async function writeCastingDiscoveryReports(result, outDir) {
     writeFile(files.auditionPreview, JSON.stringify(result.discovery.auditionPlanPreview, null, 2)),
     writeFile(files.biographies, JSON.stringify(result.discovery.characterBiographies ?? { status: 'not-supplied' }, null, 2)),
     writeFile(files.biographiesMarkdown, result.discovery.characterBiographies ? renderCharacterCastingBiographiesMarkdown(result.discovery.characterBiographies) : '# Character Casting Biographies\n\nNo manuscript-derived biography was supplied for this run.\n'),
-    writeFile(files.reviewBoard, result.reviewBoardHtml)
+    writeFile(files.reviewBoard, result.reviewBoardHtml),
+    writeFile(files.performanceGuide, JSON.stringify(result.discovery.performanceGuide ?? { status: 'not-applicable', castingMode: result.discovery.castingMode ?? 'multicast' }, null, 2)),
+    writeFile(files.performanceGuideMarkdown, result.performanceGuideMarkdown ?? '# Single Narrator Performance Guide\n\nNot applicable for this casting mode.\n')
   ]);
   return files;
 }
@@ -505,13 +509,14 @@ async function runCastingDiscovery({ fixture = false } = {}) {
       costEstimator: data.estimateCost,
       perRole: 5,
       auditionTop: 3,
-      catalogProvider: 'fixture'
+      catalogProvider: 'fixture',
+      castingMode: 'single-narrator'
     });
   } else {
     const launchPath = args[1];
     const prepPath = flagValue('--prep');
     if (!launchPath || !prepPath) {
-      console.error('Usage: node src/cli.js casting-discover <casting-launch.json> --prep <book-one-audio-bible-prep.json> [--manuscript FILE] [--voice-pool FILE] [--out DIR] [--per-role 1-8] [--audition-top N] [--pages N] [--anonymous-pages N] [--page-size N] [--model MODEL]');
+      console.error('Usage: node src/cli.js casting-discover <casting-launch.json> --prep <book-one-audio-bible-prep.json> [--manuscript FILE] [--voice-pool FILE] [--out DIR] [--per-role 1-8] [--audition-top N] [--pages N] [--anonymous-pages N] [--page-size N] [--model MODEL] [--multicast]');
       process.exitCode = 2;
       return;
     }
@@ -533,6 +538,7 @@ async function runCastingDiscovery({ fixture = false } = {}) {
       characterBiographies = buildCharacterCastingBiographiesFromPrepRun(freshPrep, launch);
     }
     const model = flagValue('--model', 'eleven_multilingual_v2');
+    const castingMode = args.includes('--multicast') ? 'multicast' : 'single-narrator';
     const perRole = Number(flagValue('--per-role', 6));
     const auditionTop = Number(flagValue('--audition-top', 3));
     const voicePoolPath = flagValue('--voice-pool');
@@ -544,14 +550,14 @@ async function runCastingDiscovery({ fixture = false } = {}) {
       result = await service.build({
         launch, prep, voices, auditionSamples, characterBiographies,
         costEstimator: provider.estimateCost.bind(provider),
-        perRole, auditionTop, model,
+        perRole, auditionTop, model, castingMode,
         catalogCallsPerformed: 0,
         catalogProvider: 'local-voice-pool'
       });
     } else {
       const provider = new ElevenLabsProvider();
       result = await service.discoverFromProvider({
-        launch, prep, provider, auditionSamples, characterBiographies, perRole, auditionTop, model,
+        launch, prep, provider, auditionSamples, characterBiographies, perRole, auditionTop, model, castingMode,
         maxPages: Number(flagValue('--pages', 3)),
         anonymousPageLimit: Number(flagValue('--anonymous-pages', 30)),
         pageSize: Number(flagValue('--page-size', 100))
@@ -562,7 +568,8 @@ async function runCastingDiscovery({ fixture = false } = {}) {
   const files = out ? await writeCastingDiscoveryReports(result, out) : null;
   console.log(JSON.stringify({
     version: VERSION,
-    castingDiscovery: 'book-one-wave-1',
+    castingDiscovery: result.discovery.castingMode === 'single-narrator' ? 'book-one-single-narrator' : 'book-one-wave-1',
+    castingMode: result.discovery.castingMode ?? 'multicast',
     status: result.discovery.status,
     book: result.discovery.book.title,
     catalogProvider: result.discovery.catalog.provider,
@@ -582,6 +589,7 @@ async function runCastingDiscovery({ fixture = false } = {}) {
     distinctiveness: result.discovery.distinctiveness.status,
     auditionSamples: result.discovery.auditionSamples?.status ?? 'not-provided',
     characterBiographies: result.discovery.characterBiographies ? 'FULL_MANUSCRIPT' : 'not-provided',
+    performanceGuide: result.discovery.performanceGuide ? 'SINGLE_NARRATOR_READY' : 'not-applicable',
     recommendedAuditionUsd: result.discovery.auditionCost.recommendedAuditionUsd,
     fullShortlistUsd: result.discovery.auditionCost.fullShortlistUsd,
     paidProviderCallsPerformed: result.discovery.guardrails.paidProviderCallsPerformed,

@@ -1,15 +1,15 @@
 {
   "name": "@yasready/audiobooks",
-  "version": "0.14.3.3",
+  "version": "0.14.3.4",
   "private": true,
   "type": "module",
-  "description": "YasReady Audiobooks Character Truth Attribution & Preview Integrity, Character Biography & Casting Intelligence, Cultural Fit Hardening, Casting Candidate Discovery, Production, QA, Mastering and Distribution",
+  "description": "YasReady Audiobooks Single Narrator Casting Pivot, Character Truth & Preview Integrity, Production, QA, Mastering and Distribution",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
     "test": "node --test",
-    "check": "node --check src/index.js && node --check src/cli.js && node --check src/manuscript/analyzer.js && node --check src/manuscript/extractors.js && node --check src/manuscript/zip-reader.js && node --check src/services/manuscript-service.js && node --check src/bible/normalization.js && node --check src/services/audio-bible-service.js && node --check src/casting/voice-profile.js && node --check src/providers/elevenlabs-provider.js && node --check src/services/casting-room-service.js && node --check src/director/performance-profile.js && node --check src/services/audiobook-director-service.js && node --check src/production/model-limits.js && node --check src/services/production-engine-service.js && node --check src/review/review-model.js && node --check src/services/review-studio-service.js && node --check src/qa/text-diff.js && node --check src/services/continuity-qa-service.js && node --check src/mastering/profiles.js && node --check src/mastering/ffmpeg-adapter.js && node --check src/services/mastering-lab-service.js && node --check src/distribution/profiles.js && node --check src/distribution/w3c-manifest.js && node --check src/services/distribution-brain-service.js && node --check src/ux/operator-flow.js && node --check src/superman/book-one-superman.js && node --check src/services/book-one-superman-service.js && node --check src/audio-bible/book-one-prep.js && node --check src/audio-bible/book-one-intelligence.js && node --check src/services/book-one-audio-bible-prep-service.js && node --check src/continuity/series-continuity.js && node --check src/services/series-continuity-service.js && node --check src/money/money-guard.js && node --check src/services/money-guard-service.js && node --check src/superman/external-book-superman.js && node --check src/services/external-book-superman-service.js && node --check src/release.js && node --check src/services/casting-launch-service.js && node --check src/services/book-one-casting-discovery-service.js && node --check src/casting/character-biography.js",
+    "check": "node --check src/index.js && node --check src/cli.js && node --check src/manuscript/analyzer.js && node --check src/manuscript/extractors.js && node --check src/manuscript/zip-reader.js && node --check src/services/manuscript-service.js && node --check src/bible/normalization.js && node --check src/services/audio-bible-service.js && node --check src/casting/voice-profile.js && node --check src/providers/elevenlabs-provider.js && node --check src/services/casting-room-service.js && node --check src/director/performance-profile.js && node --check src/services/audiobook-director-service.js && node --check src/production/model-limits.js && node --check src/services/production-engine-service.js && node --check src/review/review-model.js && node --check src/services/review-studio-service.js && node --check src/qa/text-diff.js && node --check src/services/continuity-qa-service.js && node --check src/mastering/profiles.js && node --check src/mastering/ffmpeg-adapter.js && node --check src/services/mastering-lab-service.js && node --check src/distribution/profiles.js && node --check src/distribution/w3c-manifest.js && node --check src/services/distribution-brain-service.js && node --check src/ux/operator-flow.js && node --check src/superman/book-one-superman.js && node --check src/services/book-one-superman-service.js && node --check src/audio-bible/book-one-prep.js && node --check src/audio-bible/book-one-intelligence.js && node --check src/services/book-one-audio-bible-prep-service.js && node --check src/continuity/series-continuity.js && node --check src/services/series-continuity-service.js && node --check src/money/money-guard.js && node --check src/services/money-guard-service.js && node --check src/superman/external-book-superman.js && node --check src/services/external-book-superman-service.js && node --check src/release.js && node --check src/services/casting-launch-service.js && node --check src/services/book-one-casting-discovery-service.js && node --check src/casting/character-biography.js && node --check src/casting/single-narrator.js",
     "demo": "node src/cli.js",
     "analyze": "node src/cli.js analyze",
     "superman": "node src/cli.js superman",
@@ -32,6 +32,7 @@
     "casting:fit:fixture": "node --test test/casting-fit-audition-hardening.test.js",
     "casting:cultural:fixture": "node --test test/casting-cultural-fit-hardening.test.js",
     "casting:biography:fixture": "node --test test/casting-character-biography.test.js",
-    "casting:truth-preview:fixture": "node --test test/casting-truth-preview-integrity.test.js"
+    "casting:truth-preview:fixture": "node --test test/casting-truth-preview-integrity.test.js",
+    "casting:single-narrator:fixture": "node --test test/single-narrator-casting-pivot.test.js"
   }
 }

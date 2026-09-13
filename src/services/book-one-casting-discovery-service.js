@@ -1,6 +1,14 @@
 import { createHash } from 'node:crypto';
 import { normalizeVoiceProfile, scoreSeriesSafety } from '../casting/voice-profile.js';
 import { scoreCharacterBiographyFit } from '../casting/character-biography.js';
+import {
+  SINGLE_NARRATOR_PROFILE,
+  buildSingleNarratorAuditionSamplePack,
+  buildSingleNarratorPerformanceGuide,
+  renderSingleNarratorPerformanceGuideMarkdown,
+  scoreSingleNarratorCulturalFit,
+  scoreSingleNarratorFit
+} from '../casting/single-narrator.js';
 import { YASREADY_AUDIOBOOKS_VERSION } from '../release.js';
 
 const freeze = (value) => Object.freeze(value);
@@ -563,6 +571,81 @@ function recommendationFor(candidate, rank, auditionTop) {
   return 'ALTERNATE';
 }
 
+function singleNarratorCandidateScore(voice) {
+  const previewIntegrity = voice.previewIntegrity ?? selectEnglishCastingProfile(voice);
+  const safety = scoreSeriesSafety(voice, { desiredLanguage: 'en' });
+  const fit = scoreSingleNarratorFit(voice);
+  const culturalFit = scoreSingleNarratorCulturalFit(voice);
+  const biographyFit = freeze({
+    applicable: false,
+    score: null,
+    grade: 'not-applicable',
+    requirementMet: true,
+    preferredAuditionRequirement: false,
+    matchedTerms: freeze([]),
+    concerns: freeze([]),
+    metadataScope: 'character-biographies-are-performance-direction-in-single-narrator-mode'
+  });
+  let combined = Number((safety.score * 0.25 + fit.score * 0.50 + culturalFit.score * 0.25).toFixed(1));
+  combined = Number((combined * 0.9 + previewIntegrity.score * 0.1).toFixed(1));
+
+  const strengths = [...safety.reasons];
+  if (previewIntegrity.ready) strengths.push(`English preview selected (${previewIntegrity.locale ?? 'locale not listed'}${previewIntegrity.accent ? ` / ${previewIntegrity.accent}` : ''})`);
+  if (fit.matchedKeywords?.length) strengths.push(`narrator-fit metadata: ${fit.matchedKeywords.join(', ')}`);
+  if (fit.regionalMatches?.length) strengths.push(`Southern California / West Coast metadata: ${fit.regionalMatches.join(', ')}`);
+  if (culturalFit.matchedSignals?.length) strengths.push(`explicit Latino cultural metadata: ${culturalFit.matchedSignals.join(', ')}`);
+
+  const concerns = [
+    ...safety.warnings,
+    ...(fit.stretchFlags ?? []).map((row) => row.note),
+    ...(culturalFit.flags ?? []).map((row) => row.note),
+    ...(!previewIntegrity.coreAuditionEligible ? [`Catalog-primary language ${previewIntegrity.primaryLanguage ?? 'unknown'} is not eligible for the English-first narrator shortlist.`] : [])
+  ];
+
+  return freeze({
+    voice, safety, fit, culturalFit, biographyFit, previewIntegrity, combined,
+    strengths: freeze(strengths),
+    concerns: freeze(concerns)
+  });
+}
+
+function singleNarratorRecommendation(candidate, rank, auditionTop) {
+  if (!candidate.previewIntegrity?.ready || !candidate.previewIntegrity?.coreAuditionEligible) return 'PASS';
+  if (candidate.fit.hardMismatch || candidate.fit.score < 72) return 'PASS';
+  if (candidate.culturalFit.requiredForAudition && !candidate.culturalFit.requirementMet) return 'ALTERNATE';
+  if (rank <= auditionTop && candidate.fit.score >= 82) return 'AUDITION';
+  return 'ALTERNATE';
+}
+
+function chooseSingleNarratorShortlist(waveOne, voices, { perRole = 6, auditionTop = 3 } = {}) {
+  const target = waveOne.find((row) => row.role === 'narrator' || row.canonicalName === 'Narrator');
+  if (!target) throw new Error('Single narrator casting requires a Narrator target in Wave 1');
+  const ranked = voices
+    .map((voice) => singleNarratorCandidateScore(voice))
+    .sort((a, b) =>
+      b.combined - a.combined ||
+      b.fit.score - a.fit.score ||
+      b.culturalFit.score - a.culturalFit.score ||
+      b.safety.score - a.safety.score ||
+      a.voice.name.localeCompare(b.voice.name)
+    )
+    .slice(0, perRole);
+
+  return freeze([freeze({
+    character: 'Narrator',
+    role: 'narrator',
+    intent: SINGLE_NARRATOR_PROFILE,
+    candidates: freeze(ranked.map((row, index) => {
+      const rank = index + 1;
+      return freeze({
+        ...row,
+        rank,
+        recommendation: singleNarratorRecommendation(row, rank, auditionTop)
+      });
+    }))
+  })]);
+}
+
 function leaderAdjustedScore(candidate, leaders) {
   if (!leaders.length) return candidate.combined;
   const signature = metadataSignature(candidate.voice);
@@ -853,6 +936,7 @@ export function renderCastingDiscoveryMarkdown(discovery) {
     `**YasReady Audiobooks:** ${discovery.provenance.applicationRelease}`,
     `**Book:** ${discovery.book.title}`,
     `**Status:** ${discovery.status}`,
+    `**Casting mode:** ${discovery.castingMode ?? 'multicast'}`,
     `**Voice catalog:** ${discovery.catalog.provider} (${discovery.catalog.uniqueVoices} unique voice(s))`, '',
     '## Spend state', '',
     `- Catalog metadata calls: ${discovery.catalog.catalogCallsPerformed}`,
@@ -933,6 +1017,8 @@ export function renderCastingReviewBoardHtml(discovery) {
     shortlists: discovery.shortlists,
     auditionSamples: discovery.auditionSamples,
     characterBiographies: discovery.characterBiographies,
+    castingMode: discovery.castingMode,
+    performanceGuide: discovery.performanceGuide,
     auditionCost: discovery.auditionCost,
     guardrails: discovery.guardrails
   };
@@ -962,7 +1048,7 @@ textarea{width:100%;margin-top:9px;border:1px solid var(--line);border-radius:13
 </head>
 <body><main>
 <section class="hero"><div class="eyebrow">YasReady Audiobooks ${discovery.release}</div><h1>Casting Review Board</h1><div class="sub"></div>
-<div class="guard"><span class="pill safe">Paid audition generation remains unarmed</span><span class="pill">TTS calls: 0</span><span class="pill">Book One • Wave 1</span></div>
+<div class="guard"><span class="pill safe">Paid audition generation remains unarmed</span><span class="pill">TTS calls: 0</span><span class="pill">${discovery.castingMode === 'single-narrator' ? 'Book One • Single Narrator' : 'Book One • Wave 1'}</span></div>
 <div class="decisionLegend" aria-label="Decision options"><span>Keep</span><span>Maybe</span><span>Pass</span></div></section>
 <div class="toolbar"><button class="primary" id="export">Export Audition Choices</button><button class="ghost" id="clear">Clear Local Decisions</button><div class="summary" id="summary"></div></div>
 <div id="roles"></div>
@@ -974,9 +1060,18 @@ const storageKey='yasready-casting-review:'+DISCOVERY.artifactFingerprint;
 let decisions={};
 try{decisions=JSON.parse(localStorage.getItem(storageKey)||'{}')}catch{}
 const roleRoot=document.getElementById('roles');
-document.querySelector('.sub').textContent=DISCOVERY.book.title+' — listen first, then mark Keep, Maybe, or Pass. YasReady recommendations are metadata guidance, not a substitute for your ears.';
+document.querySelector('.sub').textContent=DISCOVERY.castingMode==='single-narrator'
+  ? DISCOVERY.book.title+' — choose ONE narrator who can carry the prose and perform Juan, Michael and Christopher. Listen first; metadata is guidance, not a substitute for your ears.'
+  : DISCOVERY.book.title+' — listen first, then mark Keep, Maybe, or Pass. YasReady recommendations are metadata guidance, not a substitute for your ears.';
 const samples=new Map((DISCOVERY.auditionSamples?.samples||[]).map(x=>[x.character,x]));
 const biographies=new Map((DISCOVERY.characterBiographies?.profiles||[]).map(x=>[x.character,x]));
+if(DISCOVERY.castingMode==='single-narrator'&&DISCOVERY.performanceGuide){
+ const box=el('section','role');box.append(el('h2','','One narrator. Three character performances.'));
+ const guide=el('div','bio');guide.append(el('b','','Single Narrator Performance Guide'));
+ guide.append(el('p','',DISCOVERY.performanceGuide.narratorTarget?.delivery||''));
+ for(const c of DISCOVERY.performanceGuide.characters||[])guide.append(el('p','',c.character+': '+c.performanceDirection));
+ box.append(guide);roleRoot.append(box);
+}
 function save(){localStorage.setItem(storageKey,JSON.stringify(decisions));updateSummary()}
 function updateSummary(){
  const values=Object.values(decisions).map(x=>x.decision).filter(Boolean);
@@ -1067,8 +1162,15 @@ export function renderAuditionScriptsCsv(discovery) {
 }
 
 export class BookOneCastingDiscoveryService {
-  async build({ launch, prep, voices, auditionSamples = null, costEstimator = null, perRole = 6, auditionTop = 3, model = 'eleven_multilingual_v2', catalogCallsPerformed = 0, catalogProvider = 'provided-pool', catalogQueryMode = 'provided-pool', providerFiltersApplied = null, anonymousFallbackUsed = false, anonymousPageSizeCap = null, catalogAuthRecommended = false, rawCatalogVoices = null, supplementalSearchesPerformed = [], characterBiographies = null } = {}) {
+  async build({ launch, prep, voices, auditionSamples = null, costEstimator = null, perRole = 6, auditionTop = 3, model = 'eleven_multilingual_v2', catalogCallsPerformed = 0, catalogProvider = 'provided-pool', catalogQueryMode = 'provided-pool', providerFiltersApplied = null, anonymousFallbackUsed = false, anonymousPageSizeCap = null, catalogAuthRecommended = false, rawCatalogVoices = null, supplementalSearchesPerformed = [], characterBiographies = null, castingMode = 'multicast' } = {}) {
     const { waveOne } = assertArtifacts(launch, prep);
+    const singleNarratorMode = castingMode === 'single-narrator';
+    const castingTargets = singleNarratorMode
+      ? waveOne.filter((row) => row.role === 'narrator' || row.canonicalName === 'Narrator').slice(0, 1)
+      : waveOne;
+    if (singleNarratorMode && castingTargets.length !== 1) throw new Error('Single narrator casting requires exactly one Narrator target');
+    const effectiveAuditionSamples = singleNarratorMode ? buildSingleNarratorAuditionSamplePack(auditionSamples) : auditionSamples;
+    const performanceGuide = singleNarratorMode ? buildSingleNarratorPerformanceGuide(characterBiographies) : null;
     const perRoleCount = clamp(Math.trunc(Number(perRole) || 6), 1, 8);
     const auditionCount = clamp(Math.trunc(Number(auditionTop) || 3), 1, perRoleCount);
     const uniquePool = [];
@@ -1082,13 +1184,15 @@ export class BookOneCastingDiscoveryService {
       seen.add(key);
       uniquePool.push(voice);
     }
-    const rawShortlists = chooseUniqueShortlists(waveOne, uniquePool, { perRole: perRoleCount, auditionTop: auditionCount, characterBiographies });
+    const rawShortlists = singleNarratorMode
+      ? chooseSingleNarratorShortlist(castingTargets, uniquePool, { perRole: perRoleCount, auditionTop: auditionCount })
+      : chooseUniqueShortlists(castingTargets, uniquePool, { perRole: perRoleCount, auditionTop: auditionCount, characterBiographies });
     const shortlists = freeze(compactShortlists(rawShortlists, prep, launch));
-    const totalNeeded = waveOne.length * perRoleCount;
+    const totalNeeded = castingTargets.length * perRoleCount;
     const totalStaged = shortlists.reduce((sum, row) => sum + row.candidates.length, 0);
     const distinctiveness = buildDistinctiveness(shortlists);
-    const auditionCost = await buildCostPreview(shortlists, auditionSamples, costEstimator, { model, auditionTop: auditionCount });
-    const sourceReady = auditionSamples?.status === 'READY';
+    const auditionCost = await buildCostPreview(shortlists, effectiveAuditionSamples, costEstimator, { model, auditionTop: auditionCount });
+    const sourceReady = effectiveAuditionSamples?.status === 'READY';
     const rolesWithoutAudition = shortlists.filter((row) => !row.candidates.some((candidate) => candidate.recommendation === 'AUDITION')).map((row) => row.character);
     const status = totalStaged < totalNeeded
       ? 'NEEDS_MORE_CANDIDATES'
@@ -1101,14 +1205,18 @@ export class BookOneCastingDiscoveryService {
       launch: launch.artifactFingerprint,
       prepDigest: prep.audioBible.digest,
       voices: shortlists.flatMap((row) => row.candidates.map((candidate) => [row.character, candidate.voice.provider, candidate.voice.providerVoiceId])),
-      sampleHash: auditionSamples ? sha256(JSON.stringify(auditionSamples.samples)) : null,
+      sampleHash: effectiveAuditionSamples ? sha256(JSON.stringify(effectiveAuditionSamples.samples)) : null,
       biographyHash: characterBiographies ? sha256(JSON.stringify(characterBiographies.profiles)) : null,
+      castingMode,
+      performanceGuideHash: performanceGuide ? sha256(JSON.stringify(performanceGuide)) : null,
       model
     }));
     const discovery = freeze({
       schemaVersion: 1,
       release: YASREADY_AUDIOBOOKS_VERSION,
       status,
+      castingMode,
+      performanceGuide,
       provenance: freeze({
         application: 'YasReady Audiobooks',
         applicationRelease: YASREADY_AUDIOBOOKS_VERSION,
@@ -1142,13 +1250,16 @@ export class BookOneCastingDiscoveryService {
         localSafetyPolicyEnforced: true,
         supplementalSearchesPerformed: freeze([...(supplementalSearchesPerformed ?? [])]),
         culturalFitSource: 'explicit-provider-catalog-metadata-only',
-        biographyFitSource: characterBiographies ? 'full-manuscript-semantic-truth-plus-selected-english-profile' : 'not-supplied',
+        biographyFitSource: singleNarratorMode
+          ? 'character-intelligence-used-for-performance-direction-not-separate-actor-selection'
+          : characterBiographies ? 'full-manuscript-semantic-truth-plus-selected-english-profile' : 'not-supplied',
+        castingMode,
         previewLanguagePolicy: 'english-primary-or-unspecified-with-selected-english-preview',
         multilingualMetadataLeakageBlocked: true
       }),
       shortlists,
       distinctiveness,
-      auditionSamples,
+      auditionSamples: effectiveAuditionSamples,
       characterBiographies,
       auditionCost,
       auditionPlanPreview: freeze({
@@ -1156,7 +1267,7 @@ export class BookOneCastingDiscoveryService {
         armed: false,
         model,
         candidateIds: freeze(shortlists.flatMap((row) => row.candidates.filter((candidate) => candidate.recommendation === 'AUDITION').map((candidate) => candidate.id))),
-        scriptCount: auditionSamples?.samples?.reduce((sum, row) => sum + row.scripts.length, 0) ?? 0,
+        scriptCount: effectiveAuditionSamples?.samples?.reduce((sum, row) => sum + row.scripts.length, 0) ?? 0,
         estimatedUsd: auditionCost.recommendedAuditionUsd,
         moneyGuardApprovalRequiredBeforeRendering: true
       }),
@@ -1168,7 +1279,13 @@ export class BookOneCastingDiscoveryService {
         culturalIdentityInferredFromAudio: false,
         culturalIdentityInferredFromVoiceName: false,
         JuanExplicitCulturalMetadataRequiredForAutoAudition: true,
-        fullManuscriptBiographyUsedForCasting: Boolean(characterBiographies),
+        fullManuscriptBiographyUsedForCasting: Boolean(characterBiographies) && !singleNarratorMode,
+        characterIntelligenceUsedAsPerformanceDirection: Boolean(characterBiographies) && singleNarratorMode,
+        singleNarratorProduction: singleNarratorMode,
+        separateCoreCharacterVoiceActorsRequired: !singleNarratorMode,
+        narratorPerformsLeadDialogue: singleNarratorMode,
+        narratorExplicitLatinoMetadataRequiredForAutoAudition: singleNarratorMode,
+        narratorSouthernCaliforniaRegionalPreference: singleNarratorMode,
         biographyIdentityInferenceFromName: false,
         biographyIdentityInferenceFromAudio: false,
         biographyProximityOnlyAttributionAllowed: false,
@@ -1194,7 +1311,9 @@ export class BookOneCastingDiscoveryService {
         : sourceReady && rolesWithoutAudition.length
           ? `Do not arm auditions yet. YasReady found no strong audition-fit candidate for ${rolesWithoutAudition.join(', ')}. Broaden discovery or adjust the explicit creative casting intent before spending.`
           : sourceReady
-            ? `Open casting-review.html, listen to the preview players, and mark Keep / Maybe / Pass for ${waveOne.map((row) => row.canonicalName).join(', ')}. Export Audition Choices when finished; no audio has been generated.`
+            ? singleNarratorMode
+              ? 'Open casting-review.html and judge one narrator across prose plus Juan, Michael and Christopher performance samples. Mark Keep / Maybe / Pass and export choices; no audio has been generated.'
+              : `Open casting-review.html, listen to the preview players, and mark Keep / Maybe / Pass for ${castingTargets.map((row) => row.canonicalName).join(', ')}. Export Audition Choices when finished; no audio has been generated.`
             : 'Candidate discovery is complete, but canonical audition scripts are missing. Re-run with --manuscript pointing to the exact Book One source before any audition can be armed.'
     });
     return freeze({
@@ -1202,19 +1321,24 @@ export class BookOneCastingDiscoveryService {
       markdown: renderCastingDiscoveryMarkdown(discovery),
       shortlistCsv: renderCastingDiscoveryCsv(discovery),
       scriptsCsv: renderAuditionScriptsCsv(discovery),
+      performanceGuideMarkdown: performanceGuide ? renderSingleNarratorPerformanceGuideMarkdown(performanceGuide) : null,
       reviewBoardHtml: renderCastingReviewBoardHtml(discovery)
     });
   }
 
   async discoverFromProvider({
     launch, prep, provider, auditionSamples = null, characterBiographies = null, perRole = 6, auditionTop = 3,
-    model = 'eleven_multilingual_v2', maxPages = 3, anonymousPageLimit = 30, pageSize = 100
+    model = 'eleven_multilingual_v2', maxPages = 3, anonymousPageLimit = 30, pageSize = 100, castingMode = 'multicast'
   } = {}) {
     if (!provider || typeof provider.searchVoices !== 'function') throw new Error('Casting Candidate Discovery requires a provider with searchVoices()');
 
     const waveOne = launch?.waves?.find((row) => row.wave === 1)?.targets ?? [];
+    const singleNarratorMode = castingMode === 'single-narrator';
+    const castingTargets = singleNarratorMode
+      ? waveOne.filter((row) => row.role === 'narrator' || row.canonicalName === 'Narrator').slice(0, 1)
+      : waveOne;
     const perRoleCount = clamp(Math.trunc(Number(perRole) || 6), 1, 8);
-    const targetEligibleCount = Math.max(1, waveOne.length * perRoleCount);
+    const targetEligibleCount = Math.max(1, castingTargets.length * perRoleCount);
     const filteredPageLimit = clamp(Math.trunc(Number(maxPages) || 3), 1, 5);
     const anonymousLimit = clamp(Math.trunc(Number(anonymousPageLimit) || 30), 1, 50);
     const size = clamp(Math.trunc(Number(pageSize) || 100), 10, 100);
@@ -1283,19 +1407,28 @@ export class BookOneCastingDiscoveryService {
       const searches = [];
       const searchSeen = new Set();
       const biographyByCharacter = new Map((characterBiographies?.profiles ?? []).map((row) => [row.character, row]));
-      for (const target of waveOne) {
-        for (const term of roleIntent(target).cultural?.searchTerms ?? []) {
-          const key = lower(term);
-          if (!key || searchSeen.has(key)) continue;
-          searchSeen.add(key);
-          searches.push({ character: target.canonicalName, term, source: 'character-cultural-profile' });
-        }
-        const biographyTerms = biographyByCharacter.get(target.canonicalName)?.castingProfile?.searchTerms ?? [];
-        for (const term of biographyTerms.slice(0, 4)) {
+      if (singleNarratorMode) {
+        for (const term of SINGLE_NARRATOR_PROFILE.searchTerms) {
           const key = lower(term);
           if (!key || searchSeen.has(key) || searches.length >= 12) continue;
           searchSeen.add(key);
-          searches.push({ character: target.canonicalName, term, source: 'full-manuscript-biography' });
+          searches.push({ character: 'Narrator', term, source: 'single-narrator-profile' });
+        }
+      } else {
+        for (const target of castingTargets) {
+          for (const term of roleIntent(target).cultural?.searchTerms ?? []) {
+            const key = lower(term);
+            if (!key || searchSeen.has(key)) continue;
+            searchSeen.add(key);
+            searches.push({ character: target.canonicalName, term, source: 'character-cultural-profile' });
+          }
+          const biographyTerms = biographyByCharacter.get(target.canonicalName)?.castingProfile?.searchTerms ?? [];
+          for (const term of biographyTerms.slice(0, 4)) {
+            const key = lower(term);
+            if (!key || searchSeen.has(key) || searches.length >= 12) continue;
+            searchSeen.add(key);
+            searches.push({ character: target.canonicalName, term, source: 'full-manuscript-biography' });
+          }
         }
       }
 
@@ -1349,7 +1482,8 @@ export class BookOneCastingDiscoveryService {
       catalogAuthRecommended,
       rawCatalogVoices: rawVoicesSeen,
       supplementalSearchesPerformed,
-      characterBiographies
+      characterBiographies,
+      castingMode
     });
   }
 }

@@ -34,5 +34,6 @@
 - ✅ 0.14.3.1 Character Cultural Fit Hardening
 - ✅ 0.14.3.2 Character Biography & Casting Intelligence
 - ✅ 0.14.3.3 Character Truth Attribution & Preview Integrity
+- ✅ 0.14.3.4 Single Narrator Casting Pivot
 - ⏭️ 0.14.x Book One audition approval / Casting Room execution
 - ⏭️ 1.0.0 YasReady Audiobooks

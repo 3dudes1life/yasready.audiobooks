@@ -18,6 +18,7 @@ export * from './assets/asset-manifest.js';
 export * from './bible/normalization.js';
 export * from './casting/voice-profile.js';
 export * from './casting/character-biography.js';
+export * from './casting/single-narrator.js';
 export * from './director/performance-profile.js';
 export * from './manuscript/zip-reader.js';
 export * from './manuscript/xml.js';
