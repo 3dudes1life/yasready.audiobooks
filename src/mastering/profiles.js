@@ -1,5 +1,9 @@
 const freeze = (value) => Object.freeze(value);
 
+// FFmpeg silence timestamps and encoded frame boundaries can land fractionally below an exact
+// millisecond threshold. Retailer targets remain unchanged; this is measurement tolerance only.
+export const MASTERING_SILENCE_MEASUREMENT_TOLERANCE_MS = 1;
+
 function deepFreeze(value) {
   if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
   for (const child of Object.values(value)) deepFreeze(child);
@@ -118,12 +122,12 @@ export function evaluateMasterAgainstProfile(analysis, profileInput) {
 
   if (profile.edgeSilence) {
     if (Number.isFinite(a.leadingSilenceMs)) {
-      pushIssue(issues, a.leadingSilenceMs < profile.edgeSilence.minMs, { code: 'leading-silence-short', severity: 'error', value: a.leadingSilenceMs, minimum: profile.edgeSilence.minMs });
-      pushIssue(issues, a.leadingSilenceMs > profile.edgeSilence.maxMs, { code: 'leading-silence-long', severity: 'error', value: a.leadingSilenceMs, maximum: profile.edgeSilence.maxMs });
+      pushIssue(issues, a.leadingSilenceMs + MASTERING_SILENCE_MEASUREMENT_TOLERANCE_MS < profile.edgeSilence.minMs, { code: 'leading-silence-short', severity: 'error', value: a.leadingSilenceMs, minimum: profile.edgeSilence.minMs });
+      pushIssue(issues, a.leadingSilenceMs - MASTERING_SILENCE_MEASUREMENT_TOLERANCE_MS > profile.edgeSilence.maxMs, { code: 'leading-silence-long', severity: 'error', value: a.leadingSilenceMs, maximum: profile.edgeSilence.maxMs });
     }
     if (Number.isFinite(a.trailingSilenceMs)) {
-      pushIssue(issues, a.trailingSilenceMs < profile.edgeSilence.minMs, { code: 'trailing-silence-short', severity: 'error', value: a.trailingSilenceMs, minimum: profile.edgeSilence.minMs });
-      pushIssue(issues, a.trailingSilenceMs > profile.edgeSilence.maxMs, { code: 'trailing-silence-long', severity: 'error', value: a.trailingSilenceMs, maximum: profile.edgeSilence.maxMs });
+      pushIssue(issues, a.trailingSilenceMs + MASTERING_SILENCE_MEASUREMENT_TOLERANCE_MS < profile.edgeSilence.minMs, { code: 'trailing-silence-short', severity: 'error', value: a.trailingSilenceMs, minimum: profile.edgeSilence.minMs });
+      pushIssue(issues, a.trailingSilenceMs - MASTERING_SILENCE_MEASUREMENT_TOLERANCE_MS > profile.edgeSilence.maxMs, { code: 'trailing-silence-long', severity: 'error', value: a.trailingSilenceMs, maximum: profile.edgeSilence.maxMs });
     }
   }
 

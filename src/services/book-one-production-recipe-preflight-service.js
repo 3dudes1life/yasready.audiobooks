@@ -6,9 +6,9 @@ import { verifyBookOneProductionPlan } from './book-one-production-plan-service.
 import { extractElevenLabsQuota } from './book-one-production-pilot-service.js';
 
 export const BOOK_ONE_FULL_BOOK_ACCEPTED_PLAN_RELEASES = Object.freeze([
-  '0.14.3.13', '0.14.3.14', '0.14.3.14.1', '0.14.3.14.2', '0.14.3.15', '0.14.3.16', '0.14.3.17', '0.14.3.18'
+  '0.14.3.13', '0.14.3.14', '0.14.3.14.1', '0.14.3.14.2', '0.14.3.15', '0.14.3.16', '0.14.3.17', '0.14.3.18', '0.14.3.18.1'
 ]);
-export const BOOK_ONE_LOCAL_FINISH_ACCEPTED_RELEASES = Object.freeze(['0.14.3.14.2', '0.14.3.15', '0.14.3.16', '0.14.3.17', '0.14.3.18']);
+export const BOOK_ONE_LOCAL_FINISH_ACCEPTED_RELEASES = Object.freeze(['0.14.3.14.2', '0.14.3.15', '0.14.3.16', '0.14.3.17', '0.14.3.18', '0.14.3.18.1']);
 export const BOOK_ONE_FULL_BOOK_STORAGE_MIN_GIB = 5;
 export const BOOK_ONE_FULL_BOOK_STORAGE_GIB_PER_FINISHED_HOUR = 1.5;
 

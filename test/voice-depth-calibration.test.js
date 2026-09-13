@@ -60,7 +60,7 @@ async function renderFixture(options={}) {
   return {calibration,ffmpeg,out,result};
 }
 
-test('0.14.3.18 is current application provenance',()=>assert.equal(YASREADY_AUDIOBOOKS_VERSION,'0.14.3.18'));
+test('0.14.3.18.1 is current application provenance',()=>assert.equal(YASREADY_AUDIOBOOKS_VERSION,'0.14.3.18.1'));
 test('MAYBE pilot feedback with exact render digest is accepted',()=>{const {result}=pilotFixture();assert.equal(verifyVoiceDepthSource({pilotResult:result,pilotFeedback:feedbackFixture(result)}),true)});
 test('PASS/FAIL pilot decisions do not silently enter depth tuning',()=>{const {result}=pilotFixture();const f=feedbackFixture(result);f.decision='pass';assert.throws(()=>verifyVoiceDepthSource({pilotResult:result,pilotFeedback:f}),/requires a MAYBE/i)});
 test('calibration makes exactly three local comparison variants with zero TTS spend',async()=>{const {calibration,ffmpeg}=await renderFixture();assert.deepEqual(calibration.variants.map(v=>v.id),['original-reference','warm-detinned','warm-slightly-deeper']);assert.equal(ffmpeg.state.voiceDepth.length,2);assert.equal(calibration.cost.providerTtsCalls,0);assert.equal(calibration.cost.providerTtsSpendUsd,0);assert.equal(calibration.guardrails.noProviderApiRequired,true);assert.equal(calibration.guardrails.fullBookGenerationArmed,false);assert.equal(verifyBookOneVoiceDepthCalibration(calibration),true)});
