@@ -51,6 +51,10 @@ import {
   renderPaceCeilingCalibration,
   finalizePaceCeilingCalibration,
   renderPaceCeilingFinalizationMarkdown,
+  buildBookOneProductionPlan,
+  verifyBookOneProductionPlan,
+  renderBookOneProductionPlanMarkdown,
+  renderBookOneProductionBudgetCsv,
   FfmpegAdapter
 } from './index.js';
 import { YASREADY_AUDIOBOOKS_VERSION } from './release.js';
@@ -1497,6 +1501,90 @@ async function runPaceCeilingFinalize() {
   }, null, 2));
 }
 
+async function runBookOneProductionPlan() {
+  const manuscriptPath = args[1];
+  const lockPath = flagValue('--lock');
+  const out = flagValue('--out');
+  if (!manuscriptPath || !lockPath || !out) {
+    console.error('Usage: node src/cli.js production-plan <manuscript.epub|docx|txt> --lock <pace-ceiling-finalization.json> --out DIR [--model eleven_v3] [--rate-usd-per-1k 0.10] [--retry-reserve 0.20] [--chunk-safety 0.80] [--chunk-cap N]');
+    process.exitCode = 2;
+    return;
+  }
+
+  const finalization = JSON.parse(await readFile(path.resolve(lockPath), 'utf8'));
+  const extracted = extractManuscriptFile(path.resolve(manuscriptPath));
+  const analysis = analyzeManuscript(extracted, {
+    title: finalization.book?.title ?? null,
+    author: finalization.book?.author ?? null
+  });
+
+  const chunkCapRaw = flagValue('--chunk-cap');
+  const plan = buildBookOneProductionPlan({
+    paceCeilingFinalization: finalization,
+    manuscriptAnalysis: analysis,
+    model: flagValue('--model', 'eleven_v3'),
+    rateUsdPer1kCharacters: Number(flagValue('--rate-usd-per-1k', '0.10')),
+    retryReserveRatio: Number(flagValue('--retry-reserve', '0.20')),
+    chunkSafetyRatio: Number(flagValue('--chunk-safety', '0.80')),
+    explicitChunkCap: chunkCapRaw === null ? null : Number(chunkCapRaw)
+  });
+  verifyBookOneProductionPlan(plan);
+
+  const resolved = path.resolve(out);
+  await mkdir(resolved, { recursive: true });
+  const files = {
+    json: path.join(resolved, 'book-one-production-plan.json'),
+    markdown: path.join(resolved, 'book-one-production-plan.md'),
+    budgetCsv: path.join(resolved, 'book-one-production-budget.csv'),
+    manifest: path.join(resolved, 'book-one-production-manifest.json'),
+    confirmation: path.join(resolved, 'production-plan-confirmation.txt')
+  };
+  await Promise.all([
+    writeFile(files.json, JSON.stringify(plan, null, 2)),
+    writeFile(files.markdown, renderBookOneProductionPlanMarkdown(plan)),
+    writeFile(files.budgetCsv, renderBookOneProductionBudgetCsv(plan)),
+    writeFile(files.manifest, JSON.stringify(plan.manifest, null, 2)),
+    writeFile(files.confirmation, [
+      plan.confirmation.token,
+      'REFERENCE ONLY — NOT SPEND AUTHORIZATION',
+      'Protected production max recommendation: $' + plan.budget.protectedMaxUsd.toFixed(2),
+      'Narrator lock: ' + plan.narratorLock.lockDigest,
+      'Manuscript source: ' + plan.source.sourceHash,
+      ''
+    ].join('\n'))
+  ]);
+
+  console.log(JSON.stringify({
+    version: VERSION,
+    productionPlan: plan.status,
+    narrator: plan.productionRecipe.narratorName,
+    direction: plan.productionRecipe.performanceDirection.label,
+    emotion: plan.productionRecipe.performanceDirection.emotionalVariantLabel,
+    stability: plan.productionRecipe.performanceDirection.stability,
+    providerSpeed: plan.productionRecipe.paceProfile.providerNativeSpeed,
+    effectiveSpeed: plan.productionRecipe.paceProfile.effectiveSpeed,
+    tempoMultiplier: plan.productionRecipe.paceProfile.postProcessTempoMultiplier,
+    words: plan.workload.words,
+    chapters: plan.workload.chapters,
+    scenes: plan.workload.scenes,
+    providerGenerationCallsPlanned: plan.workload.providerGenerationCalls,
+    providerCharactersPlanned: plan.workload.providerCharacters,
+    localTempoTasksPlanned: plan.workload.postProcessTasks,
+    initialGenerationEstimateUsd: plan.budget.initialGenerationUsd,
+    retryReserveUsd: plan.budget.retryReserveUsd,
+    protectedMaxUsd: plan.budget.protectedMaxUsd,
+    providerCreditsEstimated: plan.budget.providerCreditsEstimated,
+    planningSpendUsd: plan.budget.planningSpendUsd,
+    providerCallsPerformed: 0,
+    productionArmed: false,
+    fullBookGenerationArmed: false,
+    planReferenceToken: plan.confirmation.token,
+    productionPlanDigest: plan.integrity.productionPlanDigest,
+    nextAction: plan.nextAction,
+    files
+  }, null, 2));
+}
+
 async function runMoneyGuardFixture() {
   const store = new InMemoryStore();
   const ledger = new CostLedger();
@@ -1621,6 +1709,8 @@ if (args[0] === 'analyze') {
   await runPaceCeilingRender();
 } else if (args[0] === 'casting-pace-ceiling-finalize') {
   await runPaceCeilingFinalize();
+} else if (args[0] === 'production-plan' || args[0] === 'book-one-production-plan') {
+  await runBookOneProductionPlan();
 } else if (args[0] === 'money-guard-fixture') {
   await runMoneyGuardFixture();
 } else {

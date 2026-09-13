@@ -93,8 +93,8 @@ const reviewedRound = [
   })
 ];
 
-test('0.14.3.12 is current application provenance', () => {
-  assert.equal(YASREADY_AUDIOBOOKS_VERSION,'0.14.3.12');
+test('0.14.3.13 is current application provenance', () => {
+  assert.equal(YASREADY_AUDIOBOOKS_VERSION,'0.14.3.13');
 });
 
 test('human taste calibration is metadata-only and never claims acoustic learning', () => {
