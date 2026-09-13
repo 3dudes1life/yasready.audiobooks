@@ -11,21 +11,33 @@ const BOOK_ONE_CASTING_INTENTS = Object.freeze({
   Narrator: Object.freeze({
     label: 'Warm contemporary romance narrator',
     preferredGender: 'male',
+    preferredAccents: Object.freeze(['american', 'neutral', 'standard', 'californian']),
+    preferredAges: Object.freeze(['young', 'middle aged', 'adult']),
+    preferredUseCases: Object.freeze(['narrative story', 'narration', 'audiobook']),
     keywords: Object.freeze(['audiobook', 'narration', 'storytelling', 'warm', 'natural', 'conversational', 'expressive', 'emotional'])
   }),
   'Juan Delgado': Object.freeze({
     label: 'Warm, confident, playful lead',
     preferredGender: 'male',
+    preferredAccents: Object.freeze(['american', 'neutral', 'standard', 'californian', 'latin', 'latino', 'mexican']),
+    preferredAges: Object.freeze(['young', 'middle aged', 'adult']),
+    preferredUseCases: Object.freeze(['conversational', 'narrative story']),
     keywords: Object.freeze(['warm', 'confident', 'playful', 'charismatic', 'conversational', 'expressive', 'romantic'])
   }),
   'Michael Rawlins': Object.freeze({
     label: 'Grounded, warm, emotionally natural lead',
     preferredGender: 'male',
+    preferredAccents: Object.freeze(['american', 'neutral', 'standard', 'californian']),
+    preferredAges: Object.freeze(['young', 'middle aged', 'adult']),
+    preferredUseCases: Object.freeze(['conversational', 'narrative story']),
     keywords: Object.freeze(['grounded', 'warm', 'natural', 'emotional', 'calm', 'conversational', 'intimate'])
   }),
   'Christopher Lancaster': Object.freeze({
     label: 'Confident, polished, warm lead',
     preferredGender: 'male',
+    preferredAccents: Object.freeze(['american', 'neutral', 'standard', 'californian']),
+    preferredAges: Object.freeze(['young', 'middle aged', 'adult']),
+    preferredUseCases: Object.freeze(['conversational', 'narrative story']),
     keywords: Object.freeze(['confident', 'polished', 'warm', 'smooth', 'conversational', 'expressive', 'natural'])
   })
 });
@@ -116,23 +128,81 @@ function roleIntent(target) {
   });
 }
 
-function roleFit(voice, target) {
+function normalizedTrait(value) {
+  return lower(value).replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function matchesAnyTrait(value, options = []) {
+  const actual = normalizedTrait(value);
+  if (!actual) return false;
+  return options.some((option) => {
+    const desired = normalizedTrait(option);
+    return actual === desired || actual.includes(desired) || desired.includes(actual);
+  });
+}
+
+export function scoreBookOneCastingFit(rawVoice, target) {
+  const voice = normalizedVoice(rawVoice);
   const intent = roleIntent(target);
   const text = metadataText(voice);
   const matchedKeywords = intent.keywords.filter((word) => text.includes(word));
-  let score = 42;
-  if (intent.preferredGender && lower(voice.gender) === lower(intent.preferredGender)) score += 10;
-  if (/audiobook|narrat|story/.test(lower(voice.useCase)) && target.role === 'narrator') score += 15;
-  if (/convers|character|story|narrat/.test(lower(voice.useCase)) && target.role !== 'narrator') score += 8;
-  score += Math.min(28, matchedKeywords.length * 5);
-  if (voice.previewUrl) score += 5;
-  const englishVerified = voice.language === 'en' || (voice.verifiedLanguages ?? []).some((row) => row.language === 'en');
-  if (englishVerified) score += 5;
+  const stretchFlags = [];
+  let hardMismatch = false;
+  let score = 35;
+
+  if (intent.preferredGender && voice.gender) {
+    if (normalizedTrait(voice.gender) === normalizedTrait(intent.preferredGender)) score += 18;
+    else {
+      score -= 30;
+      hardMismatch = true;
+      stretchFlags.push(freeze({ code: 'gender-mismatch', severity: 'hard', note: `Catalog gender ${voice.gender} does not match the current Book One ${intent.preferredGender} creative preference.` }));
+    }
+  }
+
+  if (voice.useCase) {
+    if (matchesAnyTrait(voice.useCase, intent.preferredUseCases)) score += 15;
+    else {
+      score -= 6;
+      stretchFlags.push(freeze({ code: 'use-case-stretch', severity: 'soft', note: `Catalog use case ${voice.useCase} is not a preferred fit for this role.` }));
+    }
+  }
+
+  if (voice.accent) {
+    if (matchesAnyTrait(voice.accent, intent.preferredAccents)) score += 8;
+    else {
+      score -= 8;
+      stretchFlags.push(freeze({ code: 'accent-stretch', severity: 'soft', note: `Catalog accent ${voice.accent} is outside the current Book One soft accent preference.` }));
+    }
+  }
+
+  if (voice.age) {
+    if (matchesAnyTrait(voice.age, intent.preferredAges)) score += 8;
+    else if (target.role !== 'narrator' && /old|senior|elder/.test(normalizedTrait(voice.age))) {
+      score -= 15;
+      stretchFlags.push(freeze({ code: 'age-stretch', severity: 'strong', note: `Catalog age ${voice.age} is an obvious stretch for this Book One lead.` }));
+    } else {
+      score -= 4;
+      stretchFlags.push(freeze({ code: 'age-stretch', severity: 'soft', note: `Catalog age ${voice.age} is outside the current Book One soft age preference.` }));
+    }
+  }
+
+  score += Math.min(30, matchedKeywords.length * 5);
+  if (voice.previewUrl) score += 3;
+  const englishVerified = lower(voice.language) === 'en' || (voice.verifiedLanguages ?? []).some((row) => lower(row.language) === 'en');
+  if (englishVerified) score += 4;
+
+  const finalScore = clamp(Math.round(score), 0, 100);
   return freeze({
-    score: clamp(Math.round(score), 0, 100),
+    score: finalScore,
+    grade: hardMismatch ? 'hard-mismatch' : finalScore >= 90 ? 'excellent' : finalScore >= 82 ? 'strong' : finalScore >= 72 ? 'possible' : 'stretch',
     label: intent.label,
     matchedKeywords: freeze(matchedKeywords),
     preferredGender: intent.preferredGender,
+    preferredAccents: freeze([...(intent.preferredAccents ?? [])]),
+    preferredAges: freeze([...(intent.preferredAges ?? [])]),
+    preferredUseCases: freeze([...(intent.preferredUseCases ?? [])]),
+    hardMismatch,
+    stretchFlags: freeze(stretchFlags),
     preferenceSource: 'Book One casting default; a creative preference, not canonical character biography'
   });
 }
@@ -164,11 +234,11 @@ function compactVoice(voice) {
 
 function candidateScore(voice, target) {
   const safety = scoreSeriesSafety(voice, { desiredLanguage: 'en' });
-  const fit = roleFit(voice, target);
-  const combined = Number((safety.score * 0.7 + fit.score * 0.3).toFixed(1));
+  const fit = scoreBookOneCastingFit(voice, target);
+  const combined = Number((safety.score * 0.35 + fit.score * 0.65).toFixed(1));
   const strengths = [...safety.reasons];
   if (fit.matchedKeywords.length) strengths.push(`casting-fit metadata: ${fit.matchedKeywords.join(', ')}`);
-  const concerns = [...safety.warnings];
+  const concerns = [...safety.warnings, ...fit.stretchFlags.map((row) => row.note)];
   if (!fit.matchedKeywords.length) concerns.push('limited role-specific descriptive metadata; audition matters more than metadata fit');
   return freeze({ voice, safety, fit, combined, strengths: freeze(strengths), concerns: freeze(concerns) });
 }
@@ -190,8 +260,11 @@ function meetsBookOneDiscoveryPolicy(raw) {
 }
 
 function metadataSignature(voice) {
+  const traitWords = ['warm', 'grounded', 'confident', 'playful', 'calm', 'polished', 'raspy', 'deep', 'conversational', 'narration', 'storytelling', 'expressive', 'upbeat', 'soothing', 'authoritative', 'charismatic', 'natural', 'emotional', 'smooth'];
+  const text = metadataText(voice);
   const values = [voice.gender, voice.age, voice.accent, voice.useCase, ...(voice.descriptives ?? [])]
-    .map(lower).filter(Boolean);
+    .map(normalizedTrait).filter(Boolean);
+  for (const word of traitWords) if (text.includes(word)) values.push(word);
   return new Set(values);
 }
 
@@ -210,11 +283,11 @@ function buildDistinctiveness(shortlists) {
       const a = leaders[i];
       const b = leaders[j];
       const similarity = jaccard(metadataSignature(a.candidate.voice), metadataSignature(b.candidate.voice));
-      if (similarity >= 0.8) {
+      if (similarity >= 0.72) {
         warnings.push(freeze({
           characters: freeze([a.character, b.character]),
           similarity: Number(similarity.toFixed(2)),
-          note: 'Top candidates share highly similar catalog metadata. This is a review warning only; acoustic similarity cannot be proven without listening.'
+          note: 'Top candidates still share a similar casting-metadata profile after distinctiveness-aware ranking. Human listening is required; this does not claim acoustic similarity.'
         }));
       }
     }
@@ -228,20 +301,46 @@ function buildDistinctiveness(shortlists) {
   });
 }
 
+function recommendationFor(candidate, rank, auditionTop) {
+  if (candidate.fit.hardMismatch || candidate.fit.score < 72) return 'PASS';
+  if (rank <= auditionTop && candidate.fit.score >= 84) return 'AUDITION';
+  return 'ALTERNATE';
+}
+
+function leaderAdjustedScore(candidate, leaders) {
+  if (!leaders.length) return candidate.combined;
+  const signature = metadataSignature(candidate.voice);
+  let maxSimilarity = 0;
+  for (const leader of leaders) maxSimilarity = Math.max(maxSimilarity, jaccard(signature, metadataSignature(leader.voice)));
+  const penalty = maxSimilarity >= 0.75 ? maxSimilarity * 6 : 0;
+  return candidate.combined - penalty;
+}
+
 function chooseUniqueShortlists(waveOne, voices, { perRole = 6, auditionTop = 3 } = {}) {
   const ranked = new Map();
   for (const target of waveOne) {
     ranked.set(target.canonicalName, voices
       .map((voice) => candidateScore(voice, target))
-      .sort((a, b) => b.combined - a.combined || b.safety.score - a.safety.score || a.voice.name.localeCompare(b.voice.name)));
+      .sort((a, b) => b.combined - a.combined || b.fit.score - a.fit.score || b.safety.score - a.safety.score || a.voice.name.localeCompare(b.voice.name)));
   }
   const used = new Set();
+  const leaders = [];
   const chosen = new Map(waveOne.map((target) => [target.canonicalName, []]));
   for (let slot = 0; slot < perRole; slot += 1) {
     for (const target of waveOne) {
-      const rows = ranked.get(target.canonicalName);
-      const next = rows.find((row) => !used.has(`${row.voice.provider}:${row.voice.providerVoiceId}`));
-      if (!next) continue;
+      const rows = ranked.get(target.canonicalName).filter((row) => !used.has(`${row.voice.provider}:${row.voice.providerVoiceId}`));
+      if (!rows.length) continue;
+      let next;
+      if (slot === 0) {
+        next = [...rows].sort((a, b) =>
+          leaderAdjustedScore(b, leaders) - leaderAdjustedScore(a, leaders) ||
+          b.fit.score - a.fit.score ||
+          b.combined - a.combined
+        )[0];
+        leaders.push(next);
+      } else {
+        next = rows[0];
+      }
       used.add(`${next.voice.provider}:${next.voice.providerVoiceId}`);
       chosen.get(target.canonicalName).push(next);
     }
@@ -250,11 +349,14 @@ function chooseUniqueShortlists(waveOne, voices, { perRole = 6, auditionTop = 3 
     character: target.canonicalName,
     role: target.role,
     intent: roleIntent(target),
-    candidates: freeze(chosen.get(target.canonicalName).map((row, index) => freeze({
-      ...row,
-      rank: index + 1,
-      recommendation: index < auditionTop ? 'AUDITION' : 'ALTERNATE'
-    })))
+    candidates: freeze(chosen.get(target.canonicalName).map((row, index) => {
+      const rank = index + 1;
+      return freeze({
+        ...row,
+        rank,
+        recommendation: recommendationFor(row, rank, auditionTop)
+      });
+    }))
   }));
 }
 
@@ -334,6 +436,34 @@ function pickCharacterScripts(rows) {
   return result;
 }
 
+function isPrintOnlyNarrationRow(row) {
+  const title = lower(row.chapter?.title);
+  const order = Number(row.chapter?.order);
+  const text = lower(row.segment?.text);
+  if (Number.isFinite(order) && order <= 0) return true;
+  if (/front matter|copyright|title page|table of contents|contents|dedication|acknowledg|about the author/.test(title)) return true;
+  if (/copyright|all rights reserved|no part of this book|isbn|library of congress|published by|publisher|edition|cover design|www\.|https?:\/\//.test(text)) return true;
+  return false;
+}
+
+function pickNarratorScripts(rows) {
+  const narration = rows
+    .filter((row) => row.segment.kind !== 'dialogue')
+    .filter((row) => !isPrintOnlyNarrationRow(row))
+    .filter((row) => clean(row.segment.text).length >= 90 && clean(row.segment.text).length <= 420)
+    .sort((a, b) => Number(a.chapter?.order ?? 0) - Number(b.chapter?.order ?? 0));
+  return pickSpread(narration, 3).map((row, index) => freeze({
+    id: `narration-${index + 1}`,
+    label: ['Narrative opening tone', 'Narrative middle range', 'Narrative later-book range'][index] ?? `Narration ${index + 1}`,
+    text: clipText(row.segment.text),
+    chapterOrder: row.chapter.order ?? null,
+    chapterTitle: row.chapter.title ?? null,
+    segmentId: row.record?.id ?? null,
+    purpose: ['neutral', 'emotional', 'range'][index] ?? 'range',
+    source: 'canonical-manuscript-narration'
+  }));
+}
+
 export function buildAuditionSamplePackFromPrepRun(prepRun, launch) {
   if (!prepRun?.prep || !prepRun?.ingestResult) throw new Error('audition sample extraction requires a fresh Book One Audio Bible Prep run');
   if (prepRun.prep.book?.sourceHash !== launch.book?.sourceHash) throw new Error('audition sample manuscript source hash does not match Casting Launch');
@@ -362,17 +492,7 @@ export function buildAuditionSamplePackFromPrepRun(prepRun, launch) {
   for (const target of waveOne) {
     let scripts;
     if (target.role === 'narrator') {
-      const narration = rows.filter((row) => row.segment.kind !== 'dialogue' && clean(row.segment.text).length >= 90 && clean(row.segment.text).length <= 420);
-      scripts = pickSpread(narration, 3).map((row, index) => freeze({
-        id: `narration-${index + 1}`,
-        label: ['Narrative opening tone', 'Narrative middle range', 'Narrative later-book range'][index] ?? `Narration ${index + 1}`,
-        text: clipText(row.segment.text),
-        chapterOrder: row.chapter.order ?? null,
-        chapterTitle: row.chapter.title ?? null,
-        segmentId: row.record?.id ?? null,
-        purpose: ['neutral', 'emotional', 'range'][index] ?? 'range',
-        source: 'canonical-manuscript-narration'
-      }));
+      scripts = pickNarratorScripts(rows);
     } else {
       scripts = pickCharacterScripts(bindingRows.get(target.canonicalName) ?? []);
     }
@@ -411,7 +531,7 @@ async function buildCostPreview(shortlists, samplePack, estimator, { model, audi
       perCandidate += Number(estimate.amountUsd);
       lines.push(freeze({ scriptId: script.id, characters: estimate.characters ?? script.text.length, amountUsd: Number(estimate.amountUsd) }));
     }
-    const recommendedCount = Math.min(auditionTop, shortlist.candidates.length);
+    const recommendedCount = shortlist.candidates.filter((candidate) => candidate.recommendation === 'AUDITION').length;
     const recommendedUsd = Number((perCandidate * recommendedCount).toFixed(6));
     const fullUsd = Number((perCandidate * shortlist.candidates.length).toFixed(6));
     recommendedTotal += recommendedUsd;
@@ -484,7 +604,7 @@ export function renderCastingDiscoveryMarkdown(discovery) {
       lines.push(
         `${candidate.rank}. **${v.name}** — ${candidate.combinedScore}/100 — ${candidate.recommendation}`,
         `   - Series safety: ${candidate.seriesSafety.score}/100 (${candidate.seriesSafety.grade})`,
-        `   - Role fit: ${candidate.roleFit.score}/100`,
+        `   - Role fit: ${candidate.roleFit.score}/100 (${candidate.roleFit.grade ?? 'ungraded'})`,
         `   - Accent / age / gender: ${v.accent ?? 'not listed'} / ${v.age ?? 'not listed'} / ${v.gender ?? 'not listed'}`,
         `   - Notice protection: ${v.noticePeriodDays} day(s)`,
         `   - Use case: ${v.useCase ?? 'not listed'}`,
@@ -522,6 +642,108 @@ export function renderCastingDiscoveryMarkdown(discovery) {
   }
   lines.push('', '## Next action', '', discovery.nextAction, '', '> `ARM AUDITIONS` remains a separate future operator action. This discovery build cannot render paid audio.', '');
   return lines.join('\n');
+}
+
+function browserSafeJson(value) {
+  return JSON.stringify(value).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+}
+
+export function renderCastingReviewBoardHtml(discovery) {
+  const boardData = {
+    release: discovery.release,
+    artifactFingerprint: discovery.artifactFingerprint,
+    book: discovery.book,
+    shortlists: discovery.shortlists,
+    auditionSamples: discovery.auditionSamples,
+    auditionCost: discovery.auditionCost,
+    guardrails: discovery.guardrails
+  };
+  const data = browserSafeJson(boardData);
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>YasReady Casting Review Board — ${String(discovery.book.title).replace(/[<>&"]/g, '')}</title>
+<style>
+:root{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",sans-serif;color-scheme:light dark;--bg:#f5f5f7;--card:rgba(255,255,255,.88);--text:#1d1d1f;--muted:#6e6e73;--line:rgba(0,0,0,.09);--accent:#0071e3;--good:#248a3d;--maybe:#b25000;--bad:#d70015}
+@media(prefers-color-scheme:dark){:root{--bg:#000;--card:rgba(28,28,30,.92);--text:#f5f5f7;--muted:#a1a1a6;--line:rgba(255,255,255,.12);--accent:#2997ff;--good:#30d158;--maybe:#ff9f0a;--bad:#ff453a}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text)}main{max-width:1180px;margin:auto;padding:34px 22px 90px}
+.hero{padding:8px 0 26px}.eyebrow{font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}h1{font-size:clamp(32px,5vw,56px);line-height:.98;margin:10px 0 14px;letter-spacing:-.045em}.sub{font-size:18px;color:var(--muted);max-width:820px;line-height:1.45}
+.guard{display:flex;gap:10px;flex-wrap:wrap;margin:18px 0}.pill{padding:8px 11px;border:1px solid var(--line);border-radius:999px;font-size:13px;background:var(--card)}.pill.safe{color:var(--good);font-weight:700}.decisionLegend{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}.decisionLegend span{font-size:12px;font-weight:700;padding:6px 9px;border:1px solid var(--line);border-radius:999px;color:var(--muted)}
+.toolbar{position:sticky;top:0;z-index:5;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(20px);padding:12px 0;border-bottom:1px solid var(--line);display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+button{font:inherit;border:0;border-radius:999px;padding:10px 14px;cursor:pointer}.primary{background:var(--accent);color:white;font-weight:700}.ghost{background:var(--card);color:var(--text);border:1px solid var(--line)}
+.summary{margin-left:auto;color:var(--muted);font-size:14px}.role{margin-top:42px}.role h2{font-size:30px;letter-spacing:-.03em;margin-bottom:5px}.intent{color:var(--muted);margin-bottom:18px}
+.scripts{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:14px 0 20px}.script{padding:14px;background:var(--card);border:1px solid var(--line);border-radius:18px}.script b{display:block;font-size:13px;margin-bottom:6px}.script p{font-size:13px;color:var(--muted);margin:0;line-height:1.4}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.card{background:var(--card);border:1px solid var(--line);border-radius:24px;padding:18px;box-shadow:0 8px 30px rgba(0,0,0,.04)}.topline{display:flex;gap:10px;justify-content:space-between;align-items:flex-start}.rank{font-size:12px;color:var(--muted);font-weight:700}.name{font-size:21px;font-weight:750;letter-spacing:-.02em;margin:3px 0}.rec{font-size:12px;font-weight:800;padding:6px 9px;border-radius:999px;background:var(--bg)}
+.meta{display:flex;gap:7px;flex-wrap:wrap;margin:10px 0}.meta span{font-size:12px;padding:5px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}audio{width:100%;margin:9px 0 12px}.scores{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.score{padding:9px;border-radius:14px;background:var(--bg);font-size:12px}.score strong{display:block;font-size:18px}
+.concerns{font-size:12px;color:var(--maybe);margin:9px 0;line-height:1.4}.decisions{display:flex;gap:7px;margin-top:12px}.decision{flex:1;background:var(--bg);color:var(--text);border:1px solid var(--line);font-weight:700}.decision.active.keep{background:var(--good);color:#fff}.decision.active.maybe{background:var(--maybe);color:#fff}.decision.active.pass{background:var(--bad);color:#fff}
+textarea{width:100%;margin-top:9px;border:1px solid var(--line);border-radius:13px;padding:10px;background:var(--bg);color:var(--text);font:inherit;resize:vertical;min-height:58px}.footerNote{margin-top:40px;color:var(--muted);font-size:13px;line-height:1.5}
+@media(max-width:760px){.grid,.scripts{grid-template-columns:1fr}.summary{width:100%;margin-left:0}}
+</style>
+</head>
+<body><main>
+<section class="hero"><div class="eyebrow">YasReady Audiobooks ${discovery.release}</div><h1>Casting Review Board</h1><div class="sub"></div>
+<div class="guard"><span class="pill safe">Paid audition generation remains unarmed</span><span class="pill">TTS calls: 0</span><span class="pill">Book One • Wave 1</span></div>
+<div class="decisionLegend" aria-label="Decision options"><span>Keep</span><span>Maybe</span><span>Pass</span></div></section>
+<div class="toolbar"><button class="primary" id="export">Export Audition Choices</button><button class="ghost" id="clear">Clear Local Decisions</button><div class="summary" id="summary"></div></div>
+<div id="roles"></div>
+<div class="footerNote">Preview audio streams from the provider URLs already present in this local discovery artifact. Decisions autosave only in this browser. Export the JSON before moving computers or clearing browser storage. This page contains no ElevenLabs API key and cannot generate paid audio.</div>
+</main>
+<script>
+const DISCOVERY=${data};
+const storageKey='yasready-casting-review:'+DISCOVERY.artifactFingerprint;
+let decisions={};
+try{decisions=JSON.parse(localStorage.getItem(storageKey)||'{}')}catch{}
+const roleRoot=document.getElementById('roles');
+document.querySelector('.sub').textContent=DISCOVERY.book.title+' — listen first, then mark Keep, Maybe, or Pass. YasReady recommendations are metadata guidance, not a substitute for your ears.';
+const samples=new Map((DISCOVERY.auditionSamples?.samples||[]).map(x=>[x.character,x]));
+function save(){localStorage.setItem(storageKey,JSON.stringify(decisions));updateSummary()}
+function updateSummary(){
+ const values=Object.values(decisions).map(x=>x.decision).filter(Boolean);
+ const count=(v)=>values.filter(x=>x===v).length;
+ document.getElementById('summary').textContent='Keep '+count('keep')+' • Maybe '+count('maybe')+' • Pass '+count('pass')+' • Undecided '+Math.max(0,DISCOVERY.shortlists.reduce((n,r)=>n+r.candidates.length,0)-values.length);
+}
+function el(tag,cls,text){const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n}
+for(const role of DISCOVERY.shortlists){
+ const section=el('section','role'); section.append(el('h2','',role.character)); section.append(el('div','intent',role.intent.label));
+ const scriptRow=el('div','scripts');
+ for(const script of samples.get(role.character)?.scripts||[]){
+   const box=el('div','script'); box.append(el('b','',script.label)); box.append(el('p','',script.text)); scriptRow.append(box);
+ }
+ if(scriptRow.children.length)section.append(scriptRow);
+ const grid=el('div','grid');
+ for(const c of role.candidates){
+   const card=el('article','card'); card.dataset.id=c.id;
+   const top=el('div','topline'); const left=el('div');
+   left.append(el('div','rank','#'+c.rank+' • '+c.recommendation)); left.append(el('div','name',c.voice.name));
+   top.append(left); top.append(el('div','rec',c.recommendation)); card.append(top);
+   const meta=el('div','meta');
+   for(const v of [c.voice.accent,c.voice.age,c.voice.gender,c.voice.useCase].filter(Boolean))meta.append(el('span','',v));
+   card.append(meta);
+   if(c.voice.previewUrl){const audio=document.createElement('audio');audio.controls=true;audio.preload='none';audio.src=c.voice.previewUrl;card.append(audio)}
+   const scores=el('div','scores');
+   for(const [label,value] of [['Overall',c.combinedScore],['Role fit',c.roleFit.score],['Safety',c.seriesSafety.score]]){const s=el('div','score');s.append(el('strong','',value));s.append(document.createTextNode(label));scores.append(s)}
+   card.append(scores);
+   if(c.concerns?.length)card.append(el('div','concerns',c.concerns.slice(0,3).join(' • ')));
+   const buttons=el('div','decisions');
+   for(const choice of ['keep','maybe','pass']){const b=el('button','decision '+choice,choice[0].toUpperCase()+choice.slice(1));b.onclick=()=>{decisions[c.id]={...(decisions[c.id]||{}),candidateId:c.id,character:role.character,voiceId:c.voice.providerVoiceId,voiceName:c.voice.name,decision:choice};save();paint(card,c.id)};buttons.append(b)}
+   card.append(buttons);
+   const notes=document.createElement('textarea');notes.placeholder='Optional notes…';notes.value=decisions[c.id]?.notes||'';notes.oninput=()=>{decisions[c.id]={...(decisions[c.id]||{}),candidateId:c.id,character:role.character,voiceId:c.voice.providerVoiceId,voiceName:c.voice.name,notes:notes.value};save()};card.append(notes);
+   grid.append(card); paint(card,c.id);
+ }
+ section.append(grid); roleRoot.append(section);
+}
+function paint(card,id){const d=decisions[id]?.decision;for(const b of card.querySelectorAll('.decision'))b.classList.toggle('active',b.classList.contains(d))}
+document.getElementById('clear').onclick=()=>{if(confirm('Clear every local Keep / Maybe / Pass decision?')){decisions={};save();for(const card of document.querySelectorAll('.card'))paint(card,card.dataset.id);for(const t of document.querySelectorAll('textarea'))t.value=''}};
+document.getElementById('export').onclick=()=>{
+ const rows=DISCOVERY.shortlists.flatMap(role=>role.candidates.map(c=>({role,c}))).map(({role,c})=>({...decisions[c.id],candidateId:c.id,character:role.character,voiceId:c.voice.providerVoiceId,voiceName:c.voice.name,yasReadyRecommendation:c.recommendation,roleFit:c.roleFit.score,seriesSafety:c.seriesSafety.score})).filter(x=>x.decision||x.notes);
+ const auditionCandidateIds=rows.filter(x=>x.decision==='keep'||x.decision==='maybe').map(x=>x.candidateId);
+ const payload={schemaVersion:1,release:DISCOVERY.release,artifactFingerprint:DISCOVERY.artifactFingerprint,book:DISCOVERY.book,exportedAt:new Date().toISOString(),decisions:rows,auditionCandidateIds,armed:false,moneyGuardApprovalRequiredBeforeRendering:true};
+ const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='casting-review-decisions.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+};
+updateSummary();
+</script></body></html>`;
 }
 
 export function renderCastingDiscoveryCsv(discovery) {
@@ -570,11 +792,14 @@ export class BookOneCastingDiscoveryService {
     const distinctiveness = buildDistinctiveness(shortlists);
     const auditionCost = await buildCostPreview(shortlists, auditionSamples, costEstimator, { model, auditionTop: auditionCount });
     const sourceReady = auditionSamples?.status === 'READY';
+    const rolesWithoutAudition = shortlists.filter((row) => !row.candidates.some((candidate) => candidate.recommendation === 'AUDITION')).map((row) => row.character);
     const status = totalStaged < totalNeeded
       ? 'NEEDS_MORE_CANDIDATES'
-      : sourceReady
-        ? 'READY_FOR_OPERATOR_REVIEW'
-        : 'CANDIDATES_READY_SAMPLES_PENDING';
+      : sourceReady && rolesWithoutAudition.length
+        ? 'NEEDS_BETTER_ROLE_FIT'
+        : sourceReady
+          ? 'READY_FOR_OPERATOR_REVIEW'
+          : 'CANDIDATES_READY_SAMPLES_PENDING';
     const artifactFingerprint = sha256(JSON.stringify({
       launch: launch.artifactFingerprint,
       prepDigest: prep.audioBible.digest,
@@ -623,7 +848,7 @@ export class BookOneCastingDiscoveryService {
       auditionSamples,
       auditionCost,
       auditionPlanPreview: freeze({
-        status: sourceReady && totalStaged >= totalNeeded ? 'READY_TO_REQUEST_ARMING' : 'NOT_READY',
+        status: sourceReady && totalStaged >= totalNeeded && rolesWithoutAudition.length === 0 ? 'READY_TO_REQUEST_ARMING' : 'NOT_READY',
         armed: false,
         model,
         candidateIds: freeze(shortlists.flatMap((row) => row.candidates.filter((candidate) => candidate.recommendation === 'AUDITION').map((candidate) => candidate.id))),
@@ -634,6 +859,8 @@ export class BookOneCastingDiscoveryService {
       guardrails: freeze({
         candidateDiscoveryPerformed: true,
         exactVoiceReuseAcrossCoreShortlistsBlocked: true,
+        roleFitHardMismatchAuditionBlocked: true,
+        printFrontMatterAuditionBlocked: true,
         paidProviderCallsPerformed: 0,
         generationCallsPerformed: 0,
         auditionRenderingArmed: false,
@@ -647,15 +874,18 @@ export class BookOneCastingDiscoveryService {
         ? catalogAuthRecommended
           ? `Only ${totalStaged}/${totalNeeded} unique Wave 1 candidate slots were filled through ElevenLabs anonymous catalog browsing. Set ELEVENLABS_API_KEY for broader filtered discovery, then rerun; do not reuse a core voice just to fill the shortlist.`
           : `Only ${totalStaged}/${totalNeeded} unique Wave 1 candidate slots were filled. Increase catalog pages or lower --per-role before auditioning.`
-        : sourceReady
-          ? `Review preview links and shortlist decisions for ${waveOne.map((row) => row.canonicalName).join(', ')}. Then explicitly approve which candidates should enter the future ARM AUDITIONS step; no audio has been generated.`
-          : 'Candidate discovery is complete, but canonical audition scripts are missing. Re-run with --manuscript pointing to the exact Book One source before any audition can be armed.'
+        : sourceReady && rolesWithoutAudition.length
+          ? `Do not arm auditions yet. YasReady found no strong audition-fit candidate for ${rolesWithoutAudition.join(', ')}. Broaden discovery or adjust the explicit creative casting intent before spending.`
+          : sourceReady
+            ? `Open casting-review.html, listen to the preview players, and mark Keep / Maybe / Pass for ${waveOne.map((row) => row.canonicalName).join(', ')}. Export Audition Choices when finished; no audio has been generated.`
+            : 'Candidate discovery is complete, but canonical audition scripts are missing. Re-run with --manuscript pointing to the exact Book One source before any audition can be armed.'
     });
     return freeze({
       discovery,
       markdown: renderCastingDiscoveryMarkdown(discovery),
       shortlistCsv: renderCastingDiscoveryCsv(discovery),
-      scriptsCsv: renderAuditionScriptsCsv(discovery)
+      scriptsCsv: renderAuditionScriptsCsv(discovery),
+      reviewBoardHtml: renderCastingReviewBoardHtml(discovery)
     });
   }
 

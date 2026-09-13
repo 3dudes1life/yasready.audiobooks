@@ -472,14 +472,16 @@ async function writeCastingDiscoveryReports(result, outDir) {
     markdown: path.join(resolved, 'casting-candidate-discovery.md'),
     shortlist: path.join(resolved, 'casting-shortlist.csv'),
     scripts: path.join(resolved, 'audition-scripts.csv'),
-    auditionPreview: path.join(resolved, 'audition-plan-preview.json')
+    auditionPreview: path.join(resolved, 'audition-plan-preview.json'),
+    reviewBoard: path.join(resolved, 'casting-review.html')
   };
   await Promise.all([
     writeFile(files.json, JSON.stringify(result.discovery, null, 2)),
     writeFile(files.markdown, result.markdown),
     writeFile(files.shortlist, result.shortlistCsv),
     writeFile(files.scripts, result.scriptsCsv),
-    writeFile(files.auditionPreview, JSON.stringify(result.discovery.auditionPlanPreview, null, 2))
+    writeFile(files.auditionPreview, JSON.stringify(result.discovery.auditionPlanPreview, null, 2)),
+    writeFile(files.reviewBoard, result.reviewBoardHtml)
   ]);
   return files;
 }

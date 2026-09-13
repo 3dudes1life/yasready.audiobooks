@@ -2,7 +2,7 @@
 
 Professional audiobook production infrastructure for YasReady Publishing.
 
-**Current build: 0.14.2.2 — Anonymous Catalog Pagination & Auth UX**
+**Current build: 0.14.3 — Casting Fit & Audition Script Hardening**
 
 YasReady Audiobooks is being developed as a standalone service first so audiobook experimentation cannot destabilize YasReady Publishing. The product goal is professional long-form audiobook production with strong continuity, human approval gates, cost protection, quality control, mastering and retailer-ready packaging.
 
@@ -38,6 +38,7 @@ YasReady Audiobooks is being developed as a standalone service first so audioboo
 - 0.14.2 Book One Casting Candidate Discovery — searches the shared professional voice catalog, ranks and uniquely stages Wave 1 candidates, extracts canonical audition samples, previews audition cost, and preserves a hard zero-generation boundary
 - 0.14.2.1 Catalog Auth Fallback & Discovery UX Hotfix — retries logged-out ElevenLabs filtered-catalog failures against the public unfiltered catalog, reapplies all safety filters locally, reports auth mode honestly, and preserves the zero-spend boundary
 - 0.14.2.2 Anonymous Catalog Pagination & Auth UX — detects ElevenLabs' logged-out 3-voice page limit, paginates the public catalog in safe 3-voice pages, counts fallback HTTP calls honestly, and recommends API-key discovery only if anonymous browsing cannot fill Wave 1
+- 0.14.3 Casting Fit & Audition Script Hardening — makes Book One role fit outweigh generic catalog safety, blocks hard-fit mismatches from audition recommendations, removes print-only front matter from Narrator audition scripts, tightens metadata distinctiveness, and adds a local Casting Review Board with preview players plus Keep / Maybe / Pass export
 
 ## Book One Superman
 
@@ -121,6 +122,13 @@ npm run external:fixture
 ### ElevenLabs catalog authentication fallback
 
 ElevenLabs may reject filtered shared-catalog browsing for logged-out callers and may cap anonymous pages at 3 voices. 0.14.2.2 detects both behaviors, paginates the public catalog at the allowed page size, and reapplies the same English/professional-or-high-quality/180-day/no-custom-rate/no-live-moderation policy locally. If anonymous browsing still cannot fill Wave 1, set `ELEVENLABS_API_KEY` in the shell and rerun. Catalog discovery remains read-only and performs zero TTS generation.
+
+
+### Casting Review Board
+
+A real `casting-discover --out ...` run now writes `casting-review.html`. Open it locally in Safari or another browser to listen to provider previews and mark each candidate **Keep**, **Maybe**, or **Pass**. Decisions autosave in browser local storage and can be exported as `casting-review-decisions.json` with **Export Audition Choices**. The board contains no API key and cannot render paid audio.
+
+0.14.3 also prevents copyright/front-matter text from becoming Narrator audition material and excludes hard casting-fit mismatches from the recommended audition plan.
 
 ## SaaS Money Guard
 

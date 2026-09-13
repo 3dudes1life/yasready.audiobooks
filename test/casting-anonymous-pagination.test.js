@@ -34,8 +34,8 @@ function voice(index, overrides = {}) {
   };
 }
 
-test('0.14.2.2 is current application provenance', () => {
-  assert.equal(YASREADY_AUDIOBOOKS_VERSION, '0.14.2.2');
+test('0.14.3 is current application provenance', () => {
+  assert.equal(YASREADY_AUDIOBOOKS_VERSION, '0.14.3');
 });
 
 test('logged-out filter 401 plus public >3 401 automatically falls back to page_size=3', async () => {
@@ -113,11 +113,16 @@ test('anonymous 3-voice pagination can fill the complete Wave 1 shortlist safely
           name: `Public ${i}`,
           description: 'warm natural conversational audiobook storytelling voice',
           category: 'professional',
+          accent: 'american',
+          gender: 'male',
+          age: 'middle_aged',
           language: 'en',
+          useCase: 'conversational',
+          descriptives: ['warm', 'natural', 'expressive'],
           noticePeriodDays: 365,
           hasCustomRate: false,
           liveModerationEnabled: false,
-          verifiedLanguages: [{ language: 'en', locale: 'en-US' }],
+          verifiedLanguages: [{ language: 'en', locale: 'en-US', accent: 'american' }],
           previewUrl: `https://example.test/public-${i}.mp3`
         })),
         hasMore: page < 20,

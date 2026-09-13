@@ -1,9 +1,9 @@
 {
   "name": "@yasready/audiobooks",
-  "version": "0.14.2.2",
+  "version": "0.14.3",
   "private": true,
   "type": "module",
-  "description": "YasReady Audiobooks Anonymous Catalog Pagination & Auth UX, Book One Casting Candidate Discovery, Production Provenance, External Book Superman, SaaS Money Guard, Production, QA, Mastering and Distribution",
+  "description": "YasReady Audiobooks Casting Fit & Audition Script Hardening, Book One Casting Candidate Discovery, Production Provenance, External Book Superman, SaaS Money Guard, Production, QA, Mastering and Distribution",
   "engines": {
     "node": ">=20"
   },
@@ -28,6 +28,7 @@
     "casting:launch:fixture": "node src/cli.js casting-launch-fixture",
     "casting:discover:fixture": "node src/cli.js casting-discover-fixture",
     "casting:catalog:fixture": "node --test test/casting-catalog-auth-fallback.test.js",
-    "casting:anonymous:fixture": "node --test test/casting-anonymous-pagination.test.js"
+    "casting:anonymous:fixture": "node --test test/casting-anonymous-pagination.test.js",
+    "casting:fit:fixture": "node --test test/casting-fit-audition-hardening.test.js"
   }
 }
