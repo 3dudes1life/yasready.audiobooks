@@ -1,9 +1,9 @@
 {
   "name": "@yasready/audiobooks",
-  "version": "0.14.3.4",
+  "version": "0.14.3.5",
   "private": true,
   "type": "module",
-  "description": "YasReady Audiobooks Single Narrator Casting Pivot, Character Truth & Preview Integrity, Production, QA, Mastering and Distribution",
+  "description": "YasReady Audiobooks Human Taste Calibration & Narrator Search Refinement, Single Narrator Casting, Production, QA, Mastering and Distribution",
   "engines": {
     "node": ">=20"
   },
@@ -33,6 +33,7 @@
     "casting:cultural:fixture": "node --test test/casting-cultural-fit-hardening.test.js",
     "casting:biography:fixture": "node --test test/casting-character-biography.test.js",
     "casting:truth-preview:fixture": "node --test test/casting-truth-preview-integrity.test.js",
-    "casting:single-narrator:fixture": "node --test test/single-narrator-casting-pivot.test.js"
+    "casting:single-narrator:fixture": "node --test test/single-narrator-casting-pivot.test.js",
+    "casting:taste:fixture": "node --test test/human-taste-narrator-refinement.test.js"
   }
 }

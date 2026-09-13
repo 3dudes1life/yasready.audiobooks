@@ -27,6 +27,43 @@ const SOCAL_SIGNALS = freeze([
   'californian', 'west coast'
 ]);
 
+const US_PREVIEW_ACCENTS = freeze([
+  'american', 'neutral', 'california', 'californian', 'west coast',
+  'southern california', 'socal', 'san diego', 'los angeles'
+]);
+
+const HUMAN_TASTE_POSITIVE_SIGNALS = freeze([
+  'low', 'smooth', 'conversational', 'personable', 'warm', 'natural',
+  'grounded', 'confident', 'intimate', 'expressive', 'charismatic', 'romance'
+]);
+
+const HUMAN_TASTE_NEGATIVE_SIGNALS = freeze([
+  'podcast host', 'documentary', 'documentaries', 'business', 'history',
+  'tutorial', 'tutorials', 'customer support', 'announcer', 'commercial',
+  'corporate', 'explainer'
+]);
+
+export const BOOK_ONE_NARRATOR_TASTE_PROFILE = freeze({
+  version: 'book-one-human-v1',
+  source: 'operator-human-review-round-1',
+  learningScope: 'provider-metadata-associated-with-human-decisions-only',
+  acousticSimilarityLearned: false,
+  target: 'young US-born/US-English Latino American male with a low, smooth, conversational, personable, strong contemporary delivery',
+  preferredAges: freeze(['young', 'young adult']),
+  allowedPreviewLocales: freeze(['en-US']),
+  allowedPreviewAccents: US_PREVIEW_ACCENTS,
+  positiveSignals: HUMAN_TASTE_POSITIVE_SIGNALS,
+  negativeSignals: HUMAN_TASTE_NEGATIVE_SIGNALS,
+  hardExcludeMiddleAged: true,
+  hardExcludeNonUsEnglishPreview: true,
+  notes: freeze([
+    'Human review strongly preferred young, conversational and personable over documentary/announcer styling.',
+    'Middle-aged catalog voices consumed shortlist slots but were rejected by the operator.',
+    'A selected English preview with a non-US regional accent should not qualify for this Book One narrator.',
+    'This calibration does not analyze acoustic similarity and never infers ethnicity from voice sound or name.'
+  ])
+});
+
 export const SINGLE_NARRATOR_PROFILE = freeze({
   label: 'Young, strong Southern California Latino American romance narrator',
   characterContext: 'One narrator performs the entire audiobook. Audible target: young, strong, warm, confident contemporary Southern California / West Coast American English. Explicit Latino/Latin-American/Hispanic provider metadata is required for auto-audition; identity is never inferred from the voice name or preview sound, and no stereotyped Spanish accent is required.',
@@ -51,13 +88,16 @@ export const SINGLE_NARRATOR_PROFILE = freeze({
     signals: SOCAL_SIGNALS
   }),
   searchTerms: freeze([
-    'latino american narrator',
-    'latino american',
-    'hispanic american',
-    'southern california',
-    'california west coast',
-    'young male narrator',
-    'strong romance narrator'
+    'young latino american conversational male',
+    'us born latino male',
+    'young hispanic american male',
+    'smooth latino american male',
+    'conversational latino narrator',
+    'southern california latino male',
+    'california latino american',
+    'san diego latino narrator',
+    'young male romance narrator',
+    'smooth personable male narrator'
   ])
 });
 
@@ -208,6 +248,84 @@ export function scoreSingleNarratorFit(voice) {
     hardMismatch,
     stretchFlags: freeze(stretchFlags),
     preferenceSource: 'Book One operator creative direction for single-narrator production'
+  });
+}
+
+
+export function scoreSingleNarratorTasteFit(voice) {
+  const text = audibleMetadataText(voice);
+  const positiveSignals = explicitMatches(text, HUMAN_TASTE_POSITIVE_SIGNALS);
+  const negativeSignals = explicitMatches(text, HUMAN_TASTE_NEGATIVE_SIGNALS);
+  const age = norm(voice?.age);
+  const previewLocale = clean(voice?.selectedEnglishProfile?.locale ?? voice?.locale);
+  const previewAccent = norm(voice?.selectedEnglishProfile?.accent ?? voice?.accent);
+  const useCase = norm(voice?.useCase);
+  const flags = [];
+  let score = 45;
+
+  const young = age === 'young' || age === 'young adult';
+  const middleAged = /middle aged|senior|old|elder/.test(age);
+  if (young) score += 22;
+  else if (age === 'adult') score += 5;
+  else if (middleAged) {
+    score -= 32;
+    flags.push(freeze({
+      code: 'human-taste-age-hard-exclude',
+      severity: 'hard',
+      note: `Human review rejected the middle-aged narrator cluster; ${voice?.age ?? 'this age'} is outside the Book One taste target.`
+    }));
+  }
+
+  const usLocale = previewLocale === 'en-US';
+  const usAccent = US_PREVIEW_ACCENTS.some((signal) => {
+    const wanted = norm(signal);
+    return previewAccent === wanted || previewAccent.includes(wanted) || wanted.includes(previewAccent);
+  });
+  if (usLocale && usAccent) score += 18;
+  else {
+    score -= 28;
+    flags.push(freeze({
+      code: 'human-taste-preview-region-hard-exclude',
+      severity: 'hard',
+      note: `Selected English preview ${previewLocale || 'unknown locale'} / ${previewAccent || 'unknown accent'} is outside the US-American/California narrator target.`
+    }));
+  }
+
+  if (useCase === 'conversational') score += 15;
+  else if (/narrative story|narration|audiobook|storytelling/.test(useCase)) score += 4;
+
+  score += Math.min(25, positiveSignals.length * 5);
+  score -= Math.min(35, negativeSignals.length * 10);
+
+  // Descriptions that explicitly read like a human-personality profile are more useful
+  // than generic content-category metadata.
+  if (/\bpersonable\b/.test(text)) score += 7;
+  if (/\bsmooth\b/.test(text)) score += 6;
+  if (/\blow\b/.test(text)) score += 4;
+  if (/\breal guy\b/.test(text)) score += 3;
+
+  const hardExcludeFromShortlist = Boolean(
+    BOOK_ONE_NARRATOR_TASTE_PROFILE.hardExcludeMiddleAged && middleAged ||
+    BOOK_ONE_NARRATOR_TASTE_PROFILE.hardExcludeNonUsEnglishPreview && (!usLocale || !usAccent)
+  );
+  const auditionEligible = !hardExcludeFromShortlist && young && score >= 78;
+
+  score = clamp(Math.round(score), 0, 100);
+  return freeze({
+    applicable: true,
+    score,
+    grade: score >= 90 ? 'excellent' : score >= 80 ? 'strong' : score >= 68 ? 'possible' : 'weak',
+    profileVersion: BOOK_ONE_NARRATOR_TASTE_PROFILE.version,
+    positiveSignals: freeze(positiveSignals),
+    negativeSignals: freeze(negativeSignals),
+    youngTargetMet: young,
+    usPreviewTargetMet: usLocale && usAccent,
+    auditionEligible,
+    hardExcludeFromShortlist,
+    flags: freeze(flags),
+    source: BOOK_ONE_NARRATOR_TASTE_PROFILE.source,
+    learningScope: BOOK_ONE_NARRATOR_TASTE_PROFILE.learningScope,
+    acousticSimilarityLearned: false
   });
 }
 

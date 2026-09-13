@@ -7,7 +7,9 @@ import {
   buildSingleNarratorPerformanceGuide,
   renderSingleNarratorPerformanceGuideMarkdown,
   scoreSingleNarratorCulturalFit,
-  scoreSingleNarratorFit
+  scoreSingleNarratorFit,
+  scoreSingleNarratorTasteFit,
+  BOOK_ONE_NARRATOR_TASTE_PROFILE
 } from '../casting/single-narrator.js';
 import { YASREADY_AUDIOBOOKS_VERSION } from '../release.js';
 
@@ -576,6 +578,7 @@ function singleNarratorCandidateScore(voice) {
   const safety = scoreSeriesSafety(voice, { desiredLanguage: 'en' });
   const fit = scoreSingleNarratorFit(voice);
   const culturalFit = scoreSingleNarratorCulturalFit(voice);
+  const tasteFit = scoreSingleNarratorTasteFit(voice);
   const biographyFit = freeze({
     applicable: false,
     score: null,
@@ -586,24 +589,32 @@ function singleNarratorCandidateScore(voice) {
     concerns: freeze([]),
     metadataScope: 'character-biographies-are-performance-direction-in-single-narrator-mode'
   });
-  let combined = Number((safety.score * 0.25 + fit.score * 0.50 + culturalFit.score * 0.25).toFixed(1));
-  combined = Number((combined * 0.9 + previewIntegrity.score * 0.1).toFixed(1));
+  let combined = Number((
+    safety.score * 0.15 +
+    fit.score * 0.30 +
+    culturalFit.score * 0.20 +
+    tasteFit.score * 0.35
+  ).toFixed(1));
+  combined = Number((combined * 0.92 + previewIntegrity.score * 0.08).toFixed(1));
 
   const strengths = [...safety.reasons];
   if (previewIntegrity.ready) strengths.push(`English preview selected (${previewIntegrity.locale ?? 'locale not listed'}${previewIntegrity.accent ? ` / ${previewIntegrity.accent}` : ''})`);
   if (fit.matchedKeywords?.length) strengths.push(`narrator-fit metadata: ${fit.matchedKeywords.join(', ')}`);
   if (fit.regionalMatches?.length) strengths.push(`Southern California / West Coast metadata: ${fit.regionalMatches.join(', ')}`);
   if (culturalFit.matchedSignals?.length) strengths.push(`explicit Latino cultural metadata: ${culturalFit.matchedSignals.join(', ')}`);
+  if (tasteFit.positiveSignals?.length) strengths.push(`human-taste metadata: ${tasteFit.positiveSignals.join(', ')}`);
 
   const concerns = [
     ...safety.warnings,
     ...(fit.stretchFlags ?? []).map((row) => row.note),
     ...(culturalFit.flags ?? []).map((row) => row.note),
+    ...(tasteFit.flags ?? []).map((row) => row.note),
+    ...(tasteFit.negativeSignals?.length ? [`Human review penalizes content-style metadata: ${tasteFit.negativeSignals.join(', ')}`] : []),
     ...(!previewIntegrity.coreAuditionEligible ? [`Catalog-primary language ${previewIntegrity.primaryLanguage ?? 'unknown'} is not eligible for the English-first narrator shortlist.`] : [])
   ];
 
   return freeze({
-    voice, safety, fit, culturalFit, biographyFit, previewIntegrity, combined,
+    voice, safety, fit, culturalFit, tasteFit, biographyFit, previewIntegrity, combined,
     strengths: freeze(strengths),
     concerns: freeze(concerns)
   });
@@ -612,8 +623,9 @@ function singleNarratorCandidateScore(voice) {
 function singleNarratorRecommendation(candidate, rank, auditionTop) {
   if (!candidate.previewIntegrity?.ready || !candidate.previewIntegrity?.coreAuditionEligible) return 'PASS';
   if (candidate.fit.hardMismatch || candidate.fit.score < 72) return 'PASS';
+  if (candidate.tasteFit?.hardExcludeFromShortlist) return 'PASS';
   if (candidate.culturalFit.requiredForAudition && !candidate.culturalFit.requirementMet) return 'ALTERNATE';
-  if (rank <= auditionTop && candidate.fit.score >= 82) return 'AUDITION';
+  if (rank <= auditionTop && candidate.fit.score >= 78 && candidate.tasteFit?.auditionEligible && candidate.tasteFit.score >= 80) return 'AUDITION';
   return 'ALTERNATE';
 }
 
@@ -622,8 +634,10 @@ function chooseSingleNarratorShortlist(waveOne, voices, { perRole = 6, auditionT
   if (!target) throw new Error('Single narrator casting requires a Narrator target in Wave 1');
   const ranked = voices
     .map((voice) => singleNarratorCandidateScore(voice))
+    .filter((candidate) => !candidate.tasteFit?.hardExcludeFromShortlist)
     .sort((a, b) =>
       b.combined - a.combined ||
+      b.tasteFit.score - a.tasteFit.score ||
       b.fit.score - a.fit.score ||
       b.culturalFit.score - a.culturalFit.score ||
       b.safety.score - a.safety.score ||
@@ -920,6 +934,7 @@ function compactShortlists(shortlists, prep, launch) {
         seriesSafety: candidate.safety,
         roleFit: candidate.fit,
         culturalFit: candidate.culturalFit,
+        tasteFit: candidate.tasteFit ?? null,
         biographyFit: candidate.biographyFit,
         previewIntegrity: candidate.previewIntegrity,
         combinedScore: candidate.combined,
@@ -963,6 +978,7 @@ export function renderCastingDiscoveryMarkdown(discovery) {
         `   - Series safety: ${candidate.seriesSafety.score}/100 (${candidate.seriesSafety.grade})`,
         `   - Role fit: ${candidate.roleFit.score}/100 (${candidate.roleFit.grade ?? 'ungraded'})`,
         ...(candidate.culturalFit?.applicable ? [`   - Cultural fit: ${candidate.culturalFit.score}/100 (${candidate.culturalFit.requirementMet ? 'metadata signal satisfied' : 'explicit signal missing'})`] : []),
+        ...(candidate.tasteFit?.applicable ? [`   - Human taste fit: ${candidate.tasteFit.score}/100 (${candidate.tasteFit.grade}; metadata calibration only)`] : []),
         ...(candidate.biographyFit?.applicable ? [`   - Full-book biography fit: ${candidate.biographyFit.score}/100 (${candidate.biographyFit.requirementMet ? 'preferred evidence target met' : 'preferred evidence target missing'})`] : []),
         `   - Selected English preview: ${v.previewLanguage ?? 'not listed'} / ${v.previewLocale ?? 'not listed'} / ${v.previewAccent ?? 'not listed'}`,
         `   - Catalog-primary language: ${v.catalogPrimaryLanguage ?? 'not listed'}`,
@@ -1110,10 +1126,12 @@ for(const role of DISCOVERY.shortlists){
    const scores=el('div','scores');
    const scoreRows=[['Overall',c.combinedScore],['Role fit',c.roleFit.score],['Safety',c.seriesSafety.score]];
    let insertAt=2;
+   if(c.tasteFit?.applicable){scoreRows.splice(insertAt,0,['Human taste',c.tasteFit.score]);insertAt+=1}
    if(c.culturalFit?.applicable){scoreRows.splice(insertAt,0,['Cultural fit',c.culturalFit.score]);insertAt+=1}
    if(c.biographyFit?.applicable)scoreRows.splice(insertAt,0,['Book fit',c.biographyFit.score]);
    for(const [label,value] of scoreRows){const s=el('div','score');s.append(el('strong','',value));s.append(document.createTextNode(label));scores.append(s)}
    card.append(scores);
+   if(c.tasteFit?.applicable){const taste=el('div','concerns','Human taste fit is calibrated from your prior Keep / Maybe / Pass judgments against provider metadata only. It does not claim acoustic similarity.');card.append(taste)}
    if(c.culturalFit?.applicable){const policy=el('div','concerns','Cultural fit uses explicit provider catalog metadata only — never the voice sound or name. '+(c.culturalFit.requirementMet?'Relevant signal found.':'Required signal not found.'));card.append(policy)}
    if(c.biographyFit?.applicable&&c.biographyFit.preferredAuditionRequirement){const policy=el('div','concerns','Full-book voice target: '+(c.biographyFit.requirementMet?'preferred regional/background metadata found.':'preferred regional/background metadata not found; shown as an alternate rather than auto-audition.'));card.append(policy)}
    if(c.concerns?.length)card.append(el('div','concerns',c.concerns.slice(0,3).join(' • ')));
@@ -1128,7 +1146,7 @@ for(const role of DISCOVERY.shortlists){
 function paint(card,id){const d=decisions[id]?.decision;for(const b of card.querySelectorAll('.decision'))b.classList.toggle('active',b.classList.contains(d))}
 document.getElementById('clear').onclick=()=>{if(confirm('Clear every local Keep / Maybe / Pass decision?')){decisions={};save();for(const card of document.querySelectorAll('.card'))paint(card,card.dataset.id);for(const t of document.querySelectorAll('textarea'))t.value=''}};
 document.getElementById('export').onclick=()=>{
- const rows=DISCOVERY.shortlists.flatMap(role=>role.candidates.map(c=>({role,c}))).map(({role,c})=>({...decisions[c.id],candidateId:c.id,character:role.character,voiceId:c.voice.providerVoiceId,voiceName:c.voice.name,yasReadyRecommendation:c.recommendation,roleFit:c.roleFit.score,culturalFit:c.culturalFit?.applicable?c.culturalFit.score:null,culturalRequirementMet:c.culturalFit?.requirementMet??true,biographyFit:c.biographyFit?.applicable?c.biographyFit.score:null,biographyRequirementMet:c.biographyFit?.requirementMet??true,seriesSafety:c.seriesSafety.score})).filter(x=>x.decision||x.notes);
+ const rows=DISCOVERY.shortlists.flatMap(role=>role.candidates.map(c=>({role,c}))).map(({role,c})=>({...decisions[c.id],candidateId:c.id,character:role.character,voiceId:c.voice.providerVoiceId,voiceName:c.voice.name,yasReadyRecommendation:c.recommendation,roleFit:c.roleFit.score,tasteFit:c.tasteFit?.applicable?c.tasteFit.score:null,tasteProfileVersion:c.tasteFit?.profileVersion||null,culturalFit:c.culturalFit?.applicable?c.culturalFit.score:null,culturalRequirementMet:c.culturalFit?.requirementMet??true,biographyFit:c.biographyFit?.applicable?c.biographyFit.score:null,biographyRequirementMet:c.biographyFit?.requirementMet??true,seriesSafety:c.seriesSafety.score})).filter(x=>x.decision||x.notes);
  const auditionCandidateIds=rows.filter(x=>x.decision==='keep'||x.decision==='maybe').map(x=>x.candidateId);
  const payload={schemaVersion:1,release:DISCOVERY.release,artifactFingerprint:DISCOVERY.artifactFingerprint,book:DISCOVERY.book,exportedAt:new Date().toISOString(),decisions:rows,auditionCandidateIds,armed:false,moneyGuardApprovalRequiredBeforeRendering:true};
  const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='casting-review-decisions.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
@@ -1138,14 +1156,14 @@ updateSummary();
 }
 
 export function renderCastingDiscoveryCsv(discovery) {
-  const header = ['character', 'rank', 'recommendation', 'candidate_id', 'character_id', 'provider', 'voice_name', 'voice_id', 'combined_score', 'series_safety_score', 'series_safety_grade', 'role_fit_score', 'cultural_fit_score', 'cultural_requirement_met', 'biography_fit_score', 'biography_requirement_met', 'preview_language', 'preview_locale', 'preview_accent', 'catalog_primary_language', 'accent', 'age', 'gender', 'use_case', 'notice_days', 'preview_url', 'candidate_status', 'audition_status', 'operator_decision', 'notes'];
+  const header = ['character', 'rank', 'recommendation', 'candidate_id', 'character_id', 'provider', 'voice_name', 'voice_id', 'combined_score', 'series_safety_score', 'series_safety_grade', 'role_fit_score', 'human_taste_fit_score', 'taste_profile_version', 'cultural_fit_score', 'cultural_requirement_met', 'biography_fit_score', 'biography_requirement_met', 'preview_language', 'preview_locale', 'preview_accent', 'catalog_primary_language', 'accent', 'age', 'gender', 'use_case', 'notice_days', 'preview_url', 'candidate_status', 'audition_status', 'operator_decision', 'notes'];
   const lines = [header.map(csvCell).join(',')];
   for (const row of discovery.shortlists) for (const candidate of row.candidates) {
     const v = candidate.voice;
     lines.push([
       row.character, candidate.rank, candidate.recommendation, candidate.id, candidate.characterId,
       v.provider, v.name, v.providerVoiceId, candidate.combinedScore, candidate.seriesSafety.score,
-      candidate.seriesSafety.grade, candidate.roleFit.score, candidate.culturalFit?.applicable ? candidate.culturalFit.score : '', candidate.culturalFit?.requirementMet ?? true, candidate.biographyFit?.applicable ? candidate.biographyFit.score : '', candidate.biographyFit?.requirementMet ?? true, v.previewLanguage, v.previewLocale, v.previewAccent, v.catalogPrimaryLanguage, v.accent, v.age, v.gender, v.useCase,
+      candidate.seriesSafety.grade, candidate.roleFit.score, candidate.tasteFit?.applicable ? candidate.tasteFit.score : '', candidate.tasteFit?.profileVersion ?? '', candidate.culturalFit?.applicable ? candidate.culturalFit.score : '', candidate.culturalFit?.requirementMet ?? true, candidate.biographyFit?.applicable ? candidate.biographyFit.score : '', candidate.biographyFit?.requirementMet ?? true, v.previewLanguage, v.previewLocale, v.previewAccent, v.catalogPrimaryLanguage, v.accent, v.age, v.gender, v.useCase,
       v.noticePeriodDays, v.previewUrl, candidate.candidateStatus, candidate.auditionStatus, '', ''
     ].map(csvCell).join(','));
   }
@@ -1254,6 +1272,8 @@ export class BookOneCastingDiscoveryService {
           ? 'character-intelligence-used-for-performance-direction-not-separate-actor-selection'
           : characterBiographies ? 'full-manuscript-semantic-truth-plus-selected-english-profile' : 'not-supplied',
         castingMode,
+        humanTasteProfileVersion: singleNarratorMode ? BOOK_ONE_NARRATOR_TASTE_PROFILE.version : null,
+        humanTasteLearningScope: singleNarratorMode ? BOOK_ONE_NARRATOR_TASTE_PROFILE.learningScope : null,
         previewLanguagePolicy: 'english-primary-or-unspecified-with-selected-english-preview',
         multilingualMetadataLeakageBlocked: true
       }),
@@ -1286,6 +1306,11 @@ export class BookOneCastingDiscoveryService {
         narratorPerformsLeadDialogue: singleNarratorMode,
         narratorExplicitLatinoMetadataRequiredForAutoAudition: singleNarratorMode,
         narratorSouthernCaliforniaRegionalPreference: singleNarratorMode,
+        humanTasteMetadataCalibrationActive: singleNarratorMode,
+        humanTasteProfileVersion: singleNarratorMode ? BOOK_ONE_NARRATOR_TASTE_PROFILE.version : null,
+        humanTasteAcousticInferencePerformed: false,
+        middleAgedNarratorShortlistBlocked: singleNarratorMode,
+        nonUsEnglishPreviewShortlistBlocked: singleNarratorMode,
         biographyIdentityInferenceFromName: false,
         biographyIdentityInferenceFromAudio: false,
         biographyProximityOnlyAttributionAllowed: false,
@@ -1396,7 +1421,10 @@ export class BookOneCastingDiscoveryService {
       if (eligibleVoices.length === before) noGrowthPages += 1;
       else noGrowthPages = 0;
 
-      if (eligibleVoices.length >= targetEligibleCount) break;
+      const viableEligibleCount = singleNarratorMode
+        ? eligibleVoices.filter((voice) => !scoreSingleNarratorTasteFit(voice).hardExcludeFromShortlist).length
+        : eligibleVoices.length;
+      if (viableEligibleCount >= targetEligibleCount) break;
       if (!result.hasMore) break;
       if (noGrowthPages >= 3) break;
       page += 1;
@@ -1465,8 +1493,11 @@ export class BookOneCastingDiscoveryService {
       }
     }
 
+    const viableCatalogCount = singleNarratorMode
+      ? eligibleVoices.filter((voice) => !scoreSingleNarratorTasteFit(voice).hardExcludeFromShortlist).length
+      : eligibleVoices.length;
     const catalogAuthRecommended = Boolean(
-      anonymousFallbackUsed && eligibleVoices.length < targetEligibleCount
+      anonymousFallbackUsed && viableCatalogCount < targetEligibleCount
     );
 
     return this.build({

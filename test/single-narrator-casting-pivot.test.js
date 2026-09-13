@@ -41,8 +41,8 @@ function voice(overrides = {}) {
   };
 }
 
-test('0.14.3.4 is current application provenance', () => {
-  assert.equal(YASREADY_AUDIOBOOKS_VERSION, '0.14.3.4');
+test('0.14.3.5 is current application provenance', () => {
+  assert.equal(YASREADY_AUDIOBOOKS_VERSION, '0.14.3.5');
 });
 
 test('single narrator target is young strong Southern California Latino American without acoustic identity inference', () => {
