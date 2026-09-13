@@ -303,8 +303,8 @@ test('0.11.4 prep accounting uses applied narrator routing as the single quoted-
     const store = new InMemoryStore();
     const service = new BookOneAudioBiblePrepService(store);
     const result = await service.runFile(file);
-    assert.equal(result.prep.release, '0.14.3.19');
-    assert.equal(result.prep.provenance.applicationRelease, '0.14.3.19');
+    assert.equal(result.prep.release, '0.14.3.20');
+    assert.equal(result.prep.provenance.applicationRelease, '0.14.3.20');
     assert.equal(result.prep.provenance.prepEngineRelease, '0.11.8');
     assert.equal(result.prep.intelligence.resolutionCounts.narratorRouted, result.prep.dialogueReview.quotedNarrationSegments);
     assert.equal(result.prep.providerCallsPerformed, 0);
@@ -399,10 +399,10 @@ test('0.11.5 prep exports explicit Superman engine provenance instead of a stale
     const store = new InMemoryStore();
     const service = new BookOneAudioBiblePrepService(store);
     const result = await service.runFile(file);
-    assert.equal(result.prep.release, '0.14.3.19');
+    assert.equal(result.prep.release, '0.14.3.20');
     assert.equal(result.prep.schemaVersion, 8);
-    assert.equal(result.prep.provenance.applicationRelease, '0.14.3.19');
-    assert.equal(result.prep.provenance.artifactRelease, '0.14.3.19');
+    assert.equal(result.prep.provenance.applicationRelease, '0.14.3.20');
+    assert.equal(result.prep.provenance.artifactRelease, '0.14.3.20');
     assert.equal(result.prep.provenance.prepEngineRelease, '0.11.8');
     assert.equal(result.prep.provenance.supermanEngineRelease, result.prep.superman.engineRelease);
     assert.equal(result.prep.audioBible.lockEngineRelease, result.prep.gates.productionReady ? '0.11.8' : null);
@@ -597,9 +597,9 @@ test('0.11.8 persists pronunciation defaults but does not lock below a Superman 
     const store = new InMemoryStore();
     const service = new BookOneAudioBiblePrepService(store);
     const result = await service.runFile(file);
-    assert.equal(result.prep.release, '0.14.3.19');
+    assert.equal(result.prep.release, '0.14.3.20');
     assert.equal(result.prep.schemaVersion, 8);
-    assert.equal(result.prep.provenance.applicationRelease, '0.14.3.19');
+    assert.equal(result.prep.provenance.applicationRelease, '0.14.3.20');
     assert.equal(result.prep.provenance.prepEngineRelease, '0.11.8');
     assert.equal(result.prep.dialogueReview.needsReview, 0);
     assert.equal(result.prep.pronunciationReview.needsConfirmation, 0);
