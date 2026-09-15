@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import {
   YASREADY_AUDIOBOOKS_VERSION,
   sha256,
@@ -9,7 +12,8 @@ import {
   upsertBookOneHumanPauseDecision,
   verifyBookOneHumanPauseReview,
   buildBookOnePauseRepairPlan,
-  renderBookOneHumanPauseReviewHtml
+  renderBookOneHumanPauseReviewHtml,
+  resolveBookOnePauseSourceAudio
 } from '../src/index.js';
 
 function auditCore(value) {
@@ -90,3 +94,46 @@ test('review dashboard exposes bounded A/B actions and explicit decisions', () =
   assert.match(html, /Listening never counts as approval/);
   assert.match(html, /12|1 boundaries YasReady could not safely localize/);
 });
+
+test('stale absolute source path relocates only through an exact digest match', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'yasready-pause-relocate-'));
+  try {
+    const movedDir = path.join(root, 'moved', 'distribution', 'direct-owned');
+    await mkdir(movedDir, { recursive: true });
+    const moved = path.join(movedDir, '001-Chapter-1-Departure.mp3');
+    const bytes = Buffer.from('digest-locked-audio-fixture');
+    await writeFile(moved, bytes);
+    const digest = sha256(bytes.toString('base64'));
+    const resolved = await resolveBookOnePauseSourceAudio({
+      storedPath: path.join(root, 'deleted-old-location', '001-Chapter-1-Departure.mp3'),
+      expectedDigest: digest,
+      chapterNumber: 1,
+      searchRoots: [root]
+    });
+    assert.equal(resolved.file, moved);
+    assert.equal(resolved.relocated, true);
+    assert.equal(resolved.resolution, 'RELOCATED_DIGEST_MATCH');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('relocation refuses same-name audio when the digest does not match', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'yasready-pause-relocate-wrong-'));
+  try {
+    const moved = path.join(root, '001-Chapter-1-Departure.mp3');
+    await writeFile(moved, Buffer.from('wrong-audio'));
+    await assert.rejects(
+      resolveBookOnePauseSourceAudio({
+        storedPath: path.join(root, 'gone', '001-Chapter-1-Departure.mp3'),
+        expectedDigest: sha256(Buffer.from('expected-audio').toString('base64')),
+        chapterNumber: 1,
+        searchRoots: [root]
+      }),
+      /no digest-matching relocated copy/i
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+

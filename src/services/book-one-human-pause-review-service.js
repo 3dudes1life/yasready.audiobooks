@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile, stat, rm, mkdtemp } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, stat, rm, mkdtemp, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { YASREADY_AUDIOBOOKS_VERSION } from '../release.js';
@@ -34,6 +34,111 @@ const round = (value, digits = 3) => {
 };
 const exists = async (file) => { try { await stat(file); return true; } catch { return false; } };
 const fileDigest = async (file) => sha256((await readFile(file)).toString('base64'));
+const SEARCH_SKIP_DIRS = new Set(['.git', 'node_modules', '.next', 'dist', 'build', 'Library', '.Trash']);
+
+function uniqueExistingSearchRoots(values = []) {
+  const seen = new Set();
+  const out = [];
+  for (const value of values) {
+    if (!value) continue;
+    const resolved = path.resolve(String(value));
+    if (seen.has(resolved)) continue;
+    seen.add(resolved);
+    out.push(resolved);
+  }
+  return out;
+}
+
+async function firstExistingAncestor(file) {
+  if (!file) return null;
+  let current = path.resolve(String(file));
+  while (true) {
+    if (await exists(current)) {
+      try {
+        const s = await stat(current);
+        return s.isDirectory() ? current : path.dirname(current);
+      } catch { return null; }
+    }
+    const parent = path.dirname(current);
+    if (parent === current) return null;
+    current = parent;
+  }
+}
+
+function looksLikeChapterAudio(name, chapterNumber, expectedBasename) {
+  if (name === expectedBasename) return 0;
+  const lower = String(name).toLowerCase();
+  if (!lower.endsWith('.mp3')) return null;
+  const padded = String(Number(chapterNumber)).padStart(3, '0');
+  if (lower.startsWith(`${padded}-`)) return 1;
+  if (new RegExp(`(?:^|[-_.\\s])chapter[-_.\\s]*0*${Number(chapterNumber)}(?:[-_.\\s]|$)`, 'i').test(name)) return 2;
+  return null;
+}
+
+async function discoverRelocatedAudioCandidates(root, { chapterNumber, expectedBasename, maxEntries = 12000, maxCandidates = 250 } = {}) {
+  if (!root || !(await exists(root))) return [];
+  const queue = [path.resolve(root)];
+  const candidates = [];
+  let visited = 0;
+  while (queue.length && visited < maxEntries && candidates.length < maxCandidates) {
+    const dir = queue.shift();
+    let entries;
+    try { entries = await readdir(dir, { withFileTypes: true }); } catch { continue; }
+    for (const entry of entries) {
+      visited += 1;
+      if (visited > maxEntries) break;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (!SEARCH_SKIP_DIRS.has(entry.name) && !entry.name.startsWith('.')) queue.push(full);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      const rank = looksLikeChapterAudio(entry.name, chapterNumber, expectedBasename);
+      if (rank != null) candidates.push({ file: full, rank });
+      if (candidates.length >= maxCandidates) break;
+    }
+  }
+  return candidates.sort((a, b) => a.rank - b.rank || a.file.localeCompare(b.file));
+}
+
+export async function resolveBookOnePauseSourceAudio({ storedPath, expectedDigest, chapterNumber, searchRoots = [] } = {}) {
+  const original = storedPath ? path.resolve(String(storedPath)) : null;
+  if (!expectedDigest) throw new Error(`Chapter ${chapterNumber} source audio digest is missing`);
+  if (original && await exists(original)) {
+    const digest = await fileDigest(original);
+    if (digest !== expectedDigest) {
+      throw new Error(`Chapter ${chapterNumber} source audio exists but its digest changed; relocation search refused`);
+    }
+    return freeze({ file: original, digest, relocated: false, resolution: 'AUDIT_PATH_DIGEST_MATCH', storedPath: original, searchedRoots: freeze([]) });
+  }
+
+  const ancestor = original ? await firstExistingAncestor(original) : null;
+  const roots = uniqueExistingSearchRoots([ancestor, ...searchRoots]);
+  const basename = original ? path.basename(original) : '';
+  const checked = new Set();
+  for (const root of roots) {
+    const candidates = await discoverRelocatedAudioCandidates(root, { chapterNumber, expectedBasename: basename });
+    for (const candidate of candidates) {
+      const resolved = path.resolve(candidate.file);
+      if (checked.has(resolved)) continue;
+      checked.add(resolved);
+      const digest = await fileDigest(resolved);
+      if (digest === expectedDigest) {
+        return freeze({
+          file: resolved,
+          digest,
+          relocated: original ? resolved !== original : true,
+          resolution: 'RELOCATED_DIGEST_MATCH',
+          storedPath: original,
+          searchedRoots: freeze(roots)
+        });
+      }
+    }
+  }
+
+  const searched = roots.length ? roots.join(', ') : '(no usable search roots)';
+  throw new Error(`Chapter ${chapterNumber} source audio is missing from its audit path and no digest-matching relocated copy was found. Stored path: ${original ?? '—'}. Searched: ${searched}. Re-run with --audio-root /path/to/folder if the Cinematic MP3s were moved elsewhere.`);
+}
 const decisionKey = (chapterNumber, boundaryOrdinal) => `${Number(chapterNumber)}:${Number(boundaryOrdinal)}`;
 const safeSlug = (value) => String(value ?? '').replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'item';
 const htmlEscape = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
@@ -285,7 +390,7 @@ async function writeFixedPreview({ ffmpeg, originalPreviewPath, fixedPreviewPath
   ], { maxBuffer: 8 * 1024 * 1024 });
 }
 
-export async function prepareBookOneHumanPauseReview({ audit, outDir, ffmpeg = new FfmpegAdapter() } = {}) {
+export async function prepareBookOneHumanPauseReview({ audit, outDir, ffmpeg = new FfmpegAdapter(), audioSearchRoots = [] } = {}) {
   const plan = buildBookOneHumanPauseReviewPlan(audit);
   const health = await ffmpeg.healthCheck();
   if (!health?.ok) throw new Error(`Human Pause Review requires local FFmpeg + FFprobe: ${health?.reason ?? 'health check failed'}`);
@@ -294,21 +399,26 @@ export async function prepareBookOneHumanPauseReview({ audit, outDir, ffmpeg = n
   const previewDir = path.join(root, 'previews');
   await mkdir(previewDir, { recursive: true });
   const previewRows = [];
+  const resolvedByChapter = new Map();
 
   for (const candidate of plan.candidates) {
-    if (!candidate.sourceAudioFile || !(await exists(candidate.sourceAudioFile))) {
-      throw new Error(`Chapter ${candidate.chapterNumber} source audio is missing: ${candidate.sourceAudioFile}`);
-    }
-    const currentDigest = await fileDigest(candidate.sourceAudioFile);
-    if (currentDigest !== candidate.sourceAudioDigest) {
-      throw new Error(`Chapter ${candidate.chapterNumber} source audio digest changed before Human Pause Review preview generation`);
+    const sourceKey = `${candidate.chapterNumber}:${candidate.sourceAudioDigest}`;
+    let resolvedSource = resolvedByChapter.get(sourceKey);
+    if (!resolvedSource) {
+      resolvedSource = await resolveBookOnePauseSourceAudio({
+        storedPath: candidate.sourceAudioFile,
+        expectedDigest: candidate.sourceAudioDigest,
+        chapterNumber: candidate.chapterNumber,
+        searchRoots: audioSearchRoots
+      });
+      resolvedByChapter.set(sourceKey, resolvedSource);
     }
     if (!Number.isFinite(candidate.silenceStartMs) || !Number.isFinite(candidate.silenceEndMs)) continue;
     const startMs = Math.max(0, candidate.silenceStartMs - BOOK_ONE_HUMAN_PAUSE_REVIEW_POLICY.previewBeforeMs);
     const endMs = Math.min(candidate.sourceDurationMs, candidate.silenceEndMs + BOOK_ONE_HUMAN_PAUSE_REVIEW_POLICY.previewAfterMs);
     const stem = `chapter-${String(candidate.chapterNumber).padStart(2, '0')}-boundary-${String(candidate.boundaryOrdinal + 1).padStart(3, '0')}-${safeSlug(candidate.kind)}`;
     const originalFile = path.join(previewDir, `${stem}-original.wav`);
-    await ffmpeg.extract(candidate.sourceAudioFile, { startMs, endMs, outputPath: originalFile });
+    await ffmpeg.extract(resolvedSource.file, { startMs, endMs, outputPath: originalFile });
     let fixedFile = null;
     if (candidate.classification === 'LOCAL_REPAIR_SAFE' && Number(candidate.proposedDeltaMs) > 0) {
       fixedFile = path.join(previewDir, `${stem}-preview-fix.wav`);
@@ -322,7 +432,11 @@ export async function prepareBookOneHumanPauseReview({ audit, outDir, ffmpeg = n
       fixedRelativePath: fixedFile ? path.relative(root, fixedFile).split(path.sep).join('/') : null,
       previewStartMs: round(startMs),
       previewEndMs: round(endMs),
-      sourceAudioDigest: candidate.sourceAudioDigest
+      sourceAudioDigest: candidate.sourceAudioDigest,
+      sourceAuditAudioFile: candidate.sourceAudioFile,
+      resolvedSourceAudioFile: resolvedSource.file,
+      sourceAudioRelocated: resolvedSource.relocated,
+      sourceAudioResolution: resolvedSource.resolution
     }));
   }
 
@@ -339,7 +453,8 @@ export async function prepareBookOneHumanPauseReview({ audit, outDir, ffmpeg = n
       providerTtsCallsPerformed: 0,
       providerSpendUsd: 0,
       sourceAudioWritesPerformed: 0,
-      derivativePreviewWritesPerformed: previewRows.length + previewRows.filter((row) => row.fixedRelativePath).length
+      derivativePreviewWritesPerformed: previewRows.length + previewRows.filter((row) => row.fixedRelativePath).length,
+      relocatedSourceAudioFiles: new Set(previewRows.filter((row) => row.sourceAudioRelocated).map((row) => row.resolvedSourceAudioFile)).size
     }),
     guardrails: freeze({
       sourceAudioImmutable: true,
@@ -412,7 +527,7 @@ function nearestSilence(silences, expectedMidpointMs) {
     .sort((a, b) => a.distance - b.distance)[0]?.row ?? null;
 }
 
-export async function applyBookOneApprovedPauseRepairs({ audit, review, outDir, ffmpeg = new FfmpegAdapter() } = {}) {
+export async function applyBookOneApprovedPauseRepairs({ audit, review, outDir, ffmpeg = new FfmpegAdapter(), audioSearchRoots = [] } = {}) {
   const repairPlan = buildBookOnePauseRepairPlan({ audit, review });
   if (repairPlan.approvedRepairs < 1) throw new Error('No APPROVE_LOCAL_REPAIR decisions are present; nothing will be written');
   const health = await ffmpeg.healthCheck();
@@ -425,10 +540,14 @@ export async function applyBookOneApprovedPauseRepairs({ audit, review, outDir, 
 
   for (const chapterPlan of repairPlan.chapters) {
     const first = chapterPlan.repairs[0];
-    if (!(await exists(first.sourceAudioFile))) throw new Error(`Chapter ${chapterPlan.chapterNumber} source audio is missing`);
-    const sourceDigest = await fileDigest(first.sourceAudioFile);
-    if (sourceDigest !== first.sourceAudioDigest) throw new Error(`Chapter ${chapterPlan.chapterNumber} source audio digest changed; repair refused`);
-    const probe = await ffmpeg.probe(first.sourceAudioFile);
+    const resolvedSource = await resolveBookOnePauseSourceAudio({
+      storedPath: first.sourceAudioFile,
+      expectedDigest: first.sourceAudioDigest,
+      chapterNumber: chapterPlan.chapterNumber,
+      searchRoots: audioSearchRoots
+    });
+    const sourceFile = resolvedSource.file;
+    const probe = await ffmpeg.probe(sourceFile);
     const temp = await mkdtemp(path.join(tmpdir(), `yasready-pause-repair-ch${chapterPlan.chapterNumber}-`));
     const outputFile = path.join(repairedDir, `chapter-${String(chapterPlan.chapterNumber).padStart(2, '0')}-pause-repaired.mp3`);
     try {
@@ -439,7 +558,7 @@ export async function applyBookOneApprovedPauseRepairs({ audit, review, outDir, 
         const insertionMs = Number(repair.silenceEndMs);
         if (insertionMs <= cursorMs || insertionMs >= first.sourceDurationMs) throw new Error(`Invalid repair insertion coordinate for Chapter ${chapterPlan.chapterNumber}`);
         const segment = path.join(temp, `segment-${String(parts.length).padStart(3, '0')}.wav`);
-        await ffmpeg.extract(first.sourceAudioFile, { startMs: cursorMs, endMs: insertionMs, outputPath: segment });
+        await ffmpeg.extract(sourceFile, { startMs: cursorMs, endMs: insertionMs, outputPath: segment });
         parts.push(segment);
         const silence = path.join(temp, `silence-${String(index).padStart(3, '0')}.wav`);
         await createSilenceWav(ffmpeg, silence, repair.deltaMs, probe.channels);
@@ -448,7 +567,7 @@ export async function applyBookOneApprovedPauseRepairs({ audit, review, outDir, 
       }
       if (cursorMs < first.sourceDurationMs) {
         const tail = path.join(temp, `segment-${String(parts.length).padStart(3, '0')}.wav`);
-        await ffmpeg.extract(first.sourceAudioFile, { startMs: cursorMs, endMs: first.sourceDurationMs, outputPath: tail });
+        await ffmpeg.extract(sourceFile, { startMs: cursorMs, endMs: first.sourceDurationMs, outputPath: tail });
         parts.push(tail);
       }
       const combined = path.join(temp, 'combined.wav');
@@ -486,7 +605,10 @@ export async function applyBookOneApprovedPauseRepairs({ audit, review, outDir, 
       const outputDigest = await fileDigest(outputFile);
       chapterResults.push(freeze({
         chapterNumber: chapterPlan.chapterNumber,
-        sourceAudioFile: first.sourceAudioFile,
+        sourceAudioFile: sourceFile,
+        sourceAuditAudioFile: first.sourceAudioFile,
+        sourceAudioRelocated: resolvedSource.relocated,
+        sourceAudioResolution: resolvedSource.resolution,
         sourceAudioDigest: first.sourceAudioDigest,
         repairedAudioFile: outputFile,
         repairedAudioRelativePath: path.relative(root, outputFile).split(path.sep).join('/'),
@@ -519,7 +641,8 @@ export async function applyBookOneApprovedPauseRepairs({ audit, review, outDir, 
       boundariesVerified: chapterResults.reduce((sum, chapter) => sum + chapter.repairs.filter((row) => row.verified).length, 0),
       providerTtsCallsPerformed: 0,
       providerSpendUsd: 0,
-      sourceAudioFilesOverwritten: 0
+      sourceAudioFilesOverwritten: 0,
+      relocatedSourceAudioFiles: chapterResults.filter((row) => row.sourceAudioRelocated).length
     }),
     chapters: freeze(chapterResults),
     guardrails: freeze({

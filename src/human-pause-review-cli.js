@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { readFile, writeFile, rename, mkdir, stat } from 'node:fs/promises';
 import path from 'node:path';
+import { homedir } from 'node:os';
 import { spawn } from 'node:child_process';
 import {
   YASREADY_AUDIOBOOKS_VERSION,
@@ -18,6 +19,20 @@ import {
 const args = process.argv.slice(2);
 const command = args[0];
 function flag(name, fallback = null) { const index = args.indexOf(name); return index >= 0 && index + 1 < args.length ? args[index + 1] : fallback; }
+function flags(name) { const values = []; for (let i = 0; i < args.length - 1; i += 1) if (args[i] === name) values.push(args[i + 1]); return values; }
+function uniquePaths(values) { return [...new Set(values.filter(Boolean).map((value) => path.resolve(String(value))))]; }
+function defaultAudioSearchRoots(auditPath, out) {
+  const home = homedir();
+  return uniquePaths([
+    ...flags('--audio-root'),
+    path.dirname(path.resolve(auditPath)),
+    path.resolve(out),
+    path.dirname(path.resolve(out)),
+    path.join(home, 'Desktop'),
+    path.join(home, 'Downloads'),
+    path.join(home, 'Documents')
+  ]);
+}
 async function json(file) { return JSON.parse(await readFile(path.resolve(file), 'utf8')); }
 async function exists(file) { try { await stat(file); return true; } catch { return false; } }
 async function atomicJson(file, value) {
@@ -60,7 +75,8 @@ async function prepare({ serverMode = false } = {}) {
   verifyBookOnePauseDeficitAudit(audit);
   const root = path.resolve(out);
   await mkdir(root, { recursive: true });
-  const prepared = await prepareBookOneHumanPauseReview({ audit, outDir: root });
+  const audioSearchRoots = defaultAudioSearchRoots(auditPath, root);
+  const prepared = await prepareBookOneHumanPauseReview({ audit, outDir: root, audioSearchRoots });
   const reviewPath = path.join(root, 'book-one-human-pause-review.json');
   let review = buildInitialBookOneHumanPauseReview(audit);
   if (await exists(reviewPath)) {
@@ -71,7 +87,7 @@ async function prepare({ serverMode = false } = {}) {
   await atomicJson(manifestPath, prepared.manifest);
   const dashboardPath = path.join(root, 'book-one-human-pause-review.html');
   await writeFile(dashboardPath, renderBookOneHumanPauseReviewHtml({ audit, previewManifest: prepared.manifest, serverMode }));
-  return { audit, root, reviewPath, dashboardPath, manifestPath, manifest: prepared.manifest };
+  return { audit, root, reviewPath, dashboardPath, manifestPath, manifest: prepared.manifest, audioSearchRoots };
 }
 
 async function prepareCommand() {
@@ -96,7 +112,8 @@ async function applyCommand() {
   const [audit, review] = await Promise.all([json(auditPath), json(reviewPath)]);
   verifyBookOnePauseDeficitAudit(audit);
   verifyBookOneHumanPauseReview(review, audit);
-  const result = await applyBookOneApprovedPauseRepairs({ audit, review, outDir: path.resolve(out) });
+  const audioSearchRoots = defaultAudioSearchRoots(auditPath, out);
+  const result = await applyBookOneApprovedPauseRepairs({ audit, review, outDir: path.resolve(out), audioSearchRoots });
   verifyBookOneApprovedPauseRepairResult(result);
   const resultJson = path.join(path.resolve(out), 'book-one-pause-repair-result.json');
   const resultMd = path.join(path.resolve(out), 'book-one-pause-repair-result.md');
@@ -147,7 +164,7 @@ async function serveCommand() {
       }
       if (req.method === 'POST' && url.pathname === '/api/apply') {
         const review = await json(reviewPath); verifyBookOneHumanPauseReview(review, audit);
-        const result = await applyBookOneApprovedPauseRepairs({ audit, review, outDir: root });
+        const result = await applyBookOneApprovedPauseRepairs({ audit, review, outDir: root, audioSearchRoots: prepared.audioSearchRoots });
         verifyBookOneApprovedPauseRepairResult(result);
         await atomicJson(repairResultPath, result);
         await writeFile(path.join(root, 'book-one-pause-repair-result.md'), renderBookOnePauseRepairResultMarkdown(result));
@@ -177,6 +194,7 @@ async function serveCommand() {
   console.log(`Review page: ${url}`);
   console.log(`Autosave JSON: ${reviewPath}`);
   console.log('0 provider calls / 0 TTS / source audio immutable / Chapter 11 OFF');
+  console.log(`Relocation search roots: ${prepared.audioSearchRoots.join(' · ')}`);
   console.log('Keep this Terminal window open while using the review page. Press Control-C when finished.\n');
   openBrowser(url);
   const shutdown = () => server.close(() => process.exit(0));
