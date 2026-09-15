@@ -398,6 +398,185 @@ export function buildBookOnePauseDeficitAudit({
   return freeze({ ...base, integrity: freeze({ auditDigest: sha256(stableJson(auditCore(base))) }) });
 }
 
+
+function stripPriorPauseLocalization(boundary) {
+  const {
+    expectedTimestampMs,
+    localizedTimestampMs,
+    localizationDistanceMs,
+    localizationBasis,
+    localizationConfidence,
+    silenceCandidateIndex,
+    silenceStartMs,
+    silenceEndMs,
+    classification,
+    actualSilenceMs,
+    deficitMs,
+    repairReady,
+    deficitProven,
+    ...structural
+  } = boundary ?? {};
+  return freeze({ ...structural });
+}
+
+export function relocalizeBookOnePauseDeficitAudit({
+  priorAudit,
+  cinematicResult,
+  audioEvidence,
+  policy = BOOK_ONE_PAUSE_AUDIT_POLICY
+} = {}) {
+  verifyBookOnePauseDeficitAudit(priorAudit);
+  verifyBookOneCinematicRebuildResult(cinematicResult);
+
+  if (cinematicResult.progress?.allTenComplete !== true || (cinematicResult.chapters ?? []).length !== 10) {
+    throw new Error('Pause recovery requires a complete ten-chapter cinematic result');
+  }
+  if (!priorAudit.source?.productionPlanDigest ||
+      priorAudit.source.productionPlanDigest !== cinematicResult.source?.productionPlanDigest) {
+    throw new Error('Pause recovery production-plan lineage mismatch');
+  }
+  if (!priorAudit.source?.cinematicLockDigest ||
+      priorAudit.source.cinematicLockDigest !== cinematicResult.cinematicLockDigest) {
+    throw new Error('Pause recovery cinematic-lock lineage mismatch');
+  }
+  if (!priorAudit.source?.manuscriptSourceHash ||
+      priorAudit.source.manuscriptSourceHash !== cinematicResult.book?.sourceHash) {
+    throw new Error('Pause recovery manuscript source hash mismatch');
+  }
+  if (!audioEvidence || (audioEvidence.chapters ?? []).length !== 10) {
+    throw new Error('Pause recovery requires verified current audio evidence for all ten chapters');
+  }
+
+  const resultByChapter = new Map((cinematicResult.chapters ?? []).map((row) => [Number(row.chapterNumber), row]));
+  const audioByChapter = new Map((audioEvidence.chapters ?? []).map((row) => [Number(row.chapterNumber), row]));
+  const priorChapters = [...(priorAudit.chapters ?? [])].sort((a, b) => Number(a.chapterNumber) - Number(b.chapterNumber));
+  if (priorChapters.length !== 10) throw new Error(`Pause recovery expected 10 prior audited chapters; found ${priorChapters.length}`);
+
+  const chapters = priorChapters.map((priorChapter) => {
+    const chapterNumber = Number(priorChapter.chapterNumber);
+    const resultChapter = resultByChapter.get(chapterNumber);
+    const audio = audioByChapter.get(chapterNumber);
+    if (!resultChapter) throw new Error(`Pause recovery current cinematic result is missing Chapter ${chapterNumber}`);
+    if (!audio) throw new Error(`Pause recovery current audio evidence is missing Chapter ${chapterNumber}`);
+
+    const priorTitle = clean(priorChapter.title);
+    const currentTitle = clean(resultChapter.title);
+    if (priorTitle && currentTitle && priorTitle !== currentTitle) {
+      throw new Error(`Pause recovery chapter title drifted for Chapter ${chapterNumber}`);
+    }
+    if (!resultChapter.digests?.directMp3 || resultChapter.digests.directMp3 !== audio.actualDigest) {
+      throw new Error(`Pause recovery current Direct MP3 digest evidence disagrees for Chapter ${chapterNumber}`);
+    }
+
+    const structuralChapter = freeze({
+      chapterNumber,
+      order: Number(priorChapter.sourceOrder ?? chapterNumber - 1),
+      title: priorChapter.title,
+      paragraphCount: Number(priorChapter.paragraphCount ?? 0),
+      sceneCount: Number(priorChapter.sceneCount ?? 0),
+      boundaries: freeze((priorChapter.boundaries ?? []).map(stripPriorPauseLocalization))
+    });
+    const boundaries = localizeChapter(structuralChapter, audio, policy);
+    const count = (classification) => boundaries.filter((row) => row.classification === classification).length;
+    return freeze({
+      chapterNumber,
+      sourceOrder: Number(priorChapter.sourceOrder ?? chapterNumber - 1),
+      title: priorChapter.title,
+      paragraphCount: Number(priorChapter.paragraphCount ?? 0),
+      sceneCount: Number(priorChapter.sceneCount ?? 0),
+      audio: freeze({
+        file: audio.audioFile,
+        fileUrl: audio.audioFileUrl,
+        digest: audio.actualDigest,
+        durationMs: audio.durationMs,
+        detectedSilenceIntervals: (audio.silences ?? []).length
+      }),
+      summary: freeze({
+        structuralBoundaries: boundaries.length,
+        localizedHighConfidence: boundaries.filter((row) => Number(row.localizationConfidence) >= policy.highConfidenceThreshold).length,
+        passNoChange: count('PASS_NO_CHANGE'),
+        localRepairSafe: count('LOCAL_REPAIR_SAFE'),
+        deficitCandidatesNeedingManualConfirmation: count('DEFICIT_CANDIDATE_NEEDS_MANUAL_CONFIRMATION'),
+        unresolved: count('NEEDS_MANUAL_ALIGNMENT_REVIEW')
+      }),
+      boundaries
+    });
+  });
+
+  const all = chapters.flatMap((chapter) => chapter.boundaries);
+  const count = (classification) => all.filter((row) => row.classification === classification).length;
+  const base = {
+    schemaVersion: 1,
+    release: YASREADY_AUDIOBOOKS_VERSION,
+    artifact: 'book-one-pause-localization-deficit-audit',
+    status: 'PAUSE_DEFICIT_AUDIT_COMPLETE_REPAIR_GATE_CLOSED',
+    source: freeze({
+      pausePlanDigest: priorAudit.source.pausePlanDigest ?? null,
+      recoveredFromAuditDigest: priorAudit.integrity.auditDigest,
+      recoveryMode: 'FRESH_WAVEFORM_RELOCALIZATION_FROM_VERIFIED_PRIOR_STRUCTURE',
+      priorTimingEvidenceReused: false,
+      priorAudioDigestsReused: false,
+      productionPlanDigest: cinematicResult.source.productionPlanDigest,
+      cinematicLockDigest: cinematicResult.cinematicLockDigest,
+      cinematicResultDigest: cinematicResult.integrity.resultDigest,
+      manuscriptSourceHash: priorAudit.source.manuscriptSourceHash,
+      chapterAudioDigests: freeze(audioEvidence.chapters.map((row) => freeze({
+        chapterNumber: row.chapterNumber,
+        digest: row.actualDigest
+      })))
+    }),
+    policy: freeze({ ...policy }),
+    summary: freeze({
+      chaptersAudited: chapters.length,
+      chapterAudioFilesDigestVerified: audioEvidence.chapters.length,
+      structuralBoundaries: all.length,
+      localizedHighConfidence: all.filter((row) => Number(row.localizationConfidence) >= policy.highConfidenceThreshold).length,
+      passNoChange: count('PASS_NO_CHANGE'),
+      deficitCandidates: count('LOCAL_REPAIR_SAFE') + count('DEFICIT_CANDIDATE_NEEDS_MANUAL_CONFIRMATION'),
+      localRepairSafe: count('LOCAL_REPAIR_SAFE'),
+      deficitCandidatesNeedingManualConfirmation: count('DEFICIT_CANDIDATE_NEEDS_MANUAL_CONFIRMATION'),
+      unresolved: count('NEEDS_MANUAL_ALIGNMENT_REVIEW'),
+      providerRegenerationDecisionsMade: 0,
+      canonicalWordsChanged: false,
+      providerTtsCallsPerformed: 0,
+      providerSpendUsd: 0,
+      audioWritesPerformed: 0
+    }),
+    chapters: freeze(chapters),
+    repairAssessment: freeze({
+      repairPerformed: false,
+      repairAuthorizationCreated: false,
+      safeLocalAssemblyDeficits: count('LOCAL_REPAIR_SAFE'),
+      surgicalCandidatesAwaitingHumanConfirmation: count('DEFICIT_CANDIDATE_NEEDS_MANUAL_CONFIRMATION'),
+      unresolvedBoundaries: count('NEEDS_MANUAL_ALIGNMENT_REVIEW'),
+      regenerationDecision: 'NOT_EVALUATED_AND_NOT_AUTHORIZED',
+      nextAction: 'Use Human Pause Review on this freshly relocalized audit. Old timing evidence was discarded; only current digest-verified waveforms were measured.'
+    }),
+    guardrails: freeze({
+      readOnlyAudit: true,
+      canonicalTextImmutable: true,
+      canonicalWordsChanged: false,
+      audioDigestsVerifiedBeforeMeasurement: true,
+      recoveryRelocalizationOnly: true,
+      priorTimingEvidenceReused: false,
+      priorAudioBytesRequired: false,
+      providerCallsPerformed: 0,
+      providerTtsCallsPerformed: 0,
+      providerSpendUsd: 0,
+      audioWritesPerformed: 0,
+      repairAudioWritten: false,
+      repairAuthorized: false,
+      providerRegenerationAuthorized: false,
+      chapterElevenMayBeGenerated: false,
+      nextBatchArmed: false,
+      fullBookGenerationArmed: false
+    })
+  };
+  const recovered = freeze({ ...base, integrity: freeze({ auditDigest: sha256(stableJson(auditCore(base))) }) });
+  verifyBookOnePauseDeficitAudit(recovered);
+  return recovered;
+}
+
 export function verifyBookOnePauseDeficitAudit(audit) {
   if (!audit || audit.artifact !== 'book-one-pause-localization-deficit-audit') throw new Error('Invalid Book One pause deficit audit');
   if (audit.status !== 'PAUSE_DEFICIT_AUDIT_COMPLETE_REPAIR_GATE_CLOSED') throw new Error('Pause deficit audit status drifted');

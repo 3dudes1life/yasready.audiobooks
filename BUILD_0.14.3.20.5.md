@@ -22,3 +22,15 @@
 - Only an exact digest match may bind to the historical pause audit.
 - If the audited MP3 is truly gone, old timing evidence is refused and a fresh Pause Deficit Audit is required.
 - No provider/TTS calls. Originals remain immutable.
+
+
+## R5 — Fresh Waveform Recovery Bridge
+
+- Stops retrying an old Pause Deficit Audit when its exact audited MP3 bytes no longer exist.
+- Requires a complete current 10-chapter cinematic result.
+- Requires exact match of production-plan digest, cinematic-lock digest and manuscript source hash to the prior audit.
+- Verifies all 10 current Direct MP3 files against the current cinematic result's own locked SHA-256 digests.
+- Reuses only structural pause intent from the prior audit; every old timestamp, silence coordinate, classification and deficit measurement is discarded.
+- Runs fresh local FFmpeg silence detection and fresh localization against the current verified waveforms.
+- Writes a new immutable recovery audit and only then opens Human Pause Review.
+- Zero provider/TTS calls. No audio overwrite. Chapter 11, next batch and full-book generation remain OFF.
