@@ -20,7 +20,12 @@ const args = process.argv.slice(2);
 const command = args[0];
 function flag(name, fallback = null) { const index = args.indexOf(name); return index >= 0 && index + 1 < args.length ? args[index + 1] : fallback; }
 function flags(name) { const values = []; for (let i = 0; i < args.length - 1; i += 1) if (args[i] === name) values.push(args[i + 1]); return values; }
-function uniquePaths(values) { return [...new Set(values.filter(Boolean).map((value) => path.resolve(String(value))))]; }
+function uniquePaths(values) {
+  return [...new Set(values.filter(Boolean)
+    .map((value) => String(value).trim())
+    .filter((value) => value && value !== '/path/to/your/audio/folder')
+    .map((value) => path.resolve(value)))];
+}
 function defaultAudioSearchRoots(auditPath, out) {
   const home = homedir();
   return uniquePaths([
@@ -30,7 +35,8 @@ function defaultAudioSearchRoots(auditPath, out) {
     path.dirname(path.resolve(out)),
     path.join(home, 'Desktop'),
     path.join(home, 'Downloads'),
-    path.join(home, 'Documents')
+    path.join(home, 'Documents'),
+    home
   ]);
 }
 async function json(file) { return JSON.parse(await readFile(path.resolve(file), 'utf8')); }

@@ -1,6 +1,8 @@
 import { mkdir, readFile, writeFile, stat, rm, mkdtemp, readdir } from 'node:fs/promises';
 import path from 'node:path';
-import { tmpdir } from 'node:os';
+import { tmpdir, homedir } from 'node:os';
+import { execFile as execFileCb } from 'node:child_process';
+import { promisify } from 'node:util';
 import { YASREADY_AUDIOBOOKS_VERSION } from '../release.js';
 import { sha256, stableJson } from '../core/hash.js';
 import { FfmpegAdapter } from '../mastering/ffmpeg-adapter.js';
@@ -34,6 +36,7 @@ const round = (value, digits = 3) => {
 };
 const exists = async (file) => { try { await stat(file); return true; } catch { return false; } };
 const fileDigest = async (file) => sha256((await readFile(file)).toString('base64'));
+const execFile = promisify(execFileCb);
 const SEARCH_SKIP_DIRS = new Set(['.git', 'node_modules', '.next', 'dist', 'build', 'Library', '.Trash']);
 
 function uniqueExistingSearchRoots(values = []) {
@@ -101,7 +104,64 @@ async function discoverRelocatedAudioCandidates(root, { chapterNumber, expectedB
   return candidates.sort((a, b) => a.rank - b.rank || a.file.localeCompare(b.file));
 }
 
-export async function resolveBookOnePauseSourceAudio({ storedPath, expectedDigest, chapterNumber, searchRoots = [] } = {}) {
+
+function candidateRankFromPath(file, chapterNumber, expectedBasename) {
+  return looksLikeChapterAudio(path.basename(file), chapterNumber, expectedBasename);
+}
+
+async function runCandidateCommand(command, args, { maxBuffer = 8 * 1024 * 1024, timeoutMs = 2500 } = {}) {
+  try {
+    const { stdout } = await execFile(command, args, { maxBuffer, timeout: timeoutMs, killSignal: 'SIGKILL' });
+    return String(stdout ?? '').split('\n').map((x) => x.trim()).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+async function discoverMacWideAudioCandidates({ chapterNumber, expectedBasename } = {}) {
+  const out = [];
+  const seen = new Set();
+  const add = (file, source) => {
+    if (!file) return;
+    const resolved = path.resolve(file);
+    if (seen.has(resolved)) return;
+    const rank = candidateRankFromPath(resolved, chapterNumber, expectedBasename);
+    if (rank == null) return;
+    seen.add(resolved);
+    out.push({ file: resolved, rank, source });
+  };
+
+  if (process.platform === 'darwin') {
+    const escapedBase = String(expectedBasename ?? '').replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    const chapter = Number(chapterNumber);
+    const padded = String(chapter).padStart(3, '0');
+    const queries = [
+      escapedBase ? `kMDItemFSName == "${escapedBase}"c` : null,
+      `kMDItemFSName == "${padded}-*.mp3"c`,
+      `kMDItemFSName == "*Chapter*${chapter}*.mp3"c`
+    ].filter(Boolean);
+    for (const query of queries) {
+      const rows = await runCandidateCommand('mdfind', [query]);
+      for (const row of rows) add(row, 'SPOTLIGHT');
+    }
+  }
+
+  const roots = [homedir(), '/Volumes'];
+  const expected = String(expectedBasename ?? '');
+  const padded = String(Number(chapterNumber)).padStart(3, '0');
+  for (const root of roots) {
+    if (!(await exists(root))) continue;
+    const args = [root, '-type', 'f', '('];
+    if (expected) args.push('-iname', expected, '-o');
+    args.push('-iname', `${padded}-*.mp3`, '-o', '-iname', `*chapter*${Number(chapterNumber)}*.mp3`, ')');
+    const rows = await runCandidateCommand('/usr/bin/find', args, { maxBuffer: 16 * 1024 * 1024, timeoutMs: 4000 });
+    for (const row of rows) add(row, root === '/Volumes' ? 'MOUNTED_VOLUME_FIND' : 'HOME_FIND');
+  }
+
+  return out.sort((a, b) => a.rank - b.rank || a.file.localeCompare(b.file));
+}
+
+export async function resolveBookOnePauseSourceAudio({ storedPath, expectedDigest, chapterNumber, searchRoots = [], allowMacWideSearch = true } = {}) {
   const original = storedPath ? path.resolve(String(storedPath)) : null;
   if (!expectedDigest) throw new Error(`Chapter ${chapterNumber} source audio digest is missing`);
   if (original && await exists(original)) {
@@ -116,28 +176,50 @@ export async function resolveBookOnePauseSourceAudio({ storedPath, expectedDiges
   const roots = uniqueExistingSearchRoots([ancestor, ...searchRoots]);
   const basename = original ? path.basename(original) : '';
   const checked = new Set();
+
+  const tryCandidate = async (file, resolution, searchedRoots = roots) => {
+    const resolved = path.resolve(file);
+    if (checked.has(resolved) || !(await exists(resolved))) return null;
+    checked.add(resolved);
+    const digest = await fileDigest(resolved);
+    if (digest !== expectedDigest) return null;
+    return freeze({
+      file: resolved,
+      digest,
+      relocated: original ? resolved !== original : true,
+      resolution,
+      storedPath: original,
+      searchedRoots: freeze(searchedRoots)
+    });
+  };
+
   for (const root of roots) {
     const candidates = await discoverRelocatedAudioCandidates(root, { chapterNumber, expectedBasename: basename });
     for (const candidate of candidates) {
-      const resolved = path.resolve(candidate.file);
-      if (checked.has(resolved)) continue;
-      checked.add(resolved);
-      const digest = await fileDigest(resolved);
-      if (digest === expectedDigest) {
-        return freeze({
-          file: resolved,
-          digest,
-          relocated: original ? resolved !== original : true,
-          resolution: 'RELOCATED_DIGEST_MATCH',
-          storedPath: original,
-          searchedRoots: freeze(roots)
-        });
-      }
+      const hit = await tryCandidate(candidate.file, 'RELOCATED_DIGEST_MATCH');
+      if (hit) return hit;
     }
   }
 
-  const searched = roots.length ? roots.join(', ') : '(no usable search roots)';
-  throw new Error(`Chapter ${chapterNumber} source audio is missing from its audit path and no digest-matching relocated copy was found. Stored path: ${original ?? '—'}. Searched: ${searched}. Re-run with --audio-root /path/to/folder if the Cinematic MP3s were moved elsewhere.`);
+  if (allowMacWideSearch) {
+    const macWide = await discoverMacWideAudioCandidates({ chapterNumber, expectedBasename: basename });
+    for (const candidate of macWide) {
+      const hit = await tryCandidate(candidate.file, `MAC_WIDE_${candidate.source}_DIGEST_MATCH`, [...roots, 'macOS Spotlight', 'bounded home-folder search', 'bounded mounted-volume search']);
+      if (hit) return hit;
+    }
+  }
+
+  const searched = roots.length ? roots.join(', ') : '(no usable configured roots)';
+  if (!allowMacWideSearch) {
+    throw new Error(`Chapter ${chapterNumber} source audio is missing from its audit path and no digest-matching relocated copy was found. Stored path: ${original ?? '—'}. Searched: ${searched}.`);
+  }
+  throw new Error(
+    `Chapter ${chapterNumber} audited source audio is truly unavailable after exact-digest recovery. ` +
+    `Stored path: ${original ?? '—'}. Checked configured roots: ${searched}. ` +
+    `Also checked bounded macOS Spotlight, home-folder search, and mounted-volume search. ` +
+    `YasReady will not substitute a different MP3 for an old timing audit. ` +
+    `Create a fresh Pause Deficit Audit from the current Chapter ${chapterNumber} cinematic audio before reviewing or repairing this boundary.`
+  );
 }
 const decisionKey = (chapterNumber, boundaryOrdinal) => `${Number(chapterNumber)}:${Number(boundaryOrdinal)}`;
 const safeSlug = (value) => String(value ?? '').replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'item';

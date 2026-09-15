@@ -11,3 +11,14 @@
 - Preview generation and approved repairs both use the same digest-verified resolver.
 - Original audio remains immutable; provider/TTS calls remain zero; Chapter 11/full-book generation remain OFF.
 - Existing bounded A/B preview, explicit human approval, derivative repair and post-repair waveform proof remain unchanged.
+
+
+## R4 — Mac-wide audited audio recovery
+
+- Historical source path remains immutable evidence.
+- Resolver requires the original locked SHA-256 digest.
+- macOS Spotlight searches the full indexed machine.
+- Targeted find fallback searches the home folder and mounted volumes for plausible chapter MP3 names.
+- Only an exact digest match may bind to the historical pause audit.
+- If the audited MP3 is truly gone, old timing evidence is refused and a fresh Pause Deficit Audit is required.
+- No provider/TTS calls. Originals remain immutable.

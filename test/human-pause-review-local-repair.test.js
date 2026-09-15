@@ -128,7 +128,8 @@ test('relocation refuses same-name audio when the digest does not match', async 
         storedPath: path.join(root, 'gone', '001-Chapter-1-Departure.mp3'),
         expectedDigest: sha256(Buffer.from('expected-audio').toString('base64')),
         chapterNumber: 1,
-        searchRoots: [root]
+        searchRoots: [root],
+        allowMacWideSearch: false
       }),
       /no digest-matching relocated copy/i
     );
@@ -137,3 +138,26 @@ test('relocation refuses same-name audio when the digest does not match', async 
   }
 });
 
+
+
+test('R4 resolver includes Mac-wide exact-digest recovery without weakening digest identity', async () => {
+  const source = await import('../src/services/book-one-human-pause-review-service.js');
+  assert.equal(typeof source.resolveBookOnePauseSourceAudio, 'function');
+  const fn = String(source.resolveBookOnePauseSourceAudio);
+  assert.match(fn, /discoverMacWideAudioCandidates/);
+  assert.match(fn, /expectedDigest/);
+  assert.match(fn, /truly unavailable/i);
+  assert.match(fn, /allowMacWideSearch/);
+});
+
+test('R4 Mac-wide recovery commands are hard-time-bounded', async () => {
+  const text = await (await import('node:fs/promises')).readFile(new URL('../src/services/book-one-human-pause-review-service.js', import.meta.url), 'utf8');
+  assert.match(text, /timeout:\s*timeoutMs/);
+  assert.match(text, /timeoutMs:\s*4000/);
+});
+
+test('R4 CLI ignores the documentation placeholder audio root', async () => {
+  const text = await (await import('node:fs/promises')).readFile(new URL('../src/human-pause-review-cli.js', import.meta.url), 'utf8');
+  assert.match(text, /value !== '\/path\/to\/your\/audio\/folder'/);
+  assert.match(text, /path\.join\(home, 'Documents'\),\s*home/);
+});
