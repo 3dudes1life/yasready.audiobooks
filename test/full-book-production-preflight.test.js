@@ -48,7 +48,7 @@ function provider(remaining=1_000_000){return{healthCheck:async()=>({ok:true,sta
 const ffmpeg={healthCheck:async()=>({ok:true,ffmpeg:'ffmpeg fixture',ffprobe:'ffprobe fixture'})};
 const disk=(gib=100)=>async(root)=>({root,availableBytes:gib*1024**3,availableGiB:gib});
 
-test('0.14.3.20.4 is current application provenance',()=>assert.equal(YASREADY_AUDIOBOOKS_VERSION,'0.14.3.20.4'));
+test('0.14.3.20.5 is current application provenance',()=>assert.equal(YASREADY_AUDIOBOOKS_VERSION,'0.14.3.20.5'));
 test('final Warm + Slightly Deeper finish lock validates exactly',()=>{const lock=finishLock();assert.equal(verifyBookOneLocalVoiceFinishLock(lock),true);assert.equal(lock.selectedVariant.semitones,-0.5);});
 test('recipe lock merges narrator performance pace and local finish without arming production',()=>{const p=plan(),f=finishLock();const r=buildBookOneProductionRecipeLock({productionPlan:p,localVoiceFinishLock:f});assert.equal(verifyBookOneProductionRecipeLock(r),true);assert.equal(r.narrator.name,'Ryan Kurk - Pleasant and Smooth');assert.equal(r.localVoiceFinish.id,'warm-slightly-deeper');assert.equal(r.pace.effectiveSpeed,1.25);assert.equal(r.guardrails.fullBookGenerationArmed,false);assert.equal(r.guardrails.providerTtsCallsPerformed,0);});
 test('tampered local finish digest fails closed',()=>{const f=finishLock();f.selectedVariant.semitones=-2;assert.throws(()=>verifyBookOneLocalVoiceFinishLock(f),/digest mismatch/i);});

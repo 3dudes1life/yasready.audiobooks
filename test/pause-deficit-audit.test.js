@@ -55,7 +55,7 @@ function audioEvidence() {
   })) };
 }
 
-test('0.14.3.20.4 is current application provenance', () => assert.equal(YASREADY_AUDIOBOOKS_VERSION, '0.14.3.20.4'));
+test('0.14.3.20.5 is current application provenance', () => assert.equal(YASREADY_AUDIOBOOKS_VERSION, '0.14.3.20.5'));
 
 test('silencedetect parser preserves measured start/end/duration', () => {
   const parsed = parseSilenceIntervals('[silencedetect @ x] silence_start: 1.2\n[silencedetect @ x] silence_end: 2.05 | silence_duration: 0.85\n', 5000);

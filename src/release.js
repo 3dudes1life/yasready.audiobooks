@@ -1,4 +1,4 @@
-export const YASREADY_AUDIOBOOKS_VERSION = '0.14.3.20.4';
+export const YASREADY_AUDIOBOOKS_VERSION = '0.14.3.20.5';
 export const BOOK_ONE_AUDIO_BIBLE_PREP_ENGINE_RELEASE = '0.11.8';
 
 export function productionProvenance({

@@ -265,8 +265,8 @@ function approval(cinematicLock, result) {
   return finalizeBookOneCinematicHumanReview({ session, decisions });
 }
 
-test('0.14.3.20.4 is current application provenance', () => {
-  assert.equal(YASREADY_AUDIOBOOKS_VERSION, '0.14.3.20.4');
+test('0.14.3.20.5 is current application provenance', () => {
+  assert.equal(YASREADY_AUDIOBOOKS_VERSION, '0.14.3.20.5');
 });
 
 test('continuation blueprint prepares Chapters 11-45 without spending or arming production', () => {

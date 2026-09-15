@@ -9,10 +9,10 @@ import { safeSectionFileName, evaluateMasterAgainstProfile, getMasteringProfile 
 import { getDistributionProfile } from '../distribution/profiles.js';
 
 export const BOOK_ONE_BATCH_ACCEPTED_PLAN_RELEASES = Object.freeze([
-  '0.14.3.13', '0.14.3.14', '0.14.3.14.1', '0.14.3.14.2', '0.14.3.15', '0.14.3.16', '0.14.3.17', '0.14.3.18', '0.14.3.18.1', '0.14.3.18.2', '0.14.3.19', '0.14.3.20', '0.14.3.20.1', '0.14.3.20.2', '0.14.3.20.3', '0.14.3.20.4'
+  '0.14.3.13', '0.14.3.14', '0.14.3.14.1', '0.14.3.14.2', '0.14.3.15', '0.14.3.16', '0.14.3.17', '0.14.3.18', '0.14.3.18.1', '0.14.3.18.2', '0.14.3.19', '0.14.3.20', '0.14.3.20.1', '0.14.3.20.2', '0.14.3.20.3', '0.14.3.20.4', '0.14.3.20.5'
 ]);
-export const BOOK_ONE_BATCH_ACCEPTED_RECIPE_RELEASES = Object.freeze(['0.14.3.15', '0.14.3.16', '0.14.3.17', '0.14.3.18', '0.14.3.18.1', '0.14.3.18.2', '0.14.3.19', '0.14.3.20', '0.14.3.20.1', '0.14.3.20.2', '0.14.3.20.3', '0.14.3.20.4']);
-export const BOOK_ONE_BATCH_ACCEPTED_PREFLIGHT_RELEASES = Object.freeze(['0.14.3.15', '0.14.3.16', '0.14.3.17', '0.14.3.18', '0.14.3.18.1', '0.14.3.18.2', '0.14.3.19', '0.14.3.20', '0.14.3.20.1', '0.14.3.20.2', '0.14.3.20.3', '0.14.3.20.4']);
+export const BOOK_ONE_BATCH_ACCEPTED_RECIPE_RELEASES = Object.freeze(['0.14.3.15', '0.14.3.16', '0.14.3.17', '0.14.3.18', '0.14.3.18.1', '0.14.3.18.2', '0.14.3.19', '0.14.3.20', '0.14.3.20.1', '0.14.3.20.2', '0.14.3.20.3', '0.14.3.20.4', '0.14.3.20.5']);
+export const BOOK_ONE_BATCH_ACCEPTED_PREFLIGHT_RELEASES = Object.freeze(['0.14.3.15', '0.14.3.16', '0.14.3.17', '0.14.3.18', '0.14.3.18.1', '0.14.3.18.2', '0.14.3.19', '0.14.3.20', '0.14.3.20.1', '0.14.3.20.2', '0.14.3.20.3', '0.14.3.20.4', '0.14.3.20.5']);
 export const BOOK_ONE_BATCH_RETRY_RESERVE_RATIO = 0.20;
 export const BOOK_ONE_BATCH_MAX_CHAPTERS = 10;
 export const BOOK_ONE_BATCH_MIN_STORAGE_GIB = 2;
