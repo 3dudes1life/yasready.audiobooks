@@ -34,3 +34,14 @@
 - Runs fresh local FFmpeg silence detection and fresh localization against the current verified waveforms.
 - Writes a new immutable recovery audit and only then opens Human Pause Review.
 - Zero provider/TTS calls. No audio overwrite. Chapter 11, next batch and full-book generation remain OFF.
+
+
+## R6 — Cinematic State Forensic Recovery
+
+- Recovery no longer depends on `cinematic-rebuild-result.json` surviving.
+- Primary path remains a verified final result JSON.
+- Fallback accepts `cinematic-rebuild-state.json` only when artifact identity, exact production-plan digest, exact cinematic-lock digest, full ten-chapter completion, and every Direct MP3 digest all verify.
+- The state file itself is SHA-256 hashed and recorded.
+- State recovery creates a recovery-only cinematic snapshot and cannot authorize production.
+- If neither result nor state is coherent, failure output includes a forensic inventory of result/state/audio candidates.
+- Provider/TTS/spend remain zero; originals remain immutable; Chapter 11/full-book remain OFF.
