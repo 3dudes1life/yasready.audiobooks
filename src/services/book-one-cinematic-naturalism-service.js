@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile, copyFile, stat, statfs, readdir } from 'nod
 import path from 'node:path';
 import { YASREADY_AUDIOBOOKS_VERSION } from '../release.js';
 import { sha256, stableJson } from '../core/hash.js';
-import { splitForTts } from '../production/model-limits.js';
+import { splitForTts, neighboringText } from '../production/model-limits.js';
 import { verifyBookOneProductionPlan } from './book-one-production-plan-service.js';
 import { extractElevenLabsQuota } from './book-one-production-pilot-service.js';
 import { verifyBookOneBatchRecipeSnapshot } from './book-one-quota-aware-batch-service.js';
@@ -16,6 +16,9 @@ export const BOOK_ONE_CINEMATIC_MIN_STORAGE_GIB = 2;
 export const BOOK_ONE_CINEMATIC_ARCHIVE_PROFILE = 'archive-wav-2026';
 export const BOOK_ONE_CINEMATIC_MP3_PROFILE = 'acx-2026';
 export const BOOK_ONE_CINEMATIC_PROFILE_ID = 'cinematic-naturalism-a-v1';
+export const BOOK_ONE_CINEMATIC_TITLE_BODY_GAP_SECONDS = 2.0;
+export const BOOK_ONE_CINEMATIC_SCENE_GAP_SECONDS = 0.75;
+export const BOOK_ONE_CINEMATIC_PARAGRAPH_SEPARATOR = '\n\n';
 export const BOOK_ONE_CINEMATIC_ALLOWED_PLAN_RELEASES = Object.freeze([
   '0.14.3.13', '0.14.3.14', '0.14.3.14.1', '0.14.3.14.2', '0.14.3.15', '0.14.3.16', '0.14.3.17', '0.14.3.18', '0.14.3.18.1', '0.14.3.18.2', '0.14.3.19', '0.14.3.20', '0.14.3.20.1', '0.14.3.20.2', '0.14.3.20.3', '0.14.3.20.4', '0.14.3.20.5'
 ]);
@@ -119,6 +122,13 @@ export function buildBookOneCinematicNaturalismLock({ productionPlan, recipeLock
       evidenceSource: 'canonical manuscript text plus immediate neighboring segments only',
       canonicalTextImmutable: true,
       characterDifferentiation: 'delivery-not-impersonation',
+      namedCharacterVoiceFingerprintsEnabled: false,
+      namedCharacterVoiceFingerprintsGate: 'AFTER_NARRATOR_BASELINE_PROVEN',
+      titleBodyGapSeconds: BOOK_ONE_CINEMATIC_TITLE_BODY_GAP_SECONDS,
+      sceneBoundaryGapSeconds: BOOK_ONE_CINEMATIC_SCENE_GAP_SECONDS,
+      paragraphFormatting: 'provider-blank-line-no-word-mutation',
+      narratorContinuityMode: 'body-request-id-chain-plus-stable-seed',
+      headingContinuityLane: 'isolated-from-body',
       narrationBaseline: 'natural-unforced',
       emotionalMomentsEarnDirection: true,
       sceneCueCap: 7,
@@ -209,7 +219,7 @@ export function compileCinematicNaturalismScene(segments = [], lock) {
   }
 
   const canonicalText = directed.map((row) => row.canonicalText).join('\n');
-  const providerText = directed.map((row) => row.providerText).join('\n');
+  const providerText = directed.map((row) => row.providerText).join(BOOK_ONE_CINEMATIC_PARAGRAPH_SEPARATOR);
   const reconstructedCanonicalText = directed.map((row) => {
     if (!row.cue) return row.providerText;
     const insertedCuePrefix = `[${row.cue}] `;
@@ -262,6 +272,8 @@ export function materializeBookOneCinematicTarget({ productionPlan, recipeLock, 
       sceneOrder: -1,
       chunkOrder: 0,
       kind: 'heading',
+      boundaryBefore: 'CHAPTER_START',
+      assemblyGapBeforeSec: 0,
       text: heading,
       characters: [...heading].length,
       textDigest: sha256(heading),
@@ -292,6 +304,17 @@ export function materializeBookOneCinematicTarget({ productionPlan, recipeLock, 
         const text = providerChunks[chunkIndex];
         const id = `ch${String(chapterNumber).padStart(2, '0')}-sc${String(sceneIndex + 1).padStart(2, '0')}-cin${String(chunkIndex + 1).padStart(2, '0')}`;
         const textDigest = sha256(text);
+        const firstBodyChunk = chunks.length === 1;
+        const boundaryBefore = firstBodyChunk
+          ? 'TITLE_TO_BODY'
+          : chunkIndex === 0
+            ? 'SCENE_BREAK'
+            : 'CHUNK_CONTINUATION';
+        const assemblyGapBeforeSec = boundaryBefore === 'TITLE_TO_BODY'
+          ? BOOK_ONE_CINEMATIC_TITLE_BODY_GAP_SECONDS
+          : boundaryBefore === 'SCENE_BREAK'
+            ? BOOK_ONE_CINEMATIC_SCENE_GAP_SECONDS
+            : 0;
         chunks.push(freeze({
           id,
           chapterNumber,
@@ -299,6 +322,8 @@ export function materializeBookOneCinematicTarget({ productionPlan, recipeLock, 
           sceneOrder: sceneIndex,
           chunkOrder: chunkIndex,
           kind: 'body',
+          boundaryBefore,
+          assemblyGapBeforeSec,
           text,
           characters: [...text].length,
           textDigest,
@@ -307,7 +332,9 @@ export function materializeBookOneCinematicTarget({ productionPlan, recipeLock, 
             recipeDigest: recipeLock.integrity.recipeDigest,
             manuscriptSourceHash: productionPlan.source.sourceHash,
             id,
-            textDigest
+            textDigest,
+            boundaryBefore,
+            assemblyGapBeforeSec
           }))
         }));
       }
@@ -339,9 +366,85 @@ export function materializeBookOneCinematicTarget({ productionPlan, recipeLock, 
       title: chapter.title,
       sourceTextHash: chapter.sourceTextHash,
       cueCount: chapter.cueCount,
-      chunks: chapter.chunks.map((chunk) => ({ id: chunk.id, generationDigest: chunk.generationDigest, textDigest: chunk.textDigest, characters: chunk.characters }))
+      chunks: chapter.chunks.map((chunk) => ({ id: chunk.id, generationDigest: chunk.generationDigest, textDigest: chunk.textDigest, characters: chunk.characters, boundaryBefore: chunk.boundaryBefore, assemblyGapBeforeSec: chunk.assemblyGapBeforeSec }))
     }))))
   });
+}
+
+
+function continuitySeed(lock, lane) {
+  const digest = sha256(stableJson({
+    cinematicLockDigest: lock?.integrity?.lockDigest ?? null,
+    lane
+  }));
+  return Number.parseInt(digest.slice(0, 8), 16) >>> 0;
+}
+
+export function buildCinematicNarratorContinuity({
+  chapter,
+  chunk,
+  priorBodyRequestIds = [],
+  cinematicLock,
+  maxContextChars = 1200
+} = {}) {
+  if (!chapter?.chunks?.length || !chunk?.id) throw new Error('Cinematic continuity requires chapter + chunk');
+  if (!cinematicLock?.integrity?.lockDigest) throw new Error('Cinematic continuity requires lock digest');
+
+  if (chunk.kind === 'heading') {
+    return freeze({
+      mode: 'HEADING_ISOLATED',
+      seed: continuitySeed(cinematicLock, 'heading'),
+      previousText: null,
+      nextText: null,
+      previousRequestIds: freeze([]),
+      previousTextDigest: null,
+      nextTextDigest: null
+    });
+  }
+
+  const body = chapter.chunks.filter((row) => row.kind === 'body');
+  const index = body.findIndex((row) => row.id === chunk.id);
+  if (index < 0) throw new Error(`Cinematic body chunk missing from chapter continuity lane: ${chunk.id}`);
+  const context = neighboringText(body.map((row) => row.text), index, { maxContextChars });
+  const previousRequestIds = [...(priorBodyRequestIds ?? [])].filter(Boolean).slice(-3);
+
+  return freeze({
+    mode: 'BODY_CONTINUITY',
+    seed: continuitySeed(cinematicLock, 'body'),
+    previousText: context.previousText,
+    nextText: context.nextText,
+    previousRequestIds: freeze(previousRequestIds),
+    previousTextDigest: context.previousText ? sha256(context.previousText) : null,
+    nextTextDigest: context.nextText ? sha256(context.nextText) : null
+  });
+}
+
+export function buildCinematicAssemblyPlan(chapter) {
+  if (!chapter?.chunks?.length) throw new Error('Cinematic assembly plan requires chapter chunks');
+  if (chapter.chunks[0]?.kind !== 'heading') throw new Error('Cinematic assembly plan requires heading first');
+
+  const plan = [];
+  for (const chunk of chapter.chunks) {
+    const seconds = Number(chunk.assemblyGapBeforeSec ?? 0);
+    if (!Number.isFinite(seconds) || seconds < 0 || seconds > 5) {
+      throw new Error(`Invalid cinematic assembly gap before ${chunk.id}`);
+    }
+    if (seconds > 0) {
+      plan.push(freeze({
+        type: 'SILENCE',
+        seconds,
+        boundary: chunk.boundaryBefore,
+        beforeChunkId: chunk.id
+      }));
+    }
+    plan.push(freeze({ type: 'AUDIO', chunkId: chunk.id }));
+  }
+
+  const titleBoundary = plan.find((row) => row.type === 'SILENCE' && row.boundary === 'TITLE_TO_BODY');
+  if (!titleBoundary || !sameNumber(titleBoundary.seconds, BOOK_ONE_CINEMATIC_TITLE_BODY_GAP_SECONDS)) {
+    throw new Error('Cinematic assembly plan must contain exact 2.00-second title-to-body boundary');
+  }
+  return freeze(plan);
 }
 
 async function verifyOriginalBatchFiles(previousResult, previousRoot) {
@@ -792,7 +895,7 @@ export async function renderBookOneCinematicRebuild({
   if (!Number.isFinite(cap) || Math.abs(cap - Number(arm.budget.protectedMaxUsd)) > 1e-9) throw new Error(`Cinematic rebuild max USD must exactly equal protected max $${Number(arm.budget.protectedMaxUsd).toFixed(2)}`);
   if (path.resolve(previousRoot) !== path.resolve(arm.originalBatch.root)) throw new Error('Original Batch One root changed after arm');
   if (!provider?.render || !provider?.healthCheck || !provider?.subscriptionPreflight) throw new Error('Cinematic rebuild requires provider render + live quota support');
-  if (!ffmpeg?.healthCheck || !ffmpeg?.tempo || !ffmpeg?.voiceDepth || !ffmpeg?.concat || !ffmpeg?.master || !ffmpeg?.analyze) throw new Error('Cinematic rebuild requires complete FFmpeg production support');
+  if (!ffmpeg?.healthCheck || !ffmpeg?.tempo || !ffmpeg?.voiceDepth || !ffmpeg?.concat || !ffmpeg?.silence || !ffmpeg?.trimEdgeSilence || !ffmpeg?.master || !ffmpeg?.analyze) throw new Error('Cinematic rebuild requires complete FFmpeg production support including deterministic boundary assembly');
   verifyBookOneProductionPlan(productionPlan, { acceptedReleases: BOOK_ONE_CINEMATIC_ALLOWED_PLAN_RELEASES });
   verifyBookOneBatchRecipeSnapshot(recipeLock);
   if (arm.source.productionPlanDigest !== productionPlan.integrity.productionPlanDigest || arm.source.recipeDigest !== recipeLock.integrity.recipeDigest) throw new Error('Cinematic rebuild arm source digest mismatch');
@@ -809,6 +912,8 @@ export async function renderBookOneCinematicRebuild({
     tempo: path.join(root, 'tempo'),
     finish: path.join(root, 'finish'),
     assembly: path.join(root, 'assembly'),
+    assemblyNormalized: path.join(root, 'assembly-normalized'),
+    assemblyGaps: path.join(root, 'assembly-gaps'),
     archive: path.join(root, 'distribution', 'archive-wav'),
     acx: path.join(root, 'distribution', 'acx-audible'),
     spotify: path.join(root, 'distribution', 'spotify'),
@@ -868,7 +973,8 @@ export async function renderBookOneCinematicRebuild({
 
   for (const scope of arm.batchScope.chapters) {
     const chapter = byOrder.get(Number(scope.sourceChapterOrder));
-    const finalChunkPaths = [];
+    const finalChunkArtifacts = [];
+    const bodyRequestIds = [];
     const chapterDirName = `chapter-${String(chapter.chapterNumber).padStart(2, '0')}`;
     for (const chunk of chapter.chunks) {
       const providerDir = path.join(dirs.provider, chapterDirName);
@@ -878,6 +984,12 @@ export async function renderBookOneCinematicRebuild({
       const providerPath = path.join(providerDir, `${chunk.id}.mp3`);
       const tempoPath = path.join(tempoDir, `${chunk.id}.mp3`);
       const finishPath = path.join(finishDir, `${chunk.id}.wav`);
+      const continuity = buildCinematicNarratorContinuity({
+        chapter,
+        chunk,
+        priorBodyRequestIds: bodyRequestIds,
+        cinematicLock
+      });
       let row = state.chunks[chunk.id] ?? { id: chunk.id, armDigest: arm.integrity.armDigest, generationDigest: chunk.generationDigest, textDigest: chunk.textDigest, status: 'PLANNED' };
       if (row.generationDigest !== chunk.generationDigest || row.textDigest !== chunk.textDigest) throw new Error(`Cinematic rebuild state digest mismatch for ${chunk.id}`);
       if (row.armDigest !== arm.integrity.armDigest && row.status !== 'COMPLETE') throw new Error(`Cinematic rebuild chunk ${chunk.id} belongs to another unfinished arm`);
@@ -890,7 +1002,19 @@ export async function renderBookOneCinematicRebuild({
         const currentArmSpend = Object.values(state.chunks ?? {}).filter((item) => item?.armDigest === arm.integrity.armDigest).reduce((sum, item) => sum + Number(item?.capturedOrEstimatedBilledUsd ?? 0), 0);
         const estimate = round((Number(chunk.characters) / 1000) * Number(arm.budget.rateUsdPer1kCharacters), 6);
         if (currentArmSpend + estimate > cap + 1e-9) throw new Error(`Cinematic Money Guard would exceed approved max $${cap.toFixed(2)} before ${chunk.id}`);
-        row = { ...row, armDigest: arm.integrity.armDigest, status: 'PROVIDER_IN_FLIGHT', providerStartedAt: new Date().toISOString() };
+        row = {
+          ...row,
+          armDigest: arm.integrity.armDigest,
+          status: 'PROVIDER_IN_FLIGHT',
+          providerStartedAt: new Date().toISOString(),
+          continuity: {
+            mode: continuity.mode,
+            seed: continuity.seed,
+            previousRequestIds: continuity.previousRequestIds,
+            previousTextDigest: continuity.previousTextDigest,
+            nextTextDigest: continuity.nextTextDigest
+          }
+        };
         state.chunks[chunk.id] = row;
         await persistState(statePath, state);
         let rendered;
@@ -900,7 +1024,11 @@ export async function renderBookOneCinematicRebuild({
             text: chunk.text,
             model: recipeLock.provider.model,
             outputFormat: 'mp3_44100_128',
-            voiceSettings: recipeLock.provider.voiceSettings
+            voiceSettings: recipeLock.provider.voiceSettings,
+            previousText: continuity.previousText,
+            nextText: continuity.nextText,
+            previousRequestIds: continuity.previousRequestIds,
+            seed: continuity.seed
           });
         } catch (error) {
           row.status = safeProviderFailure(error) ? 'PROVIDER_FAILED_SAFE_TO_RETRY' : 'PROVIDER_RESULT_UNKNOWN_DO_NOT_RERUN';
@@ -966,12 +1094,51 @@ export async function renderBookOneCinematicRebuild({
         await persistState(statePath, state);
         localFinishThisRun += 1;
       }
-      finalChunkPaths.push(finishPath);
+      if (chunk.kind === 'body' && row.requestId) bodyRequestIds.push(row.requestId);
+      finalChunkArtifacts.push({ chunk, path: finishPath });
     }
 
     const baseName = safeSectionFileName(chapter.retailerSequence, chapter.title, 'wav').replace(/\.wav$/, '');
     const assemblyPath = path.join(dirs.assembly, `${baseName}-assembly.wav`);
-    await ffmpeg.concat(finalChunkPaths, assemblyPath);
+    const assemblyPlan = buildCinematicAssemblyPlan(chapter);
+    const artifactById = new Map(finalChunkArtifacts.map((row) => [row.chunk.id, row]));
+    const normalizedById = new Map();
+
+    for (let index = 0; index < finalChunkArtifacts.length; index += 1) {
+      const current = finalChunkArtifacts[index];
+      const next = finalChunkArtifacts[index + 1] ?? null;
+      const trimStart = Number(current.chunk.assemblyGapBeforeSec ?? 0) > 0;
+      const trimEnd = Number(next?.chunk?.assemblyGapBeforeSec ?? 0) > 0;
+      if (!trimStart && !trimEnd) {
+        normalizedById.set(current.chunk.id, current.path);
+        continue;
+      }
+      const normalizedPath = path.join(dirs.assemblyNormalized, `${current.chunk.id}.wav`);
+      await ffmpeg.trimEdgeSilence(current.path, normalizedPath, {
+        trimStart,
+        trimEnd,
+        thresholdDb: -70,
+        minSilenceMs: 40
+      });
+      normalizedById.set(current.chunk.id, normalizedPath);
+    }
+
+    const assemblyInputs = [];
+    for (const item of assemblyPlan) {
+      if (item.type === 'AUDIO') {
+        const file = normalizedById.get(item.chunkId) ?? artifactById.get(item.chunkId)?.path;
+        if (!file) throw new Error(`Cinematic assembly audio missing for ${item.chunkId}`);
+        assemblyInputs.push(file);
+        continue;
+      }
+      const gapPath = path.join(
+        dirs.assemblyGaps,
+        `${baseName}-${String(assemblyInputs.length).padStart(3, '0')}-${item.boundary.toLowerCase()}.wav`
+      );
+      await ffmpeg.silence(gapPath, item.seconds);
+      assemblyInputs.push(gapPath);
+    }
+    await ffmpeg.concat(assemblyInputs, assemblyPath);
     const archivePath = path.join(dirs.archive, `${baseName}.wav`);
     const acxPath = path.join(dirs.acx, `${baseName}.mp3`);
     const spotifyPath = path.join(dirs.spotify, `${baseName}.mp3`);
@@ -1004,6 +1171,14 @@ export async function renderBookOneCinematicRebuild({
         spotifyMp3: await fileDigest(spotifyPath),
         directMp3: await fileDigest(directPath),
         applePartnerWav: await fileDigest(applePath)
+      },
+      assemblyContract: {
+        titleBodyGapSeconds: BOOK_ONE_CINEMATIC_TITLE_BODY_GAP_SECONDS,
+        sceneBoundaryGapSeconds: BOOK_ONE_CINEMATIC_SCENE_GAP_SECONDS,
+        exactBoundaryAssembly: true,
+        paragraphFormatting: 'provider-blank-line-no-word-mutation',
+        narratorContinuityMode: 'body-request-id-chain-plus-stable-seed',
+        namedCharacterVoiceFingerprintsEnabled: false
       },
       qa: { archive: archiveQa, mp3: mp3Qa },
       analysis: { archive: archiveAnalysis, mp3: mp3Analysis },

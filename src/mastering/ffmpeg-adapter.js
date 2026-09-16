@@ -174,6 +174,58 @@ export class FfmpegAdapter {
     }
   }
 
+  async silence(outputPath, seconds, { sampleRateHz = 44100 } = {}) {
+    if (!outputPath) throw new Error('silence requires outputPath');
+    const duration = Number(seconds);
+    const sampleRate = Number(sampleRateHz);
+    if (!Number.isFinite(duration) || duration <= 0 || duration > 10) throw new Error('silence duration must be > 0 and <= 10 seconds');
+    if (!Number.isInteger(sampleRate) || sampleRate < 8000 || sampleRate > 192000) throw new Error('silence sample rate invalid');
+    await this.execFile(this.ffmpegPath, [
+      '-y', '-hide_banner', '-loglevel', 'error',
+      '-f', 'lavfi', '-i', `anullsrc=r=${sampleRate}:cl=mono`,
+      '-t', duration.toFixed(3),
+      '-c:a', 'pcm_s24le', '-ar', String(sampleRate),
+      outputPath
+    ], { maxBuffer: 8 * 1024 * 1024 });
+    return freeze({ outputPath, seconds: Number(duration.toFixed(3)), sampleRateHz: sampleRate });
+  }
+
+  async trimEdgeSilence(inputPath, outputPath, {
+    trimStart = false,
+    trimEnd = false,
+    thresholdDb = -70,
+    minSilenceMs = 40
+  } = {}) {
+    if (!inputPath || !outputPath) throw new Error('trimEdgeSilence requires inputPath and outputPath');
+    const threshold = Number(thresholdDb);
+    const minimum = Number(minSilenceMs);
+    if (!Number.isFinite(threshold) || threshold >= -20 || threshold < -100) throw new Error('trimEdgeSilence thresholdDb must be between -100 and -20');
+    if (!Number.isFinite(minimum) || minimum < 10 || minimum > 500) throw new Error('trimEdgeSilence minSilenceMs must be 10-500');
+    if (!trimStart && !trimEnd) throw new Error('trimEdgeSilence requires trimStart and/or trimEnd');
+
+    const unit = `silenceremove=start_periods=1:start_duration=${(minimum / 1000).toFixed(3)}:start_threshold=${threshold}dB`;
+    const filters = [];
+    if (trimStart) filters.push(unit);
+    if (trimEnd) filters.push('areverse', unit, 'areverse');
+
+    await this.execFile(this.ffmpegPath, [
+      '-y', '-hide_banner', '-loglevel', 'error',
+      '-i', inputPath,
+      '-af', filters.join(','),
+      '-c:a', 'pcm_s24le', '-ar', '44100',
+      outputPath
+    ], { maxBuffer: 8 * 1024 * 1024 });
+
+    return freeze({
+      outputPath,
+      trimStart: Boolean(trimStart),
+      trimEnd: Boolean(trimEnd),
+      thresholdDb: threshold,
+      minSilenceMs: minimum,
+      speechContentMutationIntended: false
+    });
+  }
+
   async tempo(inputPath, outputPath, multiplier) {
     if (!inputPath || !outputPath) throw new Error('tempo requires inputPath and outputPath');
     const value = Number(multiplier);

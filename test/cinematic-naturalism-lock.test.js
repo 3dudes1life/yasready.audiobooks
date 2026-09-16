@@ -57,7 +57,18 @@ test('Cinematic Naturalism preserves canonical words and adds only restrained ea
   assert.ok(compiled.cueCount<=7);
   assert.ok(compiled.cues.every(c=>lock.rules.allowedProviderCues.includes(c.cue)));
   for(let i=1;i<compiled.cues.length;i++) assert.ok(compiled.cues[i].index-compiled.cues[i-1].index>=2);
-  assert.equal(compiled.providerText.replace(/^\[[^\]]+\]\s*/gm,''),compiled.canonicalText);
+  // Provider formatting is distinct from canonical manuscript formatting.
+  // Verify the emitted separators exactly, then remove ONLY known inserted cues.
+  assert.equal(
+    compiled.providerText,
+    compiled.segments.map(row => row.providerText).join('\n\n')
+  );
+  const reconstructedCanonical = compiled.segments.map(row => {
+    const prefix = row.cue ? `[${row.cue}] ` : '';
+    assert.ok(row.providerText.startsWith(prefix));
+    return row.providerText.slice(prefix.length);
+  }).join('\n');
+  assert.equal(reconstructedCanonical, compiled.canonicalText);
 });
 
 

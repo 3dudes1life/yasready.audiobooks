@@ -48,11 +48,14 @@ async function providerAndFfmpeg() {
 async function runArm() {
   const input = await loadInputs();
   const { provider, ffmpeg } = await providerAndFfmpeg();
+  const maxChapters = Number(flag('--max-chapters', '10'));
+  if (!Number.isInteger(maxChapters) || maxChapters < 1 || maxChapters > 10) throw new Error('--max-chapters must be an integer from 1 to 10');
   const { arm, cinematicLock } = await buildBookOneCinematicRebuildArm({
     ...input,
     outputRoot: input.productionRoot,
     provider,
-    ffmpeg
+    ffmpeg,
+    maxChapters
   });
   await mkdir(input.out, { recursive: true });
   const armJson = path.join(input.out, 'book-one-cinematic-rebuild-arm.json');
@@ -73,6 +76,7 @@ async function runArm() {
     plus2Allowed: arm.profile.rules.plus2EscalationAllowed,
     completedBeforeArm: arm.rebuildTarget.completedBeforeArm,
     targetChapterCount: arm.rebuildTarget.chapterCount,
+    requestedMaxChapters: maxChapters,
     selectedChapterCount: arm.batchScope.selectedChapterCount,
     firstChapterNumber: arm.batchScope.firstChapterNumber,
     lastChapterNumber: arm.batchScope.lastChapterNumber,
