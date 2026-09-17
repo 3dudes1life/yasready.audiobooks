@@ -1,3 +1,4 @@
+import { withYasReadyPlatformUI } from '../ui/yasready-platform.js';
 import { YASREADY_AUDIOBOOKS_VERSION } from '../release.js';
 import { sha256, stableJson } from '../core/hash.js';
 import { splitForTts } from '../production/model-limits.js';
@@ -190,7 +191,7 @@ export function renderBookOneCinematicHumanReviewHtml(session) {
       <textarea rows="3" placeholder="Optional note for this chapter"></textarea>
     </section>`).join('');
 
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Book One — Ten-Chapter Human Review</title><style>
+  return withYasReadyPlatformUI(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Book One — Ten-Chapter Human Review</title><style>
   :root{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",Inter,system-ui,sans-serif;background:#f5f5f7;color:#111}*{box-sizing:border-box}body{margin:0;padding:28px}.wrap{max-width:980px;margin:auto}.hero,.card{background:#fff;border:1px solid #e5e5ea;border-radius:24px;box-shadow:0 12px 36px rgba(0,0,0,.06)}.hero{padding:30px;position:sticky;top:12px;z-index:5}.card{padding:22px;margin-top:16px}h1{margin:0 0 8px;font-size:34px;letter-spacing:-.03em}h2{margin:4px 0 8px}.muted{color:#6e6e73}.eyebrow{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:#6e6e73;font-weight:700}audio{width:100%;margin:12px 0}.decision-row{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}.decision-row button,.overall button,#export{border:1px solid #d2d2d7;background:#f5f5f7;border-radius:999px;padding:10px 14px;font-weight:700;cursor:pointer}.decision-row button.selected,.overall button.selected{background:#111;color:#fff}textarea{width:100%;border:1px solid #d2d2d7;border-radius:14px;padding:12px;font:inherit;resize:vertical}.gate{background:#fff3cd;border-radius:16px;padding:14px;margin-top:14px}.overall{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}#export{background:#111;color:#fff;margin-top:12px}.count{font-weight:700}
   </style></head><body><div class="wrap"><div class="hero"><div class="muted">YasReady Audiobooks ${escapeHtml(session.release)}</div><h1>Ten-Chapter Human Review</h1><p>Listen straight through and mark each chapter. This review changes no audio and spends $0.00.</p><div class="gate"><strong>Chapter 11 stays OFF.</strong> Next-batch readiness cannot open until all ten chapters are reviewed and you explicitly approve the Cinematic Naturalism A recipe.</div><p><span class="count" id="count">0/10 reviewed</span></p><div class="overall"><button data-overall="APPROVE_CINEMATIC_RECIPE">Approve Cinematic Recipe</button><button data-overall="NEEDS_CHANGES">Needs Changes</button></div><textarea id="overall-notes" rows="3" placeholder="Optional overall note"></textarea><button id="export">Export Review JSON</button></div>${cards}</div><script>
   const SOURCE=${data};
@@ -224,7 +225,7 @@ export function renderBookOneCinematicHumanReviewHtml(session) {
     const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='cinematic-human-review-decisions.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
   });
   render();
-  </script></body></html>`;
+  </script></body></html>`);
 }
 
 export function renderBookOneCinematicHumanReviewSessionMarkdown(session) {

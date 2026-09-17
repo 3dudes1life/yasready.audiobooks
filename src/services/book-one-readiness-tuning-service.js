@@ -1,3 +1,4 @@
+import { withYasReadyPlatformUI } from '../ui/yasready-platform.js';
 import { mkdir, writeFile, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { sha256, stableJson } from '../core/hash.js';
@@ -337,7 +338,7 @@ export function renderReadinessTuningReviewHtml(plan, result) {
     rendered: result.rendered,
     feedback: feedbackShell(plan)
   });
-  return `<!doctype html>
+  return withYasReadyPlatformUI(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>YasReady Readiness Tuning — ${String(plan.book.title ?? '').replace(/[<>&"]/g, '')}</title>
 <style>
@@ -388,7 +389,7 @@ function payload(){feedback.exportedAt=new Date().toISOString();save();return JS
 document.getElementById('copy').onclick=async()=>{try{await navigator.clipboard.writeText(payload());status.textContent='Copied tuning feedback JSON.'}catch{status.textContent='Clipboard was blocked. Use Download Tuning Feedback.'}};
 document.getElementById('download').onclick=async()=>{const text=payload();try{if(window.showSaveFilePicker){const h=await window.showSaveFilePicker({suggestedName:'readiness-tuning-feedback.json',types:[{description:'JSON',accept:{'application/json':['.json']}}]});const w=await h.createWritable();await w.write(text);await w.close();status.textContent='Saved readiness-tuning-feedback.json successfully.';return}}catch(e){if(e?.name==='AbortError'){status.textContent='Save cancelled.';return}}
 const blob=new Blob([text],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='readiness-tuning-feedback.json';a.style.display='none';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000);status.textContent='Download requested. Check Downloads; use Copy Feedback JSON if Safari suppresses it.'};
-</script></main></body></html>`;
+</script></main></body></html>`);
 }
 
 export async function renderReadinessTuningRound({

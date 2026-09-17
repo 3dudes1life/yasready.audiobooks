@@ -1,3 +1,4 @@
+import { withYasReadyPlatformUI } from '../ui/yasready-platform.js';
 import { createHash } from 'node:crypto';
 import { normalizeVoiceProfile, scoreSeriesSafety } from '../casting/voice-profile.js';
 import { scoreCharacterBiographyFit } from '../casting/character-biography.js';
@@ -1039,7 +1040,7 @@ export function renderCastingReviewBoardHtml(discovery) {
     guardrails: discovery.guardrails
   };
   const data = browserSafeJson(boardData);
-  return `<!doctype html>
+  return withYasReadyPlatformUI(`<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -1152,7 +1153,7 @@ document.getElementById('export').onclick=()=>{
  const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='casting-review-decisions.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
 };
 updateSummary();
-</script></body></html>`;
+</script></body></html>`);
 }
 
 export function renderCastingDiscoveryCsv(discovery) {
