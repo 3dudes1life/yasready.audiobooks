@@ -1,3 +1,4 @@
+import { withYasReadyPlatformUI } from '../ui/yasready-platform.js';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { sha256, stableJson } from '../core/hash.js';
@@ -379,7 +380,7 @@ export function renderProductionReadinessReviewHtml(plan, result) {
     feedback: reviewFeedbackShell(plan)
   });
 
-  return `<!doctype html>
+  return withYasReadyPlatformUI(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>YasReady Production Readiness — ${String(plan.book.title ?? '').replace(/[<>&"]/g, '')}</title>
 <style>
@@ -415,7 +416,7 @@ function payload(){feedback.exportedAt=new Date().toISOString();save();return JS
 document.getElementById('copy').onclick=async()=>{try{await navigator.clipboard.writeText(payload());status.textContent='Copied. If Safari blocks the download, paste this JSON into a file named production-readiness-feedback.json.'}catch{status.textContent='Clipboard was blocked by the browser. Use Download Feedback JSON.'}};
 document.getElementById('download').onclick=async()=>{const text=payload();try{if(window.showSaveFilePicker){const h=await window.showSaveFilePicker({suggestedName:'production-readiness-feedback.json',types:[{description:'JSON',accept:{'application/json':['.json']}}]});const w=await h.createWritable();await w.write(text);await w.close();status.textContent='Saved production-readiness-feedback.json successfully.';return}}catch(e){if(e?.name==='AbortError'){status.textContent='Save cancelled.';return}}
 const blob=new Blob([text],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='production-readiness-feedback.json';a.style.display='none';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000);status.textContent='Download requested. Check your Downloads folder. If Safari suppresses it, use Copy Feedback JSON.'};
-</script></main></body></html>`;
+</script></main></body></html>`);
 }
 
 export async function renderProductionReadinessSample({

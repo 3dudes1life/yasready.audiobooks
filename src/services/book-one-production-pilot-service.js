@@ -1,3 +1,4 @@
+import { withYasReadyPlatformUI } from '../ui/yasready-platform.js';
 import { mkdir, readFile, writeFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { YASREADY_AUDIOBOOKS_VERSION } from '../release.js';
@@ -674,7 +675,7 @@ export function renderBookOneChapterOnePilotReviewHtml(arm, result) {
     ? qa.issues.map((issue) => `<li><strong>${escapeHtml(issue.code)}</strong> — ${escapeHtml(JSON.stringify(issue))}</li>`).join('')
     : '<li>No blocking local technical issues detected.</li>';
   const template = JSON.stringify(bookOneChapterOnePilotFeedbackTemplate(arm, result)).replace(/</g, '\\u003c');
-  return `<!doctype html>
+  return withYasReadyPlatformUI(`<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Book One — Chapter One Pilot Review</title>
 <style>
@@ -685,7 +686,7 @@ export function renderBookOneChapterOnePilotReviewHtml(arm, result) {
 <div class="card"><h2>Technical QA</h2><ul>${issueText}</ul><p class="muted">Duration: ${qa.analysis?.durationSec ?? 'n/a'} sec · sample rate: ${qa.analysis?.sampleRateHz ?? 'n/a'} Hz · bitrate: ${qa.analysis?.bitrateKbps ?? 'n/a'} kbps</p></div>
 <div class="card"><h2>Your decision</h2><div class="decisions"><button class="pass" data-decision="pass">PASS — Pilot works</button><button class="maybe" data-decision="maybe">MAYBE — Needs tuning</button><button class="fail" data-decision="fail">FAIL — Stop</button></div><p><textarea id="notes" placeholder="Notes for the next build..."></textarea></p><button class="download" id="download">Download Pilot Feedback</button><p class="muted">A PASS validates this pilot only. It does not arm Chapter Two or the full book.</p></div>
 <div class="card"><h2>Safety state</h2><p><strong>Full-book generation armed: NO</strong></p><p class="muted">Pilot arm digest: <code>${escapeHtml(arm.integrity.armDigest)}</code></p></div></div>
-<script>const base=${template};let decision='';document.querySelectorAll('[data-decision]').forEach(b=>b.onclick=()=>{decision=b.dataset.decision;document.querySelectorAll('[data-decision]').forEach(x=>x.classList.toggle('selected',x===b));});document.getElementById('download').onclick=()=>{if(!decision){alert('Choose PASS, MAYBE or FAIL first.');return;}const out={...base,decision,notes:document.getElementById('notes').value,exportedAt:new Date().toISOString()};const blob=new Blob([JSON.stringify(out,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='chapter-one-pilot-feedback.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);};</script></body></html>`;
+<script>const base=${template};let decision='';document.querySelectorAll('[data-decision]').forEach(b=>b.onclick=()=>{decision=b.dataset.decision;document.querySelectorAll('[data-decision]').forEach(x=>x.classList.toggle('selected',x===b));});document.getElementById('download').onclick=()=>{if(!decision){alert('Choose PASS, MAYBE or FAIL first.');return;}const out={...base,decision,notes:document.getElementById('notes').value,exportedAt:new Date().toISOString()};const blob=new Blob([JSON.stringify(out,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='chapter-one-pilot-feedback.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);};</script></body></html>`);
 }
 
 function escapeHtml(value) {

@@ -1,3 +1,4 @@
+import { withYasReadyPlatformUI } from '../ui/yasready-platform.js';
 import { mkdir, readFile, writeFile, copyFile, stat, statfs } from 'node:fs/promises';
 import path from 'node:path';
 import { YASREADY_AUDIOBOOKS_VERSION } from '../release.js';
@@ -817,7 +818,7 @@ export function renderBookOneBatchReviewHtml(result) {
       </div>
     </section>`).join('');
 
-  return `<!doctype html>
+  return withYasReadyPlatformUI(`<!doctype html>
 <html>
 <head>
   <meta charset="utf-8">
@@ -841,7 +842,7 @@ export function renderBookOneBatchReviewHtml(result) {
     ${cards}
   </div>
 </body>
-</html>`;
+</html>`);
 }
 
 function escapeHtml(value){return String(value??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}

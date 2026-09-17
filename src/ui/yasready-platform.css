@@ -1,0 +1,87 @@
+/* Shared product chrome; workflow layouts and decision semantics stay local. */
+:root {
+  --bg: var(--yr-bg); --card: var(--yr-panel); --text: var(--yr-text);
+  --muted: var(--yr-muted); --line: var(--yr-line); --accent: var(--yr-green);
+  --good: #16815c; --maybe: #8a5100; --bad: #b42336;
+  font-family: var(--yr-font); background: var(--yr-bg); color: var(--yr-text);
+}
+:root[data-theme="dark"] { --good: #5bd69a; --maybe: #f4c16d; --bad: #ff9eaa; }
+html body {
+  margin: 0; padding: 0; min-height: 100vh; color: var(--yr-text);
+  background: radial-gradient(circle at 78% -8%, var(--yr-green-soft), transparent 34rem), var(--yr-bg);
+  font: 16px/1.5 var(--yr-font); -webkit-font-smoothing: antialiased;
+}
+body > main, body > .wrap { width: min(1180px, calc(100% - 40px)); max-width: 1180px; margin: 0 auto; padding: 32px 0 80px; }
+.yrPlatformHeader { border-bottom: 1px solid var(--yr-line); background: var(--yr-panel); }
+.yrPlatformHeaderInner { max-width: 1180px; min-height: 76px; margin: auto; padding: 16px 20px; display: flex; align-items: center; gap: 26px; }
+.yrPlatformBrand { color: var(--yr-text); font-size: 21px; font-weight: 800; letter-spacing: -.045em; text-decoration: none; white-space: nowrap; }
+.yrPlatformBrand span { color: var(--yr-brand); }
+.yrPlatformModule { padding-left: 18px; border-left: 1px solid var(--yr-line); color: var(--yr-muted); font-size: 14px; font-weight: 650; }
+.yrPlatformHeader nav { display: flex; align-items: center; gap: 24px; margin-left: auto; }
+.yrPlatformHeader nav a { color: var(--yr-muted); font-size: 14px; font-weight: 650; text-decoration: none; }
+.yrPlatformHeader nav a:hover { color: var(--yr-green); }
+.yrPlatformHeader .yrThemeToggle { width: 44px; height: 44px; padding: 0; display: grid; place-items: center; font-size: 20px; }
+.yrSkipLink { position: absolute; top: 8px; left: 8px; transform: translateY(-180%); z-index: 50; padding: 12px; background: var(--yr-panel); color: var(--yr-text); border-radius: 12px; }
+.yrSkipLink:focus { transform: none; }
+body :is(.hero,.card,.reviewCard,.collapsed,.bio,.script,.panel,.chapter) {
+  background: var(--yr-panel); color: var(--yr-text); border: 1px solid var(--yr-line);
+  border-radius: var(--yr-radius-panel); box-shadow: 0 12px 36px #00000008; backdrop-filter: none;
+}
+body .hero { padding: 28px; }
+body h1 { color: var(--yr-text); font-size: clamp(30px,4vw,44px); line-height: 1.12; letter-spacing: -.04em; }
+body h2, body h3, body strong, body b { color: inherit; }
+body :is(.eyebrow,.kicker) { color: var(--yr-green); font-size: 12px; font-weight: 750; letter-spacing: .12em; }
+body :is(.muted,.lede,.sub,.intent,.context,.summary,.rank,.meta span,.footerNote,.noteLabel,.saveState,.statusBanner,.recommendation,details) { color: var(--yr-muted); }
+body :is(.metric,.numbers div,.score,.context,.pill,.pills span,.confidence,.rec,.status,.stat) { background: var(--yr-panel2); border-color: var(--yr-line); color: var(--yr-text); }
+body :is(.metric span,.numbers span,.bio p,.script p) { color: var(--yr-muted); font-size: 14px; }
+body :is(.metric,.numbers div,.score) { border-radius: 14px; }
+body :is(.safety,.guardrail,.guardrails,.banner) { background: var(--yr-green-soft); border-color: var(--yr-green); color: var(--yr-text); }
+body :is(.toolbar,.sticky) { background: var(--yr-bg); border-color: var(--yr-line); }
+body .hero .toolbar { background: transparent; }
+body button, body .button {
+  min-height: 44px; padding: 10px 16px; border: 1px solid var(--yr-line);
+  border-radius: var(--yr-radius-control); background: var(--yr-panel2); color: var(--yr-text);
+  font: 650 14px/1.4 var(--yr-font); cursor: pointer;
+}
+body button:hover { background: var(--yr-green-soft); border-color: var(--yr-green); }
+body :is(button.primary,button.approve) { background: var(--yr-primary); color: #fff; border-color: transparent; box-shadow: 0 8px 20px #16815c24; }
+body :is(button.primary,button.approve):hover { filter: brightness(.96); }
+body button:disabled { opacity: .5; cursor: not-allowed; }
+body :is(input:not([type="checkbox"]):not([type="radio"]),select,textarea) {
+  max-width: 100%; min-height: 46px; padding: 12px; border: 1px solid #85909f;
+  border-radius: var(--yr-radius-control); background: var(--yr-panel2); color: var(--yr-text); font: 16px/1.5 var(--yr-font);
+}
+:root[data-theme="dark"] body :is(input,select,textarea) { border-color: #687587; }
+body ::placeholder { color: var(--yr-muted); opacity: 1; }
+body :is(button,a,input,select,textarea,summary):focus-visible { outline: 3px solid var(--yr-green); outline-offset: 3px; }
+body :is(.selected,.decision.active) { outline: 2px solid var(--yr-green); outline-offset: 2px; }
+body .decision.active.keep { background: #126a4b; color: #fff; }
+body .decision.active.maybe { background: #8a5100; color: #fff; }
+body .decision.active.pass { background: #b42336; color: #fff; }
+body :is(.saveState.ok,.statusBanner.ok,.good,.pill.safe) { color: var(--yr-green); }
+body :is(.saveState.error,.statusBanner.error,.bad) { color: var(--bad); }
+body .warn { background: #fff3d6; color: #754700; border-color: #c28c32; }
+:root[data-theme="dark"] body .warn { background: #2c2315; color: #f4c16d; border-color: #80642d; }
+body .concerns { color: var(--maybe); }
+body audio { width: 100%; max-width: 100%; }
+body table { color: var(--yr-text); border-color: var(--yr-line); }
+body :is(th,td) { border-color: var(--yr-line); }
+@media (max-width: 760px) {
+  .yrPlatformHeaderInner { gap: 12px; padding: 14px 20px; flex-wrap: wrap; }
+  .yrPlatformHeader nav { gap: 16px; }
+  .yrPlatformModule { padding-left: 12px; }
+  body .hero { padding: 22px; }
+  body .cardTop { display: block; }
+  body :is(.grid,.scripts) { grid-template-columns: 1fr; }
+  body :is(.actions,.decisions,.toolbar) { flex-wrap: wrap; }
+}
+@media (max-width: 480px) {
+  .yrPlatformHeader nav { width: 100%; margin: 0; }
+  .yrPlatformHeader .yrThemeToggle { margin-left: auto; }
+  body > main, body > .wrap { width: calc(100% - 28px); padding-top: 20px; }
+  body .reviewCard { padding: 18px; }
+  body .numbers { grid-template-columns: 1fr; }
+  body dl { grid-template-columns: 1fr; }
+  body dd { margin-left: 0; overflow-wrap: anywhere; }
+}
+@media (prefers-reduced-motion: reduce) { *,*::before,*::after { scroll-behavior: auto !important; transition: none !important; } }

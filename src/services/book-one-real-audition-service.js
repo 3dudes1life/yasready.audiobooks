@@ -1,3 +1,4 @@
+import { withYasReadyPlatformUI } from '../ui/yasready-platform.js';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { sha256, stableJson } from '../core/hash.js';
@@ -349,7 +350,7 @@ export function renderRealAuditionReviewHtml(plan, result) {
     cost: result.cost,
     feedbackTemplate: feedbackShell(plan)
   });
-  return `<!doctype html>
+  return withYasReadyPlatformUI(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>YasReady Real Audition Review — ${String(plan.book.title).replace(/[<>&"]/g, '')}</title>
 <style>
@@ -391,7 +392,7 @@ for(const c of DATA.candidates){
 }
 document.getElementById('clear').onclick=()=>{if(confirm('Clear every local audition decision and rating?')){localStorage.removeItem(key);location.reload()}};
 document.getElementById('export').onclick=()=>{feedback.exportedAt=new Date().toISOString();const blob=new Blob([JSON.stringify(feedback,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='real-audition-feedback.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)};
-</script></body></html>`;
+</script></body></html>`);
 }
 
 function resultMarkdown(plan, result) {

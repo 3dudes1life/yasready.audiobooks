@@ -1,0 +1,29 @@
+/* YasReady platform tokens v1. Keep identical in Publishing and Audiobooks.
+   Values follow the existing YasReady Business visual system. */
+:root {
+  --yr-brand: #c6ff00;
+  --yr-bg: #f4f5f8;
+  --yr-panel: #fff;
+  --yr-panel2: #f0f2f6;
+  --yr-text: #141720;
+  --yr-muted: #5d6572;
+  --yr-line: rgba(20,24,34,.12);
+  --yr-green: #16815c;
+  --yr-green-soft: #e7f5ee;
+  --yr-primary: linear-gradient(120deg, #127351, #16815c);
+  --yr-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  --yr-radius-panel: 22px;
+  --yr-radius-control: 12px;
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  --yr-bg: #07090e;
+  --yr-panel: #10141c;
+  --yr-panel2: #151a24;
+  --yr-text: #f7f8fb;
+  --yr-muted: #a7afbd;
+  --yr-line: rgba(255,255,255,.10);
+  --yr-green: #5bd69a;
+  --yr-green-soft: rgba(91,214,154,.11);
+  color-scheme: dark;
+}

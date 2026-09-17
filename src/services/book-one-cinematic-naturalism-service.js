@@ -1,3 +1,4 @@
+import { withYasReadyPlatformUI } from '../ui/yasready-platform.js';
 import { mkdir, readFile, writeFile, copyFile, stat, statfs, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { YASREADY_AUDIOBOOKS_VERSION } from '../release.js';
@@ -862,13 +863,13 @@ export function renderCinematicRebuildReviewHtml(result) {
     </section>`).join('');
   const missing = Array.from({ length: Math.max(0, result.progress.targetChapterCount - result.chapters.length) }, (_, i) => `<section class="card missing"><div class="eyebrow">Chapter ${result.chapters.length + i + 1} of ${result.progress.targetChapterCount}</div><h2>Waiting for rebuild</h2><p class="muted">No provider generation has been authorized for this chapter yet.</p></section>`).join('');
   const ready = result.status === 'READY_FOR_HUMAN_TEN_CHAPTER_REVIEW';
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Book One — Cinematic Batch One Review</title><style>
+  return withYasReadyPlatformUI(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Book One — Cinematic Batch One Review</title><style>
   :root{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",Inter,system-ui,sans-serif;background:#f5f5f7;color:#111}body{margin:0;padding:28px}.wrap{max-width:980px;margin:auto}.hero,.card{background:#fff;border:1px solid #e5e5ea;border-radius:24px;box-shadow:0 12px 36px rgba(0,0,0,.06)}.hero{padding:30px}.card{padding:22px;margin-top:16px}.missing{opacity:.55}h1{margin:0 0 8px;font-size:34px;letter-spacing:-.03em}h2{margin:3px 0 8px}.muted{color:#6e6e73}.eyebrow{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:#6e6e73;font-weight:700}audio{width:100%;margin:12px 0}.pills{display:flex;gap:8px;flex-wrap:wrap}.pills span{background:#efeff4;border-radius:999px;padding:7px 10px;font-size:13px}.lock{background:#eaf7ee;border-radius:16px;padding:14px;margin-top:14px}.gate{background:#fff3cd;border-radius:16px;padding:14px;margin-top:14px}button{border:0;border-radius:999px;padding:12px 18px;font-weight:700;font-size:14px;cursor:pointer;margin-top:10px}
   </style></head><body><div class="wrap"><div class="hero"><div class="muted">YasReady Audiobooks ${escapeHtml(result.release)}</div><h1>Cinematic Batch One Review</h1><p><strong>${result.progress.completedChapterCount}/${result.progress.targetChapterCount}</strong> rebuilt chapters · original Batch One preserved.</p><div class="lock"><strong>LOCKED:</strong> Ryan → Playful + Flirty → Deep Controlled Emotion → Cinematic Naturalism A → effective 1.25 → Warm + Slightly Deeper.</div><div class="gate"><strong>Chapter 11 gate: CLOSED.</strong> ${ready ? 'Listen to all ten rebuilt chapters straight through before any later batch can be considered.' : 'Finish the first ten cinematic rebuilds before the full listen-through.'}</div>${ready ? '<button id="play-all">Play from Chapter 1</button>' : ''}</div>${cards}${missing}</div><script>
   const tracks=[...document.querySelectorAll('audio')];
   tracks.forEach((track,i)=>track.addEventListener('ended',()=>{const next=tracks[i+1];if(next){next.scrollIntoView({behavior:'smooth',block:'center'});next.play().catch(()=>{});}}));
   document.getElementById('play-all')?.addEventListener('click',()=>tracks[0]?.play());
-  </script></body></html>`;
+  </script></body></html>`);
 }
 
 function escapeHtml(value) { return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
